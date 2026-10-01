@@ -5,10 +5,10 @@ import {
   Lock, Edit3, Save, CheckCircle2, UserX
 } from 'lucide-react';
 import {
-  collection, query, where, onSnapshot, orderBy, doc, getDoc, setDoc, updateDoc, deleteDoc
+  collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { Photo, GuestSession, EventSettings } from '../types';
+import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
 
 interface HostDashboardProps {
@@ -28,8 +28,10 @@ interface HostDashboardProps {
     triggerRequested: boolean;
   }>>;
   isHost: boolean;
-  setIsHost: (isHost: boolean) => void;
-  eventSettings?: EventSettings;
+  signedInEmail: string | null;
+  authError: string;
+  onHostSignIn: () => void;
+  onHostSignOut: () => void;
 }
 
 export default function HostDashboard({
@@ -39,8 +41,10 @@ export default function HostDashboard({
   lensState,
   setLensState,
   isHost,
-  setIsHost,
-  eventSettings,
+  signedInEmail,
+  authError,
+  onHostSignIn,
+  onHostSignOut,
 }: HostDashboardProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [sessions, setSessions] = useState<GuestSession[]>([]);
@@ -51,20 +55,10 @@ export default function HostDashboard({
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [savedMetadataSuccess, setSavedMetadataSuccess] = useState(false);
 
-  // Security Lock state
-  const [isUnlocked, setIsUnlocked] = useState(isHost);
-  const [enteredPin, setEnteredPin] = useState('');
-  const [pinError, setPinError] = useState('');
-
   const [openTipId, setOpenTipId] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   const joinLink = window.location.origin;
-
-  // Sync isUnlocked when parent isHost changes
-  useEffect(() => {
-    setIsUnlocked(isHost);
-  }, [isHost]);
 
   // Generate QR code on mount or when joinLink changes
   useEffect(() => {
@@ -80,25 +74,27 @@ export default function HostDashboard({
     .catch(err => console.error('Error generating QR code in HostDashboard:', err));
   }, [joinLink]);
 
-  // 1. Listen for ALL photos in real time (for moderation)
+  // 1. Listen for ALL photos in real time (for moderation) — host only
   useEffect(() => {
-    const q = query(collection(db, 'photos'), orderBy('createdAt', 'desc'));
+    if (!isHost) return;
+    const q = query(collection(db, 'photos'));
     const unsubscribe = onSnapshot(q, (snap) => {
       const docs: Photo[] = [];
       snap.forEach((doc) => {
         docs.push({ id: doc.id, ...doc.data() } as Photo);
       });
+      docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       setPhotos(docs);
     }, (err) => {
       console.error('Error listening to photos:', err);
-      handleFirestoreError(err, OperationType.LIST, 'photos');
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isHost]);
 
-  // 2. Listen for registered Sessions (for Tripod devices and ad-hoc guest lenses)
+  // 2. Listen for registered Sessions (for Tripod devices and ad-hoc guest lenses) — host only
   useEffect(() => {
+    if (!isHost) return;
     const q = query(collection(db, 'sessions'));
     const unsubscribe = onSnapshot(q, (snap) => {
       const docs: GuestSession[] = [];
@@ -108,14 +104,14 @@ export default function HostDashboard({
       setSessions(docs);
     }, (err) => {
       console.error('Error listening to sessions:', err);
-      handleFirestoreError(err, OperationType.LIST, 'sessions');
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isHost]);
 
-  // 3. Listen to Event Settings document
+  // 3. Listen to Event Settings document — host only (bootstraps it if missing)
   useEffect(() => {
+    if (!isHost) return;
     const docRef = doc(db, 'settings', 'event-settings');
     const unsubscribe = onSnapshot(docRef, (snap) => {
       if (snap.exists()) {
@@ -132,15 +128,15 @@ export default function HostDashboard({
           eventTitle: 'Summer Gala 2026',
           eventSubtitle: 'Tap any photo to react!'
         }).catch((e) => {
-          handleFirestoreError(e, OperationType.CREATE, 'settings/event-settings');
+          console.error('Failed to create event settings:', e);
         });
       }
     }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'settings/event-settings');
+      console.error('Error listening to event settings:', err);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isHost]);
 
   // Sync Host's local lensState based on active session's real-time changes
   useEffect(() => {
@@ -175,7 +171,7 @@ export default function HostDashboard({
     if (lensState.triggerRequested && lensState.activeRequester) {
       const targetSessionId = lensState.activeRequester;
       const docRef = doc(db, 'sessions', targetSessionId);
-      updateDoc(docRef, { trigger_shutter: true })
+      updateDoc(docRef, { trigger_shutter: true, last_trigger_at: serverTimestamp() })
         .then(() => {
           setLensState(prev => ({ ...prev, triggerRequested: false }));
         })
@@ -281,24 +277,9 @@ export default function HostDashboard({
     }
   };
 
-  // PIN Unlock and Lock handlers
-  const handleUnlockWithPin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (enteredPin === '1234') {
-      setIsUnlocked(true);
-      setIsHost(true);
-      setPinError('');
-      setEnteredPin('');
-    } else {
-      setPinError('Incorrect PIN. Default is 1234.');
-    }
-  };
-
+  // Lock = sign the host out (the device drops back to an anonymous guest identity)
   const handleLockHostPanel = () => {
-    setIsUnlocked(false);
-    setIsHost(false);
-    setEnteredPin('');
-    setPinError('');
+    onHostSignOut();
   };
 
   // Toggle moderation autoApproval
@@ -348,7 +329,7 @@ export default function HostDashboard({
   const handleTriggerTripodShutter = async (tripodSessionId: string) => {
     try {
       const docRef = doc(db, 'sessions', tripodSessionId);
-      await updateDoc(docRef, { trigger_shutter: true });
+      await updateDoc(docRef, { trigger_shutter: true, last_trigger_at: serverTimestamp() });
     } catch (e) {
       console.error('Tripod shutter trigger failed:', e);
       handleFirestoreError(e, OperationType.UPDATE, `sessions/${tripodSessionId}`);
@@ -397,7 +378,7 @@ export default function HostDashboard({
   const handleTriggerLensShutter = async (guestSessionId: string) => {
     try {
       const docRef = doc(db, 'sessions', guestSessionId);
-      await updateDoc(docRef, { trigger_shutter: true });
+      await updateDoc(docRef, { trigger_shutter: true, last_trigger_at: serverTimestamp() });
     } catch (e) {
       console.error('Lens trigger shutter failed:', e);
       handleFirestoreError(e, OperationType.UPDATE, `sessions/${guestSessionId}`);
@@ -413,7 +394,7 @@ export default function HostDashboard({
   const tripods = sessions.filter((s) => s.role === 'tripod');
   const activeGuests = sessions.filter((s) => s.role === 'guest' && s.sessionId !== sessionId);
 
-  if (!isUnlocked) {
+  if (!isHost) {
     return (
       <div className="min-h-screen bg-[#050505] text-slate-100 font-sans flex items-center justify-center p-4">
         <div className="w-full max-w-md glass-card border border-white/10 rounded-3xl p-8 space-y-6 text-center shadow-2xl relative overflow-hidden">
@@ -422,52 +403,37 @@ export default function HostDashboard({
           </div>
 
           <div className="space-y-2">
-            <h2 className="text-xl font-extrabold text-white">Host Security Lock</h2>
+            <h2 className="text-xl font-extrabold text-white">Host Sign-In</h2>
             <p className="text-xs text-slate-400">
-              Enter 4-digit PIN to access Event Control & Moderation Panel.
+              Sign in with the organizer's Google account to open Event Control & Moderation.
             </p>
-            <p className="text-[10px] text-[#00f2ff] font-mono bg-[#00f2ff]/5 border border-[#00f2ff]/20 py-1 px-3 rounded-lg inline-block">
-              Default Host PIN: <span className="font-bold">1234</span>
-            </p>
+            {signedInEmail && (
+              <p className="text-[11px] text-amber-300">
+                Signed in as {signedInEmail}, which is not a host account.
+              </p>
+            )}
           </div>
 
-          <form onSubmit={handleUnlockWithPin} className="space-y-4">
-            <div>
-              <input
-                type="password"
-                maxLength={4}
-                value={enteredPin}
-                onChange={(e) => {
-                  setEnteredPin(e.target.value);
-                  setPinError('');
-                }}
-                placeholder="••••"
-                className="w-48 mx-auto text-center text-3xl font-mono tracking-[0.5em] bg-black/60 border border-white/10 rounded-2xl py-3 px-4 text-white focus:outline-none focus:border-[#00f2ff] transition-all"
-                autoFocus
-              />
-              {pinError && (
-                <p className="text-xs text-red-400 font-bold mt-2 animate-bounce">
-                  {pinError}
-                </p>
-              )}
-            </div>
+          {authError && (
+            <p className="text-xs text-red-400 font-bold">{authError}</p>
+          )}
 
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onExit}
-                className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-              >
-                Cancel / Exit
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-3 px-4 bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-extrabold rounded-xl text-xs shadow-lg shadow-[#00f2ff]/20 transition-all cursor-pointer"
-              >
-                Unlock Panel
-              </button>
-            </div>
-          </form>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onExit}
+              className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+            >
+              Cancel / Exit
+            </button>
+            <button
+              type="button"
+              onClick={onHostSignIn}
+              className="flex-1 py-3 px-4 bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-extrabold rounded-xl text-xs shadow-lg shadow-[#00f2ff]/20 transition-all cursor-pointer"
+            >
+              Sign in with Google
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -495,7 +461,7 @@ export default function HostDashboard({
               className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-bold px-3.5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition-all duration-300"
               title="Lock Host Panel"
             >
-              <Lock className="w-4 h-4" /> Lock Host Panel
+              <Lock className="w-4 h-4" /> Sign Out Host
             </button>
             <button
               onClick={onLaunchSlideshow}

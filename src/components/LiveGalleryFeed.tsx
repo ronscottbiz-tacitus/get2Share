@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Heart, Eye, Image as ImageIcon, Sparkles, LogOut, CheckCircle, Clock, RefreshCw, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, orderBy, addDoc, doc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, doc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -34,36 +34,56 @@ export default function LiveGalleryFeed({
   const [activeTab, setActiveTab] = useState<'all' | 'my' | 'favorites'>('all');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
-  const [autoApproval, setAutoApproval] = useState(true);
+  const [autoApproval, setAutoApproval] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 1. Listen for ALL photos in real time
-  useEffect(() => {
-    const q = query(collection(db, 'photos'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const docs: Photo[] = [];
-      snap.forEach((doc) => {
-        docs.push({ id: doc.id, ...doc.data() } as Photo);
-      });
-      setPhotos(docs);
-    }, (err) => {
-      console.error('Error fetching gallery live feed:', err);
-      handleFirestoreError(err, OperationType.LIST, 'photos');
-    });
+  // 1. Listen in real time to approved photos + this device's own uploads.
+  //    (The database rules only let guests read those two sets, so the
+  //    queries must ask for exactly them.)
+  const [approvedPhotos, setApprovedPhotos] = useState<Photo[]>([]);
+  const [myPhotos, setMyPhotos] = useState<Photo[]>([]);
 
-    return () => unsubscribe();
-  }, []);
+  useEffect(() => {
+    const toPhotos = (snap: any): Photo[] => {
+      const docs: Photo[] = [];
+      snap.forEach((d: any) => docs.push({ id: d.id, ...d.data() } as Photo));
+      return docs;
+    };
+
+    const unsubApproved = onSnapshot(
+      query(collection(db, 'photos'), where('status', '==', 'approved')),
+      (snap) => setApprovedPhotos(toPhotos(snap)),
+      (err) => console.error('Error fetching approved photos:', err)
+    );
+
+    const unsubMine = sessionId
+      ? onSnapshot(
+          query(collection(db, 'photos'), where('sessionId', '==', sessionId)),
+          (snap) => setMyPhotos(toPhotos(snap)),
+          (err) => console.error('Error fetching my photos:', err)
+        )
+      : () => {};
+
+    return () => {
+      unsubApproved();
+      unsubMine();
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    const byId = new Map<string, Photo>();
+    [...approvedPhotos, ...myPhotos].forEach((p) => byId.set(p.id, p));
+    setPhotos(Array.from(byId.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+  }, [approvedPhotos, myPhotos]);
 
   // 2. Listen to auto approval settings to know if we should display pending badge
   useEffect(() => {
     const docRef = doc(db, 'settings', 'event-settings');
     const unsubscribe = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        setAutoApproval(snap.data().autoApproval);
-      }
+      setAutoApproval(snap.exists() ? snap.data().autoApproval === true : false);
     }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'settings/event-settings');
+      console.error('Error reading event settings:', err);
     });
 
     return () => unsubscribe();
@@ -130,7 +150,7 @@ export default function LiveGalleryFeed({
       setUploadProgress('Publishing snap...');
       
       // Determine default status based on host settings
-      const defaultStatus = autoApproval ? 'approved' : 'pending';
+      const defaultStatus = (autoApproval || isHost) ? 'approved' : 'pending';
 
       // 3. Write document to Firestore
       try {

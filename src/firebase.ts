@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
 // Credentials derived from firebase-applet-config.json
 const firebaseConfig = {
@@ -21,7 +22,13 @@ const db = getFirestore(app, "ai-studio-get2share-ddc6e1c1-20ed-4765-b2ee-cda710
 // Initialize Storage
 const storage = getStorage(app);
 
-export { app, db, storage };
+// Initialize Auth. Guests sign in anonymously (invisible to them); the host
+// signs in with Google. The signed-in user's uid is the guest's session ID.
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export { app, db, storage, auth, googleProvider };
 
 /**
  * CLIENT-SIDE COMPRESSION UTILITY
@@ -154,15 +161,16 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const user = auth.currentUser;
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: null,
-      email: null,
-      emailVerified: false,
-      isAnonymous: true,
-      tenantId: null,
-      providerInfo: []
+      userId: user?.uid ?? null,
+      email: user?.email ?? null,
+      emailVerified: user?.emailVerified ?? false,
+      isAnonymous: user?.isAnonymous ?? true,
+      tenantId: user?.tenantId ?? null,
+      providerInfo: (user?.providerData ?? []).map((p) => ({ providerId: p.providerId, email: p.email })),
     },
     operationType,
     path

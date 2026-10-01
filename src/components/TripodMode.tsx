@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, X, ShieldAlert, Battery, Wifi, Settings, Zap } from 'lucide-react';
-import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, collection, getDoc } from 'firebase/firestore';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { motion } from 'motion/react';
 
@@ -73,7 +73,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       if (snap.exists()) {
         const data = snap.data();
         if (data.trigger_shutter === true) {
-          triggerShutterCapture();
+          triggerShutterCapture(true);
           // Reset the trigger
           updateDoc(docRef, { trigger_shutter: false }).catch((err) => {
             handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`);
@@ -128,7 +128,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           lens_status: 'streaming',
           invited_to_lens: false,
           trigger_shutter: false,
-        });
+        }, { merge: true });
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `sessions/${sessionId}`);
       }
@@ -179,7 +179,9 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     }, 700);
   };
 
-  const triggerShutterCapture = async () => {
+  // fromHost = the host fired the remote shutter (publishes immediately).
+  // A local "Test Shutter" follows the event's normal approval setting.
+  const triggerShutterCapture = async (fromHost: boolean = false) => {
     if (!videoRef.current || capturing) return;
 
     try {
@@ -208,15 +210,27 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             const compressedBlob = await compressPhoto(file);
             const downloadUrl = await uploadPhotoAsset(compressedBlob, `tripod_${tripodName}_${Date.now()}.jpg`);
 
-            // Push photo directly to photos collection
-            // Tripod captures are automatically approved because they are controlled directly by the host!
+            // Host-triggered captures publish immediately (the database verifies the
+            // host fired the shutter in the last 2 minutes). Local test shots follow
+            // the event's approval setting.
+            let status: 'approved' | 'pending' = 'pending';
+            if (fromHost) {
+              status = 'approved';
+            } else {
+              try {
+                const settingsSnap = await getDoc(doc(db, 'settings', 'event-settings'));
+                if (settingsSnap.exists() && settingsSnap.data().autoApproval === true) status = 'approved';
+              } catch {
+                // keep 'pending'
+              }
+            }
             try {
               await addDoc(collection(db, 'photos'), {
                 url: downloadUrl,
                 nickname: `${tripodName} (Tripod)`,
                 sessionId: sessionId,
                 createdAt: Date.now(),
-                status: 'approved',
+                status,
                 reactions: { likes: 0, dislikes: 0 },
                 flagged: false,
               });
@@ -449,7 +463,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             Flip Camera
           </button>
           <button
-            onClick={triggerShutterCapture}
+            onClick={() => triggerShutterCapture(false)}
             className="p-3 bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-extrabold rounded-xl transition-all duration-300 flex items-center gap-1.5 text-xs cursor-pointer shadow-lg shadow-[#00f2ff]/20"
           >
             <Camera className="w-4 h-4" />

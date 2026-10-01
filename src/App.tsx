@@ -8,12 +8,20 @@ import ProjectionSlideshow from './components/ProjectionSlideshow';
 import { Photo } from './types';
 import { Camera, X, Check } from 'lucide-react';
 import { doc, updateDoc, onSnapshot, addDoc, collection } from 'firebase/firestore';
-import { db, compressPhoto, uploadPhotoAsset } from './firebase';
+import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
+import { db, auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
+import { isHostEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
-  // Session details stored in localStorage
-  const [sessionId, setSessionId] = useState<string>('');
+  // Session ID is the Firebase Auth uid (anonymous for guests, Google for the host).
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [hostSignInError, setHostSignInError] = useState('');
+  const sessionId = authUser?.uid ?? '';
+  const isHost = !!authUser && !authUser.isAnonymous && authUser.emailVerified && isHostEmail(authUser.email);
+
   const [nickname, setNickname] = useState<string>('');
   const [currentView, setCurrentView] = useState<'onboarding' | 'gallery' | 'host' | 'tripod' | 'slideshow'>('onboarding');
 
@@ -42,19 +50,34 @@ export default function App() {
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const streamIntervalRef = useRef<any>(null);
 
-  // Initialize Session, UUIDs and local caches
+  // Keep a signed-in Firebase user at all times. Guests get a silent anonymous
+  // account; the database rules use its uid to decide what each device may do.
   useEffect(() => {
-    // 1. Session ID persistence
-    let storedSessionId = localStorage.getItem('get2share-session-id');
-    if (!storedSessionId) {
-      storedSessionId = typeof crypto.randomUUID === 'function' 
-        ? crypto.randomUUID() 
-        : Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('get2share-session-id', storedSessionId);
-    }
-    setSessionId(storedSessionId);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setAuthUser(user);
+        setAuthReady(true);
+        setAuthError('');
+      } else {
+        setAuthUser(null);
+        signInAnonymously(auth).catch((err) => {
+          console.error('Anonymous sign-in failed:', err);
+          setAuthError(
+            'Could not connect to the event. Check your connection and reload. (If you are the organizer: enable Anonymous sign-in in Firebase Authentication.)'
+          );
+          setAuthReady(true);
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-    // 2. Nickname persistence
+  // Initialize nickname and local caches
+  useEffect(() => {
+    // Old builds stored a random session ID here; identity now comes from Firebase Auth.
+    localStorage.removeItem('get2share-session-id');
+
+    // 1. Nickname persistence
     const storedNickname = localStorage.getItem('get2share-nickname') || '';
     setNickname(storedNickname);
 
@@ -64,7 +87,7 @@ export default function App() {
       setCurrentView('onboarding');
     }
 
-    // 3. Load favorites and hidden IDs
+    // 2. Load favorites and hidden IDs
     const storedFavs = JSON.parse(localStorage.getItem('get2share-favorites') || '[]');
     setFavorites(storedFavs);
 
@@ -81,17 +104,36 @@ export default function App() {
   const handleExitSession = () => {
     if (window.confirm('Are you sure you want to log out and clear all your guest session data? This will reset your device identity so you can register a new profile.')) {
       localStorage.removeItem('get2share-nickname');
-      localStorage.removeItem('get2share-session-id');
       setNickname('');
-      
-      const newSessionId = typeof crypto.randomUUID === 'function' 
-        ? crypto.randomUUID() 
-        : Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('get2share-session-id', newSessionId);
-      setSessionId(newSessionId);
-      
+      // Signing out triggers a fresh anonymous identity via onAuthStateChanged.
+      signOut(auth).catch((err) => console.error('Sign-out failed:', err));
       setCurrentView('onboarding');
     }
+  };
+
+  // Host sign-in with Google. The database rules only grant host powers to
+  // the accounts listed in firestore.rules (mirrored in src/hosts.ts).
+  const handleHostSignIn = async () => {
+    setHostSignInError('');
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      if (!isHostEmail(result.user.email)) {
+        setHostSignInError(`${result.user.email ?? 'This account'} is not an event host. Signed back out.`);
+        await signOut(auth);
+      }
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') return;
+      console.error('Host sign-in failed:', err);
+      setHostSignInError(
+        err?.code === 'auth/unauthorized-domain'
+          ? 'This website address is not authorized for sign-in yet. Add it under Firebase Authentication → Settings → Authorized domains.'
+          : 'Google sign-in failed. Please try again.'
+      );
+    }
+  };
+
+  const handleHostSignOut = async () => {
+    await signOut(auth).catch((err) => console.error('Sign-out failed:', err));
   };
 
   const handleToggleFavorite = (id: string) => {
@@ -329,6 +371,31 @@ export default function App() {
     };
   }, [sessionId, currentView, lensState.status]);
 
+  // Wait for the silent sign-in before showing anything that reads the database.
+  if (!authReady || (!authUser && !authError)) {
+    return (
+      <div className="bg-slate-950 text-slate-400 min-h-screen flex items-center justify-center font-sans text-sm">
+        Connecting to the event…
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div className="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-6 font-sans">
+        <div className="max-w-sm text-center space-y-4">
+          <p className="text-sm text-red-300">{authError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-[#00f2ff] text-slate-950 font-bold px-4 py-2 rounded-xl text-sm cursor-pointer"
+          >
+            Reload
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen selection:bg-cyan-500 selection:text-slate-950 antialiased">
       {/* 1. Onboarding Landing View */}
@@ -351,6 +418,7 @@ export default function App() {
             favorites={favorites}
             hiddenIds={hiddenIds}
             onGoToHost={() => setCurrentView('host')}
+            isHost={isHost}
           />
           
           {/* Background ad-hoc Tap-To-Acquire overlay/viewfinder for active participants */}
@@ -460,6 +528,11 @@ export default function App() {
           }}
           lensState={lensState}
           setLensState={setLensState}
+          isHost={isHost}
+          signedInEmail={authUser.isAnonymous ? null : authUser.email}
+          authError={hostSignInError}
+          onHostSignIn={handleHostSignIn}
+          onHostSignOut={handleHostSignOut}
         />
       )}
 
@@ -492,6 +565,7 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           isHiddenLocally={hiddenIds.includes(selectedPhoto.id)}
           onToggleHideLocally={handleToggleHideLocally}
+          isHost={isHost}
         />
       )}
     </div>

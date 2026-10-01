@@ -1,128 +1,237 @@
 rules_version = '2';
+
+// Get2Share security rules.
+//
+// Who is who:
+//   * Every device signs in with Firebase Auth. Guests and tripods get a silent
+//     anonymous account; its uid is their session ID.
+//   * The host signs in with Google. Only the verified emails in hostEmails()
+//     get host powers. Keep this list identical to src/hosts.ts.
+//
+// What this enforces:
+//   * Only the host can approve/reject photos, change event settings, see other
+//     devices' sessions and camera previews, invite lenses, or fire shutters.
+//   * Guests can only create their own session and photos, react, and flag.
+//   * A guest photo publishes immediately only if auto-approval is on, or the
+//     host fired that device's shutter in the last 2 minutes. Otherwise it
+//     must go in as 'pending'.
+//   * Guests can delete only their own photos and sessions.
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Global Safety Net: Default Deny
+    // Default deny for anything not matched below.
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // --- REUSABLE SECURITY PRIMITIVES ---
+    // ---------- Identity ----------
+
+    function hostEmails() {
+      return ['ronaldscott.ca@gmail.com', 'ronscottbiz@gmail.com'];
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isHost() {
+      return signedIn()
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '').lower() in hostEmails();
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- Helpers ----------
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function changed() {
+      return incoming().diff(existing()).affectedKeys();
+    }
 
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
-    function incoming(request) {
-      return request.resource.data;
+    function settingsPath() {
+      return /databases/$(database)/documents/settings/event-settings;
     }
 
-    function existing(resource) {
-      return resource.data;
+    function autoApprovalOn() {
+      return exists(settingsPath()) && get(settingsPath()).data.get('autoApproval', false) == true;
     }
 
-    // --- VALIDATION BLUEPRINTS ---
+    // True if the host fired this device's shutter within the last 2 minutes.
+    function hostTriggeredRecently() {
+      let path = /databases/$(database)/documents/sessions/$(request.auth.uid);
+      let t = exists(path) ? get(path).data.get('last_trigger_at', null) : null;
+      return t is timestamp && request.time < t + duration.value(2, 'm');
+    }
+
+    // ---------- Settings ----------
+
+    function isValidSettings(data) {
+      return data.keys().hasOnly(['autoApproval', 'eventTitle', 'eventSubtitle', 'guestLensEnabled'])
+        && (!('autoApproval' in data) || data.autoApproval is bool)
+        && (!('eventTitle' in data) || (data.eventTitle is string && data.eventTitle.size() <= 300))
+        && (!('eventSubtitle' in data) || (data.eventSubtitle is string && data.eventSubtitle.size() <= 500))
+        && (!('guestLensEnabled' in data) || data.guestLensEnabled is bool);
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow create, update: if settingsId == 'event-settings'
+                            && isHost()
+                            && isValidSettings(incoming());
+      allow delete: if false;
+    }
+
+    // ---------- Photos ----------
+
+    function photoKeys() {
+      return ['url', 'nickname', 'sessionId', 'createdAt', 'status', 'reactions', 'flagged'];
+    }
+
+    function isValidReactions(r) {
+      return r is map
+        && r.keys().hasOnly(['likes', 'dislikes'])
+        && r.likes is int && r.likes >= 0
+        && r.dislikes is int && r.dislikes >= 0;
+    }
 
     function isValidPhoto(data) {
-      return data.url is string && data.url.size() <= 1048576
-        && data.nickname is string && data.nickname.size() <= 64
-        && data.sessionId is string && data.sessionId.size() <= 64
+      return data.keys().hasAll(photoKeys())
+        && data.keys().hasOnly(photoKeys())
+        && data.url is string && data.url.size() > 0 && data.url.size() <= 1000000
+        && data.nickname is string && data.nickname.size() > 0 && data.nickname.size() <= 64
+        && data.sessionId is string && data.sessionId.size() <= 128
         && data.createdAt is int
-        && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected')
-        && data.reactions is map
-        && data.reactions.likes is int
-        && data.reactions.dislikes is int
+        && data.status in ['pending', 'approved', 'rejected']
+        && isValidReactions(data.reactions)
         && data.flagged is bool;
     }
 
-    function isValidSession(data) {
-      return data.sessionId is string && data.sessionId.size() <= 64
-        && data.nickname is string && data.nickname.size() <= 64
-        && data.role is string && (data.role == 'guest' || data.role == 'tripod' || data.role == 'host')
-        && data.lastActive is int;
+    // Each like/dislike count may move by at most one per write.
+    function isSingleReactionChange() {
+      return math.abs(incoming().reactions.likes - existing().reactions.likes) <= 1
+        && math.abs(incoming().reactions.dislikes - existing().reactions.dislikes) <= 1;
     }
 
-    function isValidSettings(data) {
-      return (data.autoApproval == null || data.autoApproval is bool)
-        && (data.eventTitle == null || (data.eventTitle is string && data.eventTitle.size() <= 300))
-        && (data.eventSubtitle == null || (data.eventSubtitle is string && data.eventSubtitle.size() <= 500))
-        && (data.guestLensEnabled == null || data.guestLensEnabled is bool);
-    }
-
-    // --- COLLECTION RULES ---
-
-    // Settings Collection Rules
-    match /settings/{settingsId} {
-      allow read: if true;
-      allow create: if settingsId == 'event-settings'
-                    && isValidSettings(incoming(request));
-      allow update: if settingsId == 'event-settings'
-                    && isValidSettings(incoming(request));
-    }
-
-    // Photos Collection Rules
     match /photos/{photoId} {
-      allow read: if true;
-      allow delete: if true;
-      
-      allow create: if isValidId(photoId)
-                    && isValidPhoto(incoming(request))
-                    && incoming(request).keys().hasAll(['url', 'nickname', 'sessionId', 'createdAt', 'status', 'reactions', 'flagged'])
-                    && incoming(request).keys().size() == 7;
+      // Anyone can see approved photos. Pending/rejected ones are visible only
+      // to the host and to the device that uploaded them.
+      allow get, list: if existing().status == 'approved'
+                       || isHost()
+                       || isOwner(existing().sessionId);
 
-      allow update: if isValidId(photoId)
-                    && isValidPhoto(incoming(request))
+      allow create: if signedIn()
+                    && isValidId(photoId)
+                    && isValidPhoto(incoming())
+                    && incoming().sessionId == request.auth.uid
+                    && incoming().reactions.likes == 0
+                    && incoming().reactions.dislikes == 0
+                    && incoming().flagged == false
                     && (
-                      // Action 1: Reacting (upvote/downvote)
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['reactions'])
-                      ) ||
-                      // Action 2: Flagging
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['flagged'])
-                      ) ||
-                      // Action 3: Moderation (Approving/Rejecting)
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['status'])
-                      ) ||
-                      // Action 4: Host panel multi-field updates (dismissing flags and approving status)
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['status', 'flagged'])
-                      )
+                      incoming().status == 'pending'
+                      || (incoming().status == 'approved'
+                          && (isHost() || autoApprovalOn() || hostTriggeredRecently()))
                     );
+
+      allow update: if isValidPhoto(incoming())
+                    && (
+                      // Host moderation: approve / reject / clear or set flags.
+                      (isHost() && changed().hasOnly(['status', 'flagged']))
+                      // Any signed-in viewer: react to an approved photo.
+                      || (signedIn()
+                          && existing().status == 'approved'
+                          && changed().hasOnly(['reactions'])
+                          && isSingleReactionChange())
+                      // Any signed-in viewer: flag an approved photo (cannot un-flag).
+                      || (signedIn()
+                          && existing().status == 'approved'
+                          && changed().hasOnly(['flagged'])
+                          && incoming().flagged == true)
+                    );
+
+      allow delete: if isHost() || isOwner(existing().sessionId);
     }
 
-    // Sessions Collection Rules
-    match /sessions/{sessionId} {
-      allow read: if true;
-      allow delete: if true;
+    // ---------- Sessions (guests, tripods, guest lenses) ----------
 
-      allow create: if isValidId(sessionId)
-                    && isValidSession(incoming(request))
-                    && sessionId == incoming(request).sessionId
-                    && incoming(request).keys().hasAll(['sessionId', 'nickname', 'role', 'lastActive'])
-                    && incoming(request).keys().size() >= 4 && incoming(request).keys().size() <= 10;
+    function sessionKeys() {
+      return ['sessionId', 'nickname', 'role', 'lastActive', 'deviceInfo',
+              'lens_status', 'stream_frame', 'invited_to_lens', 'trigger_shutter',
+              'last_trigger_at', 'invited_by'];
+    }
 
-      allow update: if isValidId(sessionId)
-                    && isValidSession(incoming(request))
+    function isValidSession(data, sid) {
+      return data.keys().hasAll(['sessionId', 'nickname', 'role', 'lastActive'])
+        && data.keys().hasOnly(sessionKeys())
+        && data.sessionId == sid
+        && data.nickname is string && data.nickname.size() > 0 && data.nickname.size() <= 64
+        && data.role in ['guest', 'tripod', 'host']
+        && data.lastActive is int
+        && (!('deviceInfo' in data) || data.deviceInfo is map)
+        && (!('lens_status' in data) || data.lens_status in ['off', 'requesting', 'streaming', 'declined'])
+        && (!('stream_frame' in data) || data.stream_frame == null
+            || (data.stream_frame is string && data.stream_frame.size() <= 300000))
+        && (!('invited_to_lens' in data) || data.invited_to_lens is bool)
+        && (!('trigger_shutter' in data) || data.trigger_shutter is bool)
+        && (!('invited_by' in data) || data.invited_by is string)
+        && (!('last_trigger_at' in data) || data.last_trigger_at is timestamp);
+    }
+
+    // A device may turn these off on itself, but only the host can turn them on.
+    function onlyHostCanEnable(field) {
+      return incoming().get(field, false) == false
+        || incoming().get(field, false) == existing().get(field, false);
+    }
+
+    match /sessions/{sid} {
+      // Sessions include live camera previews: only the host and the device itself can read them.
+      allow get: if isHost() || isOwner(sid);
+      allow list: if isHost();
+
+      allow create: if isOwner(sid)
+                    && isValidId(sid)
+                    && isValidSession(incoming(), sid)
+                    && incoming().role in ['guest', 'tripod']
+                    && incoming().get('invited_to_lens', false) == false
+                    && incoming().get('trigger_shutter', false) == false
+                    && incoming().get('lens_status', 'off') != 'requesting'
+                    && !('last_trigger_at' in incoming())
+                    && !('invited_by' in incoming());
+
+      allow update: if isValidSession(incoming(), sid)
                     && (
-                      // Action 1: Heartbeat update only
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['lastActive'])
-                      ) ||
-                      // Action 2: Battery or device info metadata update
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['deviceInfo'])
-                      ) ||
-                      // Action 3: Trigger remote shutter signal
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['trigger_shutter'])
-                      ) ||
-                      // Action 4: Lens handshake / guest viewfinder streaming states
-                      (
-                        incoming(request).diff(existing(resource)).affectedKeys().hasAny(['invited_to_lens', 'lens_status', 'stream_frame', 'trigger_shutter', 'lastActive', 'deviceInfo'])
-                      )
+                      // The device updating itself (heartbeat, battery, preview frames,
+                      // accepting/declining a lens invite, clearing a fired shutter).
+                      (isOwner(sid)
+                        && (incoming().role == existing().role || incoming().role in ['guest', 'tripod'])
+                        && onlyHostCanEnable('invited_to_lens')
+                        && onlyHostCanEnable('trigger_shutter')
+                        && (incoming().get('lens_status', 'off') != 'requesting'
+                            || existing().get('lens_status', 'off') == 'requesting')
+                        && incoming().get('last_trigger_at', null) == existing().get('last_trigger_at', null)
+                        && incoming().get('invited_by', null) == existing().get('invited_by', null))
+                      // The host inviting a lens, cancelling it, or firing a shutter.
+                      || (isHost()
+                        && changed().hasOnly(['invited_to_lens', 'lens_status', 'stream_frame',
+                                              'trigger_shutter', 'last_trigger_at', 'invited_by'])
+                        && (!('last_trigger_at' in changed()) || incoming().last_trigger_at == request.time))
                     );
+
+      allow delete: if isHost() || isOwner(sid);
     }
   }
 }

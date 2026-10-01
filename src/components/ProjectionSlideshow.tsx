@@ -34,10 +34,10 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
 
   // 1. Listen for approved photos in real-time
   useEffect(() => {
+    // Sorted on the device so no composite database index is needed.
     const q = query(
       collection(db, 'photos'),
-      where('status', '==', 'approved'),
-      orderBy('createdAt', 'desc')
+      where('status', '==', 'approved')
     );
 
     const unsubscribe = onSnapshot(q, (snap) => {
@@ -45,6 +45,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
       snap.forEach((doc) => {
         docs.push({ id: doc.id, ...doc.data() } as Photo);
       });
+      docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       setPhotos(docs);
     }, (err) => {
       console.error('Error fetching approved photos for projection:', err);
