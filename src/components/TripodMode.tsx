@@ -529,10 +529,27 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     <div className="min-h-screen bg-black text-g2-text flex flex-col justify-between font-sans relative overflow-hidden">
       {/* HUD Bar - Top */}
       <div className="p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center z-10">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold tracking-wider uppercase text-g2-secondary flex items-center gap-1 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
-            <span className="w-2 h-2 bg-g2-live rounded-full animate-pulse mr-1" />
-            Live · Share Spot: {tripodName}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold tracking-wider uppercase text-g2-secondary bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
+            Share Spot: {tripodName}
+          </span>
+          {/* Is the host's console receiving this spot's preview right now? */}
+          <span
+            aria-live="polite"
+            className={`text-[11px] font-bold tracking-wider uppercase flex items-center gap-1.5 px-2.5 py-1 rounded-lg border backdrop-blur-md ${
+              previewMode === 'off'
+                ? 'bg-white/5 border-white/10 text-g2-tertiary'
+                : previewMode === 'focus'
+                  ? 'bg-g2-blue/25 border-g2-blue/60 text-white'
+                  : 'bg-g2-live/15 border-g2-live/40 text-white'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                previewMode === 'off' ? 'bg-g2-muted' : previewMode === 'focus' ? 'bg-g2-blue-light animate-pulse' : 'bg-g2-live animate-pulse'
+              }`}
+            />
+            {previewMode === 'off' ? 'Host view paused' : previewMode === 'focus' ? 'Host view · fast' : 'Host view · live'}
           </span>
         </div>
         <div className="flex items-center gap-4">
