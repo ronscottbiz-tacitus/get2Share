@@ -90,7 +90,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tripodName.trim()) {
-      setError('Give this Photo Spot a name, like "Stage".');
+      setError('Give this Share Spot a name, like "Stage".');
       return;
     }
 
@@ -227,7 +227,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             try {
               await addDoc(collection(db, 'photos'), {
                 url: downloadUrl,
-                nickname: `${tripodName} (Photo Spot)`,
+                nickname: `${tripodName} (Share Spot)`,
                 sessionId: sessionId,
                 createdAt: Date.now(),
                 status,
@@ -330,8 +330,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             <div className="w-14 h-14 bg-g2-blue text-white rounded-xl flex items-center justify-center mx-auto mb-3">
               <Camera className="w-8 h-8" />
             </div>
-            <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Photo Spot setup</p>
-            <h1 className="font-expanded font-black text-2xl leading-tight text-white">Make this phone a Photo Spot</h1>
+            <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Share Spot setup</p>
+            <h1 className="font-expanded font-black text-2xl leading-tight text-white">Make this phone a Share Spot</h1>
             <p className="text-xs text-g2-tertiary leading-relaxed">
               Mount it on a stand, keep it plugged in, and give it a name. The host sees what it sees and can take a photo from anywhere in the room.
             </p>
@@ -364,7 +364,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
               type="submit"
               className="w-full bg-g2-blue hover:bg-g2-blue-hover text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-g2-blue/20 cursor-pointer"
             >
-              Start Photo Spot
+              Start Share Spot
             </button>
           </form>
         </div>
@@ -379,7 +379,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
         <div className="flex items-center gap-3">
           <span className="text-xs font-bold tracking-wider uppercase text-g2-secondary flex items-center gap-1 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
             <span className="w-2 h-2 bg-g2-live rounded-full animate-pulse mr-1" />
-            Live · Photo Spot: {tripodName}
+            Live · Share Spot: {tripodName}
           </span>
         </div>
         <div className="flex items-center gap-4">
@@ -390,8 +390,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           <button
             onClick={handleExit}
             className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-g2-secondary transition-all duration-300 cursor-pointer"
-            title="Stop Photo Spot"
-            aria-label="Stop Photo Spot"
+            title="Stop Share Spot"
+            aria-label="Stop Share Spot"
           >
             <X className="w-5 h-5" />
           </button>

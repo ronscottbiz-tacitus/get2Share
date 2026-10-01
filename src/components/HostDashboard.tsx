@@ -450,7 +450,7 @@ export default function HostDashboard({
             <div>
               <Get2ShareLockup className="text-base" />
               <h1 className="mt-1 font-expanded font-black text-xl text-white">Host Console</h1>
-              <p className="text-xs text-g2-tertiary">Photo Spots, guest cameras and photo review</p>
+              <p className="text-xs text-g2-tertiary">Share Spots, guest cameras and photo review</p>
             </div>
           </div>
 
@@ -677,14 +677,14 @@ export default function HostDashboard({
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
               <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Laptop className="w-4 h-4 text-g2-blue-light" /> Photo Spots ({tripods.length})
+                  <Laptop className="w-4 h-4 text-g2-blue-light" /> Share Spots ({tripods.length})
                 </span>
                 <span className="text-[10px] text-g2-muted font-medium">Any spare phone on a stand</span>
               </h3>
 
               {tripods.length === 0 ? (
                 <div className="p-6 bg-black/30 border border-white/5 rounded-xl text-center text-g2-muted text-xs">
-                  No Photo Spots yet. Open the event link on a spare phone and choose “Set up this phone as a Photo Spot.”
+                  No Share Spots yet. Open the event link on a spare phone and choose “Set up this phone as a Share Spot.”
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

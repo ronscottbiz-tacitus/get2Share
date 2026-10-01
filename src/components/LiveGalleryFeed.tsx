@@ -297,9 +297,9 @@ export default function LiveGalleryFeed({
             {filteredPhotos.map((photo) => {
               const isPending = photo.status === 'pending';
               const isRejected = photo.status === 'rejected';
-              const fromSpot = /\((Tripod|Photo Spot)\)$/.test(photo.nickname);
+              const fromSpot = /\((Tripod|Photo Spot|Share Spot)\)$/.test(photo.nickname);
               const fromLens = /\((Guest Lens|Group Shot)\)$/.test(photo.nickname);
-              const shownName = photo.nickname.replace(/\s*\((Tripod|Photo Spot|Guest Lens|Group Shot)\)$/, '');
+              const shownName = photo.nickname.replace(/\s*\((Tripod|Photo Spot|Share Spot|Guest Lens|Group Shot)\)$/, '');
 
               return (
                 <div
@@ -348,7 +348,7 @@ export default function LiveGalleryFeed({
                   <div className="absolute top-2 left-2 flex flex-wrap gap-1 pr-10">
                     {fromSpot && (
                       <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-page/80 border border-g2-blue-light text-g2-blue-light font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
-                        Photo Spot
+                        Share Spot
                       </span>
                     )}
                     {fromLens && (

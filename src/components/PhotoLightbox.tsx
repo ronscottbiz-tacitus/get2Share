@@ -151,7 +151,7 @@ export default function PhotoLightbox({
                 Posted by
               </p>
               <h2 className="text-lg font-bold text-white flex items-center gap-1.5 mt-0.5">
-                {photo.nickname.replace(/\s*\((Tripod|Photo Spot|Guest Lens|Group Shot)\)$/, '')}
+                {photo.nickname.replace(/\s*\((Tripod|Photo Spot|Share Spot|Guest Lens|Group Shot)\)$/, '')}
                 {isUploader && (
                   <span className="text-[10px] bg-g2-blue/5 text-g2-blue-light font-bold px-2.5 py-0.5 rounded-full border border-g2-blue/20 shadow-[0_0_10px_rgba(0,82,255,0.05)]">
                     You

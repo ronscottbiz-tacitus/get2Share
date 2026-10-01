@@ -178,7 +178,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
                     </div>
                     <div>
                       <p className="font-condensed font-extrabold text-[11px] tracking-[0.12em] uppercase text-g2-tertiary">Taken by</p>
-                      <p className="text-sm font-bold text-white">{activePhoto.nickname.replace(/\s*\((Tripod|Photo Spot|Guest Lens|Group Shot)\)$/, '')}</p>
+                      <p className="text-sm font-bold text-white">{activePhoto.nickname.replace(/\s*\((Tripod|Photo Spot|Share Spot|Guest Lens|Group Shot)\)$/, '')}</p>
                     </div>
                   </div>
                 </div>

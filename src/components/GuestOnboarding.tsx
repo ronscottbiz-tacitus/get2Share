@@ -20,7 +20,7 @@ const PROMISES = [
   {
     icon: ScanFace,
     title: 'Step into the shot',
-    body: 'Walk up to a Photo Spot, frame it on your phone, tap.',
+    body: 'Walk up to a Share Spot, frame it on your phone, tap.',
   },
   {
     icon: Timer,
@@ -89,7 +89,7 @@ export default function GuestOnboarding({ onJoin, onGoToHost, onGoToTripod }: On
             <span aria-hidden="true" className="block">in the picture.</span>
           </h1>
           <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
-            Every photo from tonight lands in your gallery, and Photo Spots let you take the shots you're actually in.
+            Every photo from tonight lands in your gallery, and Share Spots let you take the shots you're actually in.
           </p>
         </motion.section>
 
@@ -138,7 +138,7 @@ export default function GuestOnboarding({ onJoin, onGoToHost, onGoToTripod }: On
             className="h-[52px] bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer"
           >
             <Camera className="w-[18px] h-[18px]" aria-hidden="true" />
-            Get in the picture
+            Join the event
           </button>
           <p className="text-center text-xs text-g2-tertiary">No app. No sign-up. Just a nickname.</p>
         </form>
@@ -148,7 +148,7 @@ export default function GuestOnboarding({ onJoin, onGoToHost, onGoToTripod }: On
           className="mt-1.5 h-11 flex items-center justify-center gap-2 text-[13px] font-semibold text-g2-blue-light hover:text-white transition-colors cursor-pointer"
         >
           <Camera className="w-4 h-4" aria-hidden="true" />
-          Set up this phone as a Photo Spot
+          Set up this phone as a Share Spot
         </button>
 
         <p className="text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
