@@ -6,7 +6,7 @@ import HostDashboard from './components/HostDashboard';
 import TripodMode from './components/TripodMode';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import { Photo } from './types';
-import { Camera, X, Check } from 'lucide-react';
+import { Camera, X, Check, Users } from 'lucide-react';
 import { doc, updateDoc, onSnapshot, addDoc, collection } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
 import { db, auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
@@ -49,6 +49,10 @@ export default function App() {
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const streamIntervalRef = useRef<any>(null);
+
+  // 3-2-1 countdown shown on a shared guest camera before the shot is taken
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Keep a signed-in Firebase user at all times. Guests get a silent anonymous
   // account; the database rules use its uid to decide what each device may do.
@@ -247,6 +251,9 @@ export default function App() {
   };
 
   const cleanupCameraStream = () => {
+    countdownTimersRef.current.forEach(clearTimeout);
+    countdownTimersRef.current = [];
+    setCountdown(null);
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -282,10 +289,16 @@ export default function App() {
   // 3. GUEST-SIDE: LISTEN FOR COMMAND TO TRIGGER HIGH-RES SHUTTER
   useEffect(() => {
     if (lensState.triggerRequested && lensState.status === 'connected') {
-      // Flash effect
+      // Count down 3-2-1 so everyone knows the shot is coming, then flash and capture.
+      const timers = countdownTimersRef.current;
+      setCountdown(3);
+      timers.push(setTimeout(() => setCountdown(2), 1000));
+      timers.push(setTimeout(() => setCountdown(1), 2000));
+      timers.push(setTimeout(() => {
+      setCountdown(null);
       setLensState(prev => ({ ...prev, status: 'flashing' }));
 
-      setTimeout(() => {
+      timers.push(setTimeout(() => {
         if (!videoElementRef.current) {
           cleanupCameraStream();
           return;
@@ -316,7 +329,7 @@ export default function App() {
               // Create new photo item in Firestore
               await addDoc(collection(db, 'photos'), {
                 url: fileUrl,
-                nickname: `${nickname} (Guest Lens)`,
+                nickname: `${nickname} (Group Shot)`,
                 sessionId: sessionId,
                 createdAt: Date.now(),
                 status: 'approved',
@@ -332,7 +345,8 @@ export default function App() {
           'image/jpeg',
           0.95
         );
-      }, 250);
+      }, 250));
+      }, 3000));
     }
   }, [lensState.triggerRequested]);
 
@@ -374,7 +388,7 @@ export default function App() {
   // Wait for the silent sign-in before showing anything that reads the database.
   if (!authReady || (!authUser && !authError)) {
     return (
-      <div className="bg-slate-950 text-slate-400 min-h-screen flex items-center justify-center font-sans text-sm">
+      <div className="bg-g2-page text-g2-tertiary min-h-screen flex items-center justify-center font-sans text-sm">
         Connecting to the event…
       </div>
     );
@@ -382,12 +396,12 @@ export default function App() {
 
   if (!authUser) {
     return (
-      <div className="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-6 font-sans">
+      <div className="bg-g2-page text-g2-text min-h-screen flex items-center justify-center p-6 font-sans">
         <div className="max-w-sm text-center space-y-4">
           <p className="text-sm text-red-300">{authError}</p>
           <button
             onClick={() => window.location.reload()}
-            className="bg-[#00f2ff] text-slate-950 font-bold px-4 py-2 rounded-xl text-sm cursor-pointer"
+            className="bg-g2-blue text-white font-bold px-4 py-2 rounded-xl text-sm cursor-pointer"
           >
             Reload
           </button>
@@ -397,7 +411,7 @@ export default function App() {
   }
 
   return (
-    <div className="bg-slate-950 text-slate-100 min-h-screen selection:bg-cyan-500 selection:text-slate-950 antialiased">
+    <div className="bg-g2-page text-g2-text min-h-screen selection:bg-g2-blue selection:text-white antialiased">
       {/* 1. Onboarding Landing View */}
       {currentView === 'onboarding' && (
         <GuestOnboarding
@@ -421,61 +435,73 @@ export default function App() {
             isHost={isHost}
           />
           
-          {/* Background ad-hoc Tap-To-Acquire overlay/viewfinder for active participants */}
+          {/* Camera request from the host: a bottom sheet the guest must accept */}
           <AnimatePresence>
             {lensState.status === 'invited' && (
               <motion.div
-                initial={{ opacity: 0, y: -50 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -50 }}
-                className="fixed top-4 left-4 right-4 bg-slate-900/95 border border-[#00f2ff]/30 rounded-2xl p-5 shadow-2xl z-50 text-slate-100 font-sans"
+                key="lens-invite"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 bg-g2-page/75 flex items-end justify-center font-sans"
               >
-                <div className="flex gap-4">
-                  <div className="p-3 bg-white/5 border border-white/10 text-[#00f2ff] rounded-xl shrink-0 h-fit shadow-[0_0_10px_rgba(0,242,255,0.15)]">
-                    <Camera className="w-6 h-6 animate-pulse" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="font-bold text-base text-white">📸 Share Your Lens!</h3>
-                    <p className="text-xs text-slate-300">
-                      The host wants to use your camera for a dynamic live group shot. Turn your phone towards the group!
-                    </p>
-                    <div className="flex gap-3 pt-3">
-                      <button
-                        onClick={startGuestCameraStream}
-                        className="bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1 cursor-pointer transition-all duration-300 shadow-md shadow-[#00f2ff]/20"
-                      >
-                        <Check className="w-4 h-4" /> Share My Lens
-                      </button>
-                      <button
-                        onClick={handleDeclineLens}
-                        className="bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 font-medium px-4 py-2 rounded-xl text-xs flex items-center gap-1 cursor-pointer transition-all duration-300"
-                      >
-                        <X className="w-4 h-4" /> Decline
-                      </button>
+                <motion.section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="lens-invite-title"
+                  initial={{ y: 40 }}
+                  animate={{ y: 0 }}
+                  exit={{ y: 40 }}
+                  className="w-full max-w-md bg-g2-panel border-t border-white/10 rounded-t-[20px] px-5 pt-3 pb-7 flex flex-col gap-4"
+                >
+                  <div className="w-10 h-1 rounded-full bg-white/15 self-center" />
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-g2-blue text-white flex items-center justify-center shrink-0">
+                      <Users className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Host request</p>
+                      <h2 id="lens-invite-title" className="mt-0.5 font-expanded font-black text-[22px] leading-tight text-white">
+                        Share your camera?
+                      </h2>
                     </div>
                   </div>
-                </div>
+                  <p className="text-sm leading-relaxed text-g2-secondary">
+                    The host wants to use your camera for a group shot. Point your phone at the group. The host frames it and takes the picture.
+                  </p>
+                  <ul className="flex flex-col gap-2.5">
+                    {[
+                      "The host sees your camera only while you're sharing.",
+                      'A 3-second countdown before the shot. Stop anytime.',
+                    ].map((line) => (
+                      <li key={line} className="flex gap-2.5 items-start text-[13px] leading-normal text-g2-text">
+                        <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-col gap-2 mt-1">
+                    <button
+                      onClick={startGuestCameraStream}
+                      className="h-[52px] rounded-lg bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] cursor-pointer transition-colors"
+                    >
+                      Share my camera
+                    </button>
+                    <button
+                      onClick={handleDeclineLens}
+                      className="h-[52px] rounded-lg border border-white/10 text-g2-secondary hover:text-white font-semibold text-[15px] cursor-pointer transition-colors"
+                    >
+                      Not now
+                    </button>
+                  </div>
+                </motion.section>
               </motion.div>
             )}
           </AnimatePresence>
 
+          {/* Shared camera: always shows who can see it, the countdown, and a way out */}
           {(lensState.status === 'connected' || lensState.status === 'flashing') && (
-            <div className="fixed inset-0 bg-black z-50 flex flex-col justify-between font-sans">
-              <div className="p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center z-10">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
-                  <span className="text-xs font-semibold text-slate-200 tracking-wider uppercase">
-                    Active Group Lens: Streaming
-                  </span>
-                </div>
-                <button
-                  onClick={cleanupCameraStream}
-                  className="p-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 rounded-full border border-slate-800 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
+            <div className="fixed inset-0 bg-black z-50 font-sans">
               <div className="absolute inset-0 flex items-center justify-center bg-black">
                 <video
                   ref={setVideoElementRef}
@@ -484,31 +510,50 @@ export default function App() {
                   muted
                   className="w-full h-full object-cover"
                 />
-                
-                {lensState.status === 'flashing' && (
-                  <div className="absolute inset-0 bg-white flex items-center justify-center z-50">
-                    <span className="text-black font-extrabold text-2xl tracking-widest animate-pulse">
-                      SNAPPED!
-                    </span>
-                  </div>
-                )}
               </div>
+
+              <header className="absolute top-0 inset-x-0 pt-4 pl-5 pr-4 flex justify-between items-center z-10">
+                <div className="h-8 px-3 flex items-center gap-2 rounded-full bg-g2-page/85 border border-g2-live font-mono text-[10.5px] font-bold tracking-[0.06em] uppercase text-red-300">
+                  <span className="w-2 h-2 rounded-full bg-g2-live animate-pulse" />
+                  Live · host can see this
+                </div>
+                <button
+                  onClick={cleanupCameraStream}
+                  aria-label="Stop sharing"
+                  className="w-11 h-11 rounded-full border border-white/15 bg-g2-page/60 text-white flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-[18px] h-[18px]" />
+                </button>
+              </header>
+
+              {countdown !== null && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3.5 z-10" aria-live="assertive">
+                  <p className="font-condensed font-extrabold text-[13px] tracking-[0.16em] uppercase text-white">Get ready</p>
+                  <div className="w-[168px] h-[168px] rounded-full border-4 border-white bg-g2-page/55 flex items-center justify-center">
+                    <span className="font-expanded font-black text-8xl leading-none text-white">{countdown}</span>
+                  </div>
+                </div>
+              )}
+
+              {lensState.status === 'flashing' && (
+                <div className="absolute inset-0 bg-white flex items-center justify-center z-20">
+                  <span className="font-expanded font-black text-3xl text-g2-page">Got it!</span>
+                </div>
+              )}
 
               <canvas ref={canvasElementRef} className="hidden" />
 
-              <div className="p-6 bg-gradient-to-t from-black/90 to-transparent flex flex-col items-center gap-3 z-10 text-center">
-                <p className="text-xs text-slate-300 max-w-xs font-medium">
-                  Point your phone at the scene. The host is framing and will snap the photo remotely from their device!
+              <footer className="absolute bottom-0 inset-x-0 px-5 pt-5 pb-8 bg-g2-page/90 border-t border-white/[0.08] flex flex-col gap-3.5 z-10">
+                <p className="text-center text-[15px] leading-normal text-g2-text">
+                  Hold steady. The host is taking the shot.
                 </p>
-                <div className="flex gap-4 mt-2">
-                  <button
-                    onClick={cleanupCameraStream}
-                    className="bg-red-500/25 hover:bg-red-500/35 text-red-300 border border-red-500/30 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              </div>
+                <button
+                  onClick={cleanupCameraStream}
+                  className="h-[52px] rounded-lg border border-white/15 text-white font-semibold text-[15px] cursor-pointer"
+                >
+                  Stop sharing
+                </button>
+              </footer>
             </div>
           )}
         </>

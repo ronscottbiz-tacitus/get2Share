@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, Minimize, HelpCircle, QrCode } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, Minimize, QrCode } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
+import Get2ShareLockup from './Get2ShareLockup';
 
 interface ProjectionSlideshowProps {
   onClose: () => void;
@@ -82,12 +83,10 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
       {/* Projection Top HUD */}
       <div className="absolute top-0 inset-x-0 p-6 bg-gradient-to-b from-black/95 to-transparent flex justify-between items-center z-20">
         <div className="flex items-center gap-3">
-          <div className="px-3 py-1.5 bg-[#00f2ff]/5 border border-[#00f2ff]/20 rounded-full text-xs font-bold text-[#00f2ff] flex items-center gap-1.5 shadow-lg">
-            <span className="w-2.5 h-2.5 bg-[#00f2ff] rounded-full animate-ping" />
-            LIVE SLIDESHOW
-          </div>
-          <span className="text-slate-400 text-xs font-medium">
-            {photos.length} Photo{photos.length === 1 ? '' : 's'} Approved
+          <Get2ShareLockup className="text-2xl" />
+          <span className="font-mono text-xs font-bold tracking-[0.08em] uppercase text-g2-secondary flex items-center gap-2">
+            <span className="w-2 h-2 bg-emerald-400 rounded-full" />
+            Live · {photos.length} photo{photos.length === 1 ? '' : 's'}
           </span>
         </div>
 
@@ -96,12 +95,12 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
           <select
             value={rotationSpeed}
             onChange={(e) => setRotationSpeed(Number(e.target.value))}
-            className="bg-white/5 text-slate-300 border border-white/10 px-3 py-1.5 rounded-xl text-xs font-medium focus:outline-none focus:border-[#00f2ff] cursor-pointer"
+            className="bg-white/5 text-g2-secondary border border-white/10 px-3 py-1.5 rounded-xl text-xs font-medium focus:outline-none focus:border-g2-blue cursor-pointer"
           >
-            <option value={4000}>4s Fast</option>
-            <option value={6000}>6s Med</option>
-            <option value={10000}>10s Slow</option>
-            <option value={15000}>15s Cinematic</option>
+            <option value={4000}>Every 4s</option>
+            <option value={6000}>Every 6s</option>
+            <option value={10000}>Every 10s</option>
+            <option value={15000}>Every 15s</option>
           </select>
 
           {/* Toggle instructions */}
@@ -109,27 +108,27 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
             onClick={() => setShowQrCode(!showQrCode)}
             className={`p-2.5 rounded-xl border transition-all duration-300 cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
               showQrCode
-                ? 'bg-[#00f2ff] text-slate-950 border-[#00f2ff] shadow-md shadow-[#00f2ff]/20'
-                : 'bg-white/5 border border-white/10 text-slate-400 hover:text-slate-200'
+                ? 'bg-g2-blue text-white border-g2-blue shadow-md shadow-g2-blue/20'
+                : 'bg-white/5 border border-white/10 text-g2-tertiary hover:text-g2-text'
             }`}
           >
             <QrCode className="w-4 h-4" />
-            Join Overlay
+            Join QR
           </button>
 
           {/* Close/Minimize */}
           <button
             onClick={onClose}
-            className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-slate-300 transition-all duration-300 cursor-pointer flex items-center gap-1"
+            className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-g2-secondary transition-all duration-300 cursor-pointer flex items-center gap-1"
           >
             <Minimize className="w-4 h-4" />
-            <span className="text-xs font-semibold">Exit Fullscreen</span>
+            <span className="text-xs font-semibold">Exit</span>
           </button>
         </div>
       </div>
 
       {/* Main Slideshow Stage */}
-      <div className="flex-1 w-full relative flex items-center justify-center bg-zinc-950">
+      <div className="flex-1 w-full relative flex items-center justify-center bg-g2-page">
         <AnimatePresence mode="wait">
           {photos.length === 0 ? (
             <motion.div
@@ -139,11 +138,12 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
               exit={{ opacity: 0 }}
               className="text-center space-y-3 z-10 p-6"
             >
-              <div className="p-4 glass-card border border-white/5 rounded-3xl max-w-sm mx-auto shadow-2xl">
-                <HelpCircle className="w-12 h-12 text-[#00f2ff] animate-pulse mx-auto mb-2" />
-                <p className="text-lg font-bold text-white">No photos approved yet</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Once guests upload their snaps and they are approved by the host, they will show up here instantly in full-screen glory!
+              <div className="max-w-2xl mx-auto">
+                <h2 aria-label="You get to be in the picture." className="font-expanded font-black text-5xl leading-[1.05] text-white">
+                  <span aria-hidden="true">You <span className="text-g2-blue">Get2</span> be in the picture.</span>
+                </h2>
+                <p className="mt-5 text-lg text-g2-secondary">
+                  Scan the code to join. Photos show up here as soon as they're posted.
                 </p>
               </div>
             </motion.div>
@@ -167,18 +167,18 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
                 <div className="relative w-full h-full max-h-[82vh] max-w-[90vw] flex items-center justify-center z-10">
                   <img
                     src={activePhoto.url}
-                    alt={`Snap by ${activePhoto.nickname}`}
+                    alt={`Photo by ${activePhoto.nickname}`}
                     className="max-w-full max-h-full object-contain rounded-2xl shadow-[0_0_80px_rgba(0,0,0,0.85)] border border-white/5"
                   />
 
                   {/* Creator Card */}
-                  <div className="absolute bottom-6 left-6 bg-[#0c0c0c]/80 backdrop-blur-md border border-white/5 px-4 py-2.5 rounded-xl shadow-2xl text-left flex items-center gap-3">
-                    <div className="w-8 h-8 bg-white/5 text-[#00f2ff] font-bold flex items-center justify-center rounded-lg text-sm border border-[#00f2ff]/20">
+                  <div className="absolute bottom-6 left-6 bg-g2-panel/80 backdrop-blur-md border border-white/5 px-4 py-2.5 rounded-xl shadow-2xl text-left flex items-center gap-3">
+                    <div className="w-8 h-8 bg-white/5 text-g2-blue-light font-bold flex items-center justify-center rounded-lg text-sm border border-g2-blue/20">
                       {activePhoto.nickname.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Captured By</p>
-                      <p className="text-sm font-bold text-white">{activePhoto.nickname}</p>
+                      <p className="font-condensed font-extrabold text-[11px] tracking-[0.12em] uppercase text-g2-tertiary">Taken by</p>
+                      <p className="text-sm font-bold text-white">{activePhoto.nickname.replace(/\s*\((Tripod|Photo Spot|Guest Lens|Group Shot)\)$/, '')}</p>
                     </div>
                   </div>
                 </div>
@@ -189,7 +189,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
 
         {/* Live QR Instruction overlay (Top Right Corner) */}
         {showQrCode && (
-          <div className="absolute bottom-6 right-6 glass-card neon-border p-4 rounded-2xl shadow-2xl z-20 max-w-[210px] text-center space-y-2 animate-fade-in">
+          <div className="absolute bottom-6 right-6 bg-g2-panel border border-white/10 p-4 rounded-xl shadow-2xl z-20 max-w-[220px] text-center space-y-2">
             {/* Simple Visual QR representation using local offline generation */}
             <div className="w-28 h-28 bg-white p-2 rounded-xl mx-auto flex items-center justify-center shadow-lg">
               {qrDataUrl ? (
@@ -203,9 +203,9 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
               )}
             </div>
             <div className="space-y-0.5">
-              <p className="text-xs font-extrabold text-white">Join & Share Photos</p>
-              <p className="text-[10px] text-[#00f2ff] font-bold">Scan QR Code</p>
-              <p className="text-[9px] text-slate-500">No downloads &bull; Free upload</p>
+              <p className="text-sm font-extrabold text-white">Scan to join</p>
+              <p className="font-mono text-[11px] text-g2-secondary">{window.location.host}</p>
+              <p className="text-[11px] text-g2-tertiary">No app. Just a nickname.</p>
             </div>
           </div>
         )}
@@ -216,21 +216,21 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
         <div className="p-6 bg-gradient-to-t from-black/95 to-transparent flex justify-center items-center gap-8 z-20">
           <button
             onClick={handlePrev}
-            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-slate-300 rounded-xl transition-all duration-300 cursor-pointer"
+            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-g2-secondary rounded-xl transition-all duration-300 cursor-pointer"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
 
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="p-4 bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 rounded-2xl shadow-lg shadow-[#00f2ff]/10 cursor-pointer transition-all duration-300"
+            className="p-4 bg-g2-blue hover:bg-g2-blue-hover text-white rounded-2xl shadow-lg shadow-g2-blue/10 cursor-pointer transition-all duration-300"
           >
-            {isPlaying ? <Pause className="w-5 h-5 fill-slate-950" /> : <Play className="w-5 h-5 fill-slate-950" />}
+            {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
           </button>
 
           <button
             onClick={handleNext}
-            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-slate-300 rounded-xl transition-all duration-300 cursor-pointer"
+            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-g2-secondary rounded-xl transition-all duration-300 cursor-pointer"
           >
             <ChevronRight className="w-5 h-5" />
           </button>

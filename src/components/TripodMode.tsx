@@ -90,7 +90,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tripodName.trim()) {
-      setError('Please provide a unique name for this Tripod');
+      setError('Give this Photo Spot a name, like "Stage".');
       return;
     }
 
@@ -139,7 +139,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       startFrameStreaming();
     } catch (err) {
       console.error(err);
-      setError('Could not access camera. Make sure camera permission is granted.');
+      setError("Couldn't open the camera. Allow camera access for this site and try again.");
     }
   };
 
@@ -227,7 +227,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             try {
               await addDoc(collection(db, 'photos'), {
                 url: downloadUrl,
-                nickname: `${tripodName} (Tripod)`,
+                nickname: `${tripodName} (Photo Spot)`,
                 sessionId: sessionId,
                 createdAt: Date.now(),
                 status,
@@ -312,42 +312,44 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
   if (!isRegistered) {
     return (
-      <div className="min-h-screen bg-black text-slate-100 flex flex-col justify-center items-center p-6 font-sans relative overflow-hidden">
+      <div className="min-h-screen bg-black text-g2-text flex flex-col justify-center items-center p-6 font-sans relative overflow-hidden">
         {/* Decorative background gradients */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-[#00f2ff]/5 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-g2-blue/5 rounded-full blur-[100px] pointer-events-none" />
 
         <div className="absolute top-4 left-4">
           <button
             onClick={handleExit}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-all duration-300 cursor-pointer bg-white/5 border border-white/5 hover:border-white/10 px-3 py-1.5 rounded-lg backdrop-blur-md"
+            className="flex items-center gap-1.5 text-xs text-g2-tertiary hover:text-g2-text transition-all duration-300 cursor-pointer bg-white/5 border border-white/5 hover:border-white/10 px-3 py-1.5 rounded-lg backdrop-blur-md"
           >
-            <X className="w-4 h-4" /> Go Back
+            <X className="w-4 h-4" /> Back
           </button>
         </div>
 
-        <div className="w-full max-w-sm glass-card neon-border rounded-2xl p-6 shadow-2xl space-y-6 relative z-10">
+        <div className="w-full max-w-sm bg-g2-panel border border-white/[0.08] rounded-xl p-6 space-y-6 relative z-10">
           <div className="text-center space-y-2">
-            <div className="p-3 bg-[#00f2ff]/5 text-[#00f2ff] border border-[#00f2ff]/20 rounded-2xl w-fit mx-auto mb-2 shadow-[0_0_15px_rgba(0,242,255,0.05)]">
+            <div className="w-14 h-14 bg-g2-blue text-white rounded-xl flex items-center justify-center mx-auto mb-3">
               <Camera className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Stationary Tripod Node</h1>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Mount this device on a stand, name it, and register it. The host can view this camera feed from their pocket and trigger shutter taps remotely.
+            <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Photo Spot setup</p>
+            <h1 className="font-expanded font-black text-2xl leading-tight text-white">Make this phone a Photo Spot</h1>
+            <p className="text-xs text-g2-tertiary leading-relaxed">
+              Mount it on a stand, keep it plugged in, and give it a name. The host sees what it sees and can take a photo from anywhere in the room.
             </p>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Tripod Location / Name
+              <label htmlFor="spot-name" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">
+                Where is it?
               </label>
               <input
+                id="spot-name"
                 type="text"
-                placeholder="e.g. DJ Booth, Bar Counter, Stage Wide"
+                placeholder="e.g. Stage, Bar, Balcony"
                 value={tripodName}
                 onChange={(e) => setTripodName(e.target.value)}
                 maxLength={20}
-                className="w-full bg-[#0c0c0c]/80 border border-white/10 focus:border-[#00f2ff] focus:ring-1 focus:ring-[#00f2ff]/30 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none transition-all text-sm"
+                className="w-full bg-g2-panel/80 border border-white/10 focus:border-g2-blue focus:ring-1 focus:ring-g2-blue/30 rounded-xl px-4 py-3 text-white placeholder-g2-muted focus:outline-none transition-all text-sm"
               />
             </div>
 
@@ -360,9 +362,9 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
             <button
               type="submit"
-              className="w-full bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-[#00f2ff]/20 cursor-pointer"
+              className="w-full bg-g2-blue hover:bg-g2-blue-hover text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-g2-blue/20 cursor-pointer"
             >
-              Start Tripod Stream
+              Start Photo Spot
             </button>
           </form>
         </div>
@@ -371,24 +373,25 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   }
 
   return (
-    <div className="min-h-screen bg-black text-slate-100 flex flex-col justify-between font-sans relative overflow-hidden">
+    <div className="min-h-screen bg-black text-g2-text flex flex-col justify-between font-sans relative overflow-hidden">
       {/* HUD Bar - Top */}
       <div className="p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center z-10">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-bold tracking-wider uppercase text-slate-300 flex items-center gap-1 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
-            <span className="w-2 h-2 bg-red-500 rounded-full animate-ping mr-1" />
-            LIVE: {tripodName}
+          <span className="text-xs font-bold tracking-wider uppercase text-g2-secondary flex items-center gap-1 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
+            <span className="w-2 h-2 bg-g2-live rounded-full animate-pulse mr-1" />
+            Live · Photo Spot: {tripodName}
           </span>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-slate-400 text-xs bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
+          <div className="flex items-center gap-1.5 text-g2-tertiary text-xs bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
             <Battery className="w-4 h-4 text-emerald-400" />
             <span>{batteryLevel !== undefined ? `${batteryLevel}%` : '100%'}</span>
           </div>
           <button
             onClick={handleExit}
-            className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-slate-300 transition-all duration-300 cursor-pointer"
-            title="Exit Tripod Mode"
+            className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-g2-secondary transition-all duration-300 cursor-pointer"
+            title="Stop Photo Spot"
+            aria-label="Stop Photo Spot"
           >
             <X className="w-5 h-5" />
           </button>
@@ -413,21 +416,20 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           <div className="absolute bottom-2 right-2 w-3 h-3 border-b border-r border-white/40" />
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-10 h-10 border border-dashed border-white/20 rounded-full flex items-center justify-center">
-              <div className="w-1.5 h-1.5 bg-[#00f2ff] rounded-full animate-pulse" />
+              <div className="w-1.5 h-1.5 bg-white rounded-full" />
             </div>
           </div>
         </div>
 
         {/* Captured Overlay Notification */}
         {capturing && (
-          <div className="absolute inset-0 bg-white/80 flex items-center justify-center animate-fade-out z-20">
+          <div className="absolute inset-0 bg-white flex items-center justify-center z-20">
             <div className="text-center space-y-1">
-              <Zap className="w-12 h-12 text-[#00f2ff] animate-bounce mx-auto" />
-              <p className="text-black font-extrabold text-2xl tracking-widest uppercase">
-                Remote Shutter
+                            <p className="font-expanded font-black text-3xl text-g2-page">
+                Got it!
               </p>
-              <p className="text-slate-600 text-xs font-semibold">
-                Uploading fresh high-res event snap...
+              <p className="text-g2-page/70 text-sm font-semibold">
+                Sending it to the gallery…
               </p>
             </div>
           </div>
@@ -435,14 +437,14 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
         {/* Thumbnail Slide-in of last snapped frame */}
         {lastCapturedUrl && (
-          <div className="absolute bottom-20 right-6 glass-card neon-border p-1.5 rounded-xl shadow-2xl z-10 max-w-[110px] animate-slide-in">
+          <div className="absolute bottom-24 right-6 bg-g2-panel border border-white/10 p-1.5 rounded-xl shadow-2xl z-10 max-w-[110px]">
             <img
               src={lastCapturedUrl}
               alt="Last captured"
               className="w-24 h-16 object-cover rounded-lg"
             />
-            <p className="text-[10px] text-[#00f2ff] font-bold text-center mt-1">
-              Snapped!
+            <p className="text-[10px] text-white font-bold text-center mt-1">
+              Posted
             </p>
           </div>
         )}
@@ -450,24 +452,24 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
       {/* Control HUD Bar - Bottom */}
       <div className="p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex justify-between items-center z-10">
-        <div className="flex items-center gap-1.5 text-xs text-slate-400">
-          <Wifi className="w-3.5 h-3.5 text-[#00f2ff]" />
-          <span>Listening for Host Commands</span>
+        <div className="flex items-center gap-1.5 text-xs text-g2-tertiary">
+          <Wifi className="w-3.5 h-3.5 text-g2-blue-light" />
+          <span>Ready. The host can take a photo.</span>
         </div>
         <div className="flex gap-4">
           <button
             onClick={toggleFacingMode}
-            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white rounded-xl transition-all duration-300 flex items-center gap-2 text-xs font-semibold cursor-pointer"
+            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 text-g2-secondary hover:text-white rounded-xl transition-all duration-300 flex items-center gap-2 text-xs font-semibold cursor-pointer"
           >
             <RefreshCw className="w-4 h-4" />
-            Flip Camera
+            Flip camera
           </button>
           <button
             onClick={() => triggerShutterCapture(false)}
-            className="p-3 bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-extrabold rounded-xl transition-all duration-300 flex items-center gap-1.5 text-xs cursor-pointer shadow-lg shadow-[#00f2ff]/20"
+            className="p-3 bg-white text-g2-page font-extrabold rounded-xl transition-all duration-300 flex items-center gap-1.5 text-xs cursor-pointer"
           >
             <Camera className="w-4 h-4" />
-            Test Shutter
+            Test shot
           </button>
         </div>
       </div>

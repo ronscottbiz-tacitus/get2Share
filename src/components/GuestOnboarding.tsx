@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { Camera, Shield, Zap, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Camera, LayoutGrid, ScanFace, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import Get2ShareLockup from './Get2ShareLockup';
 
 interface OnboardingProps {
   onJoin: (nickname: string) => void;
@@ -8,138 +11,150 @@ interface OnboardingProps {
   onGoToTripod: () => void;
 }
 
+const PROMISES = [
+  {
+    icon: LayoutGrid,
+    title: 'Every photo, all night',
+    body: "Everyone's shots, in one live gallery.",
+  },
+  {
+    icon: ScanFace,
+    title: 'Step into the shot',
+    body: 'Walk up to a Photo Spot, frame it on your phone, tap.',
+  },
+  {
+    icon: Timer,
+    title: 'Group Shot moments',
+    body: 'The countdown hits the big screen. Every camera fires at once.',
+  },
+];
+
 export default function GuestOnboarding({ onJoin, onGoToHost, onGoToTripod }: OnboardingProps) {
   const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
+  const [eventTitle, setEventTitle] = useState('');
+
+  // The host sets the event name in the Host Console; show it here.
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, 'settings', 'event-settings'),
+      (snap) => setEventTitle(snap.exists() ? snap.data().eventTitle || '' : ''),
+      () => setEventTitle('')
+    );
+    return () => unsubscribe();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nickname.trim()) {
-      setError('Please enter a nickname to join the event');
+      setError('Enter a nickname to join.');
       return;
     }
     onJoin(nickname.trim());
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-slate-100 flex flex-col justify-between p-6 md:p-12 relative overflow-hidden font-sans">
-      {/* Background Decorative Blobs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#00f2ff]/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Header */}
-      <header className="w-full flex justify-between items-center max-w-md mx-auto">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-gradient-to-tr from-[#00f2ff] to-blue-600 rounded-xl shadow-lg shadow-[#00f2ff]/10">
-            <Camera className="w-6 h-6 text-slate-950" />
-          </div>
-          <span className="font-extrabold tracking-tight text-xl bg-gradient-to-r from-[#00f2ff] to-blue-400 bg-clip-text text-transparent">
-            Get2Share
-          </span>
-        </div>
-        <div className="flex gap-2">
-          <button 
+    <div className="min-h-dvh bg-g2-page text-g2-text flex flex-col px-5 pt-4 pb-5 font-sans">
+      <div className="w-full max-w-md mx-auto flex flex-col flex-1">
+        <header className="flex justify-between items-center h-12">
+          <Get2ShareLockup className="text-[22px]" />
+          <button
             onClick={onGoToHost}
-            className="text-xs bg-white/5 border border-white/10 hover:border-[#00f2ff]/40 text-slate-300 hover:text-[#00f2ff] px-3.5 py-2 rounded-xl transition-all duration-300 cursor-pointer backdrop-blur-sm"
+            className="h-11 px-4 rounded-full border border-white/10 text-g2-secondary hover:text-white hover:border-white/25 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer"
           >
-            Host Console
+            Host
           </button>
-        </div>
-      </header>
+        </header>
 
-      {/* Hero Body */}
-      <main className="w-full max-w-md mx-auto my-auto flex flex-col items-center text-center mt-8 mb-8 z-10">
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.4 }}
+          className="mt-5 flex flex-col items-start"
         >
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#00f2ff]/5 border border-[#00f2ff]/20 rounded-full text-[#00f2ff] text-xs font-medium tracking-wide mb-4 shadow-[0_0_15px_rgba(0,242,255,0.05)]">
-            <Sparkles className="w-3.5 h-3.5" />
-            Live Event: Summer Gala 2026
-          </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white leading-tight mb-4">
-            Capture Together,<br/>
-            <span className="neon-text font-black">
-              Share Live
-            </span>
-          </h1>
-          <p className="text-slate-400 text-sm md:text-base max-w-xs mx-auto mb-8 font-light leading-relaxed">
-            No heavy app downloads. Just enter a nickname, snap photos, and watch them stream live to everyone.
-          </p>
-        </motion.div>
-
-        {/* Form Container */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="w-full glass-card neon-border rounded-2xl p-6 shadow-2xl"
-        >
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="text-left">
-              <label htmlFor="nickname" className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Your Nickname
-              </label>
-              <input
-                id="nickname"
-                type="text"
-                placeholder="e.g. Sara Miller"
-                value={nickname}
-                onChange={(e) => {
-                  setNickname(e.target.value);
-                  setError('');
-                }}
-                maxLength={20}
-                className="w-full bg-black/60 border border-white/10 focus:border-[#00f2ff] focus:ring-1 focus:ring-[#00f2ff]/30 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:outline-none transition-all text-base font-medium"
-                autoComplete="off"
-              />
-              {error && <p className="text-red-400 text-xs mt-1.5">{error}</p>}
+          {eventTitle && (
+            <div className="inline-flex items-center gap-2 h-[30px] px-3 rounded-full border border-white/10 bg-g2-panel font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary">
+              <span className="w-[7px] h-[7px] rounded-full bg-emerald-400" />
+              Live now · {eventTitle}
             </div>
-
-            <button
-              type="submit"
-              className="w-full bg-[#00f2ff] hover:bg-[#33f5ff] text-slate-950 font-bold py-3.5 rounded-xl shadow-lg shadow-[#00f2ff]/20 hover:shadow-[#00f2ff]/30 active:scale-[0.98] transition-all duration-300 cursor-pointer flex justify-center items-center gap-2"
-            >
-              <Camera className="w-5 h-5 text-slate-950" />
-              Join Live Gallery
-            </button>
-          </form>
-
-          {/* Quick Info Grid */}
-          <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-white/5 text-left text-xs text-slate-400">
-            <div className="flex gap-2">
-              <Shield className="w-4 h-4 text-[#00f2ff] shrink-0" />
-              <div>
-                <p className="font-bold text-slate-200">Privacy First</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">No login or password needed.</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Zap className="w-4 h-4 text-[#00f2ff] shrink-0" />
-              <div>
-                <p className="font-bold text-slate-200">Instant Sync</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">Real-time live projector stream.</p>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Secondary Navigation */}
-        <div className="mt-6 flex gap-4 text-xs text-slate-500">
-          <button 
-            onClick={onGoToTripod} 
-            className="hover:text-[#00f2ff] hover:underline transition-colors cursor-pointer"
+          )}
+          <h1
+            aria-label="Finally, you get to be in the picture."
+            className="mt-[18px] font-expanded font-black text-[34px] leading-[1.04] tracking-[-0.02em] text-white"
           >
-            📸 Setup Stationary Tripod Mode
-          </button>
-        </div>
-      </main>
+            <span aria-hidden="true" className="block">Finally,</span>
+            <span aria-hidden="true" className="block">
+              you <span className="text-g2-blue">Get2</span> be
+            </span>
+            <span aria-hidden="true" className="block">in the picture.</span>
+          </h1>
+          <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
+            Every photo from tonight lands in your gallery, and Photo Spots let you take the shots you're actually in.
+          </p>
+        </motion.section>
 
-      {/* Footer */}
-      <footer className="w-full text-center text-[10px] text-slate-600 max-w-md mx-auto mt-auto pt-4 border-t border-white/5">
-        Get2Share &bull; Designed for ultimate physical event convenience.
-      </footer>
+        <ul className="mt-5 flex flex-col gap-3.5">
+          {PROMISES.map(({ icon: Icon, title, body }) => (
+            <li key={title} className="flex gap-3 items-start">
+              <span className="w-9 h-9 shrink-0 rounded-[10px] bg-g2-panel border border-white/[0.08] flex items-center justify-center text-g2-blue-light">
+                <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm font-bold text-white">{title}</p>
+                <p className="text-[13px] leading-normal text-g2-tertiary">{body}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="flex-1 min-h-6" />
+
+        <form
+          onSubmit={handleSubmit}
+          className="bg-g2-panel border border-white/[0.08] rounded-xl p-4 flex flex-col gap-2.5"
+        >
+          <label
+            htmlFor="nickname"
+            className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary"
+          >
+            Your nickname
+          </label>
+          <input
+            id="nickname"
+            type="text"
+            placeholder="e.g. Maya"
+            value={nickname}
+            onChange={(e) => {
+              setNickname(e.target.value);
+              setError('');
+            }}
+            maxLength={20}
+            autoComplete="off"
+            className="h-[52px] px-4 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-g2-text placeholder-g2-muted text-base focus:outline-none transition-colors"
+          />
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+          <button
+            type="submit"
+            className="h-[52px] bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer"
+          >
+            <Camera className="w-[18px] h-[18px]" aria-hidden="true" />
+            Get in the picture
+          </button>
+          <p className="text-center text-xs text-g2-tertiary">No app. No sign-up. Just a nickname.</p>
+        </form>
+
+        <button
+          onClick={onGoToTripod}
+          className="mt-1.5 h-11 flex items-center justify-center gap-2 text-[13px] font-semibold text-g2-blue-light hover:text-white transition-colors cursor-pointer"
+        >
+          <Camera className="w-4 h-4" aria-hidden="true" />
+          Set up this phone as a Photo Spot
+        </button>
+
+        <p className="text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
+          A Get2 product · share.get2.one
+        </p>
+      </div>
     </div>
   );
 }
