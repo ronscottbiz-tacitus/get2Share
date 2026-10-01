@@ -18,7 +18,8 @@ export interface GuestSession {
   lastActive: number;
   role: 'guest' | 'tripod' | 'host';
   deviceInfo: {
-    batteryLevel?: number;
+    batteryLevel?: number | null;
+    charging?: boolean | null;
     userAgent?: string;
     deviceName?: string;
   };

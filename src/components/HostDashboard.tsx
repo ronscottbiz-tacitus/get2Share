@@ -14,6 +14,9 @@ import Get2ShareLockup from './Get2ShareLockup';
 import { useRemoteShutter } from './useRemoteShutter';
 import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
+import ShareSpotTile from './ShareSpotTile';
+import { useConsolePresence } from './useConsolePresence';
+import { useSpotLiveness } from './useSpotLiveness';
 
 interface HostDashboardProps {
   onLaunchSlideshow: () => void;
@@ -391,6 +394,10 @@ export default function HostDashboard({
   const pendingPhotos = photos.filter((p) => p.status === 'pending');
   const flaggedPhotos = photos.filter((p) => p.flagged === true && p.status !== 'rejected');
   const tripods = sessions.filter((s) => s.role === 'tripod');
+
+  // Share Spots only send previews while this console is open; one can be focused for speed.
+  const { focusSpot, setFocusSpot } = useConsolePresence(isHost);
+  const spotLiveness = useSpotLiveness(tripods);
   const activeGuests = sessions.filter((s) => s.role === 'guest' && s.sessionId !== sessionId);
 
   if (!isHost) {
@@ -687,52 +694,18 @@ export default function HostDashboard({
                   No Share Spots yet. Tap “Add a Share Spot,” then enter the code on the device you want to use.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 xl:grid-cols-3 gap-3 items-start">
                   {tripods.map((tripod) => (
-                    <div key={tripod.sessionId} className="bg-black/30 border border-white/5 rounded-xl overflow-hidden flex flex-col justify-between">
-                      {/* Viewfinder Thumbnail */}
-                      <div className="bg-black/40 aspect-video relative flex items-center justify-center border-b border-white/5">
-                        {tripod.stream_frame ? (
-                          <img
-                            src={tripod.stream_frame}
-                            alt={`Live preview from ${tripod.nickname}`}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="text-center p-4">
-                            <Radio className="w-6 h-6 text-g2-muted animate-ping mx-auto mb-1" />
-                            <p className="text-[10px] text-g2-muted">Waiting for preview</p>
-                          </div>
-                        )}
-                        <ShotOverlay shot={shots[tripod.sessionId]} />
-                        <span className="absolute top-2 left-2 text-[10px] font-bold bg-black/60 backdrop-blur-md text-g2-blue-light px-2 py-0.5 rounded-full border border-g2-blue/20">
-                          {tripod.nickname}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveShareSpot(tripod)}
-                          aria-label={`Remove ${tripod.nickname}`}
-                          title="Remove this Share Spot"
-                          className="absolute bottom-2 left-2 p-1.5 bg-black/60 hover:bg-red-500/30 border border-white/10 hover:border-red-400/40 text-g2-secondary hover:text-red-300 rounded-full cursor-pointer transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <div className="absolute top-2 right-2 flex items-center gap-1.5 text-[10px] bg-black/60 px-2 py-0.5 rounded-full">
-                          <Battery className="w-3.5 h-3.5 text-emerald-400" />
-                          <span className="text-g2-secondary">{tripod.deviceInfo?.batteryLevel || 100}%</span>
-                        </div>
-                      </div>
-
-                      <div className="p-3.5 bg-black/40 flex justify-between items-center">
-                        <span className="text-[10px] text-g2-muted font-mono" aria-live="polite">
-                          {shotStatusText(shots[tripod.sessionId])}
-                        </span>
-                        <ShutterButton
-                          shot={shots[tripod.sessionId]}
-                          onFire={() => fireShutter(tripod.sessionId)}
-                        />
-                      </div>
-                    </div>
+                    <ShareSpotTile
+                      key={tripod.sessionId}
+                      spot={tripod}
+                      shot={shots[tripod.sessionId]}
+                      liveness={spotLiveness(tripod.sessionId)}
+                      focused={focusSpot === tripod.sessionId}
+                      onFire={() => fireShutter(tripod.sessionId)}
+                      onToggleFocus={() => setFocusSpot(focusSpot === tripod.sessionId ? null : tripod.sessionId)}
+                      onRemove={() => handleRemoveShareSpot(tripod)}
+                    />
                   ))}
                 </div>
               )}

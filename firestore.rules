@@ -16,6 +16,8 @@ rules_version = '2';
 //     host fired that device's shutter in the last 2 minutes. Otherwise it
 //     must go in as 'pending'.
 //   * Guests can delete only their own photos and sessions.
+//   * Only the host can say it's watching (live/console), which turns Share
+//     Spot previews on and off.
 //   * Only the host can add Share Spots: a device can register as a Share Spot
 //     only after claiming a one-time pairing code the host created (codes must
 //     be claimed within 10 minutes).
@@ -167,6 +169,21 @@ service cloud.firestore {
                     );
 
       allow delete: if isHost() || isOwner(existing().sessionId);
+    }
+
+    // ---------- Host Console presence ----------
+    // The console says "I'm watching" (and which Share Spot is focused) so
+    // Share Spots only send preview frames when someone is looking.
+
+    match /live/{docId} {
+      allow read: if signedIn();
+      allow write: if isHost()
+                   && docId == 'console'
+                   && incoming().keys().hasOnly(['watching', 'focusSpot', 'heartbeatAt'])
+                   && incoming().watching is bool
+                   && (incoming().focusSpot == null
+                       || (incoming().focusSpot is string && incoming().focusSpot.size() <= 128))
+                   && incoming().heartbeatAt == request.time;
     }
 
     // ---------- Share Spot pairing codes ----------

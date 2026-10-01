@@ -41,15 +41,17 @@ interface ShutterButtonProps {
   variant?: 'blue' | 'white';
   size?: 'sm' | 'md';
   label?: string;
+  disabled?: boolean;
 }
 
-export function ShutterButton({ shot, onFire, variant = 'blue', size = 'sm', label }: ShutterButtonProps) {
+export function ShutterButton({ shot, onFire, variant = 'blue', size = 'sm', label, disabled = false }: ShutterButtonProps) {
   const phase = shot?.phase ?? 'idle';
   const busy = isShotBusy(shot);
   const failed = phase === 'noresponse' || phase === 'error';
 
-  const tone =
-    phase === 'saved'
+  const tone = disabled && !busy
+    ? 'bg-white/5 text-g2-muted border border-white/10'
+    : phase === 'saved'
       ? 'bg-emerald-500 text-white'
       : failed
         ? 'bg-amber-400 text-g2-page hover:bg-amber-300'
@@ -70,10 +72,10 @@ export function ShutterButton({ shot, onFire, variant = 'blue', size = 'sm', lab
     <motion.button
       type="button"
       onClick={onFire}
-      disabled={busy}
+      disabled={busy || disabled}
       aria-busy={busy}
       aria-live="polite"
-      whileTap={busy ? undefined : { scale: 0.92 }}
+      whileTap={busy || disabled ? undefined : { scale: 0.92 }}
       animate={phase === 'capturing' ? { opacity: [1, 0.6, 1] } : { opacity: 1 }}
       transition={phase === 'capturing' ? { duration: 0.9, repeat: Infinity } : { duration: 0.15 }}
       className={`${tone} ${sizing} font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-default transition-colors duration-200`}

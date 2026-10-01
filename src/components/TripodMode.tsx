@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, X, ShieldAlert, Battery, Wifi, Settings, Zap } from 'lucide-react';
 import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, collection, getDoc, serverTimestamp } from 'firebase/firestore';
 import { normalizePairingCode, formatPairingCode, STORED_SPOT_CODE_KEY } from '../spotPairing';
+import { BACKGROUND_MS, CONSOLE_DOC, FOCUS_MS, FRAME, NORMAL_MS, WATCH_TIMEOUT_MS } from '../liveConsole';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { motion } from 'motion/react';
 
@@ -19,7 +20,11 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const [connecting, setConnecting] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [error, setError] = useState('');
-  const [batteryLevel, setBatteryLevel] = useState<number | undefined>(undefined);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null); // null = browser doesn't say
+  const [charging, setCharging] = useState<boolean | null>(null);
+  // What the Host Console wants from us: no previews, normal, or fast (focused).
+  const [previewMode, setPreviewMode] = useState<'off' | 'normal' | 'focus' | 'background'>('off');
+  const previewModeRef = useRef<'off' | 'normal' | 'focus' | 'background'>('off');
   // Front camera by default so guests can see themselves on the Share Spot's screen.
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [capturing, setCapturing] = useState(false);
@@ -28,7 +33,6 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const frameStreamingIntervalRef = useRef<any>(null);
   // Refs (not state) so timers and listeners always see the current values.
   const registeredRef = useRef(false);
   const capturingRef = useRef(false);
@@ -61,9 +65,9 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
   // Stop the camera and preview frames without removing this Share Spot.
   const stopCamera = () => {
-    if (frameStreamingIntervalRef.current) {
-      clearInterval(frameStreamingIntervalRef.current);
-      frameStreamingIntervalRef.current = null;
+    if (frameTimerRef.current) {
+      clearTimeout(frameTimerRef.current);
+      frameTimerRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -82,28 +86,65 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     }
   };
 
-  // Monitor battery levels if supported by the browser
+  // Battery level and charging, where the browser supports it (Android Chrome does; iPhone/iPad don't).
   useEffect(() => {
-    if ('getBattery' in navigator) {
-      (navigator as any).getBattery().then((battery: any) => {
+    if (!('getBattery' in navigator)) return;
+    (navigator as any).getBattery().then((battery: any) => {
+      const read = () => {
         setBatteryLevel(Math.round(battery.level * 100));
-        battery.addEventListener('levelchange', () => {
-          setBatteryLevel(Math.round(battery.level * 100));
-        });
-      });
-    }
+        setCharging(!!battery.charging);
+      };
+      read();
+      battery.addEventListener('levelchange', read);
+      battery.addEventListener('chargingchange', read);
+    }).catch(() => {});
   }, []);
 
-  // Sync battery changes to Firestore once registered
   useEffect(() => {
     if (!isRegistered || !sessionId) return;
-    const docRef = doc(db, 'sessions', sessionId);
-    updateDoc(docRef, {
-      'deviceInfo.batteryLevel': batteryLevel || 100,
+    updateDoc(doc(db, 'sessions', sessionId), {
+      'deviceInfo.batteryLevel': batteryLevel,
+      'deviceInfo.charging': charging,
     }).catch((err) => {
       handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`);
     });
-  }, [batteryLevel, isRegistered, sessionId]);
+  }, [batteryLevel, charging, isRegistered, sessionId]);
+
+  // Listen for the Host Console. Only send previews while someone is watching.
+  // "Watching" is judged by when the last heartbeat *arrived* on this device,
+  // so a tablet with the wrong clock still behaves.
+  useEffect(() => {
+    if (!isRegistered || !sessionId) return;
+    let lastBeatAt = 0;
+    let latest: { watching?: boolean; focusSpot?: string | null } = {};
+    const apply = () => {
+      const alive = latest.watching === true && Date.now() - lastBeatAt < WATCH_TIMEOUT_MS;
+      const mode = !alive ? 'off' : !latest.focusSpot ? 'normal' : latest.focusSpot === sessionId ? 'focus' : 'background';
+      if (mode !== previewModeRef.current) {
+        previewModeRef.current = mode;
+        setPreviewMode(mode);
+        if (mode !== 'off') sendFrameSoon();
+      }
+    };
+    const unsub = onSnapshot(
+      doc(db, ...CONSOLE_DOC),
+      (snap) => {
+        latest = snap.exists() ? (snap.data() as any) : {};
+        lastBeatAt = Date.now();
+        apply();
+      },
+      () => {
+        latest = {};
+        apply();
+      }
+    );
+    const t = setInterval(apply, 5000);
+    return () => {
+      unsub();
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRegistered, sessionId]);
 
   // Handle stream cleanup
   useEffect(() => {
@@ -199,7 +240,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           pairing_code: code,
           lastActive: Date.now(),
           deviceInfo: {
-            batteryLevel: batteryLevel || 100,
+            batteryLevel,
+            charging,
             userAgent: navigator.userAgent,
             deviceName: `${spotName} Lens`,
           },
@@ -222,49 +264,56 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     }
   };
 
+  // Preview frames for the Host Console. The loop re-reads previewModeRef each
+  // time, so speed changes (off / normal / focused) take effect right away.
+  const frameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameInFlightRef = useRef(false);
+
+  const sendFrame = () => {
+    const mode = previewModeRef.current;
+    const video = videoRef.current;
+    if (mode === 'off' || !video || !streamRef.current || !registeredRef.current) return;
+    if (frameInFlightRef.current || !video.videoWidth) return; // slow network or camera not ready
+
+    if (!canvasRef.current) canvasRef.current = document.createElement('canvas');
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const { width, quality } = mode === 'focus' ? FRAME.focus : FRAME.normal;
+    canvas.width = width;
+    canvas.height = Math.round((video.videoHeight / video.videoWidth) * width) || 180;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    frameInFlightRef.current = true;
+    updateDoc(doc(db, 'sessions', sessionId), {
+      stream_frame: canvas.toDataURL('image/jpeg', quality),
+      lastActive: Date.now(),
+    })
+      .catch((err) => handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`))
+      .finally(() => {
+        frameInFlightRef.current = false;
+      });
+  };
+
+  const scheduleNextFrame = () => {
+    if (frameTimerRef.current) clearTimeout(frameTimerRef.current);
+    const mode = previewModeRef.current;
+    const delay = mode === 'focus' ? FOCUS_MS : mode === 'background' ? BACKGROUND_MS : NORMAL_MS;
+    frameTimerRef.current = setTimeout(() => {
+      sendFrame();
+      if (registeredRef.current) scheduleNextFrame();
+    }, delay);
+  };
+
+  // Send one right away (e.g. the host just opened the console or focused us).
+  const sendFrameSoon = () => {
+    setTimeout(sendFrame, 150);
+    scheduleNextFrame();
+  };
+
   const startFrameStreaming = () => {
-    if (frameStreamingIntervalRef.current) clearInterval(frameStreamingIntervalRef.current);
-
-    let frameInFlight = false;
-    frameStreamingIntervalRef.current = setInterval(() => {
-      if (!videoRef.current || !streamRef.current || !registeredRef.current) return;
-      // On a slow connection, skip this tick rather than stacking up writes.
-      if (frameInFlight) return;
-      if (!videoRef.current.videoWidth) return; // camera not ready yet
-
-      const video = videoRef.current;
-      if (!canvasRef.current) {
-        canvasRef.current = document.createElement('canvas');
-      }
-
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      // Small monitoring frame for the Host Console
-      const width = 320;
-      const height = Math.round((video.videoHeight / video.videoWidth) * width) || 180;
-      canvas.width = width;
-      canvas.height = height;
-
-      ctx.drawImage(video, 0, 0, width, height);
-
-      // Low quality (0.5) to keep document updates lightning-fast
-      const base64Frame = canvas.toDataURL('image/jpeg', 0.5);
-
-      const docRef = doc(db, 'sessions', sessionId);
-      frameInFlight = true;
-      updateDoc(docRef, {
-        stream_frame: base64Frame,
-        lastActive: Date.now(),
-      })
-        .catch((err) => {
-          handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`);
-        })
-        .finally(() => {
-          frameInFlight = false;
-        });
-    }, 1500);
+    scheduleNextFrame();
   };
 
   // fromHost = the host fired the remote shutter (publishes immediately).
@@ -489,7 +538,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5 text-g2-tertiary text-xs bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
             <Battery className="w-4 h-4 text-emerald-400" />
-            <span>{batteryLevel !== undefined ? `${batteryLevel}%` : '100%'}</span>
+            <span>{batteryLevel !== null ? `${batteryLevel}%${charging ? ' · charging' : ''}` : '—'}</span>
           </div>
           <button
             onClick={handleExit}
@@ -558,7 +607,13 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       <div className="p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex justify-between items-center z-10">
         <div className="flex items-center gap-1.5 text-xs text-g2-tertiary">
           <Wifi className="w-3.5 h-3.5 text-g2-blue-light" />
-          <span>Ready. The host can take a photo.</span>
+          <span>
+            {previewMode === 'off'
+              ? 'Ready. Preview paused until the host opens the console.'
+              : previewMode === 'focus'
+                ? 'Ready. The host is watching this spot closely.'
+                : 'Ready. The host can take a photo.'}
+          </span>
         </div>
         <div className="flex gap-4">
           <button
