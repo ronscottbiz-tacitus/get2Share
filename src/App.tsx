@@ -4,6 +4,7 @@ import LiveGalleryFeed from './components/LiveGalleryFeed';
 import PhotoLightbox from './components/PhotoLightbox';
 import HostDashboard from './components/HostDashboard';
 import TripodMode from './components/TripodMode';
+import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import { Photo } from './types';
 import { Camera, X, Check, Users } from 'lucide-react';
@@ -85,7 +86,10 @@ export default function App() {
     const storedNickname = localStorage.getItem('get2share-nickname') || '';
     setNickname(storedNickname);
 
-    if (storedNickname) {
+    if (window.location.pathname.replace(/\/+$/, '') === SPOT_SETUP_PATH) {
+      // share.get2.one/spot — the host's Share Spot setup page (needs a pairing code).
+      setCurrentView('tripod');
+    } else if (storedNickname) {
       setCurrentView('gallery');
     } else {
       setCurrentView('onboarding');
@@ -420,7 +424,6 @@ export default function App() {
         <GuestOnboarding
           onJoin={handleJoinEvent}
           onGoToHost={() => setCurrentView('host')}
-          onGoToTripod={() => setCurrentView('tripod')}
         />
       )}
 
@@ -568,6 +571,7 @@ export default function App() {
           sessionId={sessionId}
           onLaunchSlideshow={() => setCurrentView('slideshow')}
           onExit={() => {
+            if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
             if (nickname) {
               setCurrentView('gallery');
             } else {

@@ -13,6 +13,7 @@ import QRCode from 'qrcode';
 import Get2ShareLockup from './Get2ShareLockup';
 import { useRemoteShutter } from './useRemoteShutter';
 import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
+import AddShareSpot from './AddShareSpot';
 
 interface HostDashboardProps {
   onLaunchSlideshow: () => void;
@@ -328,6 +329,19 @@ export default function HostDashboard({
     } catch (e) {
       console.error('Delete failed:', e);
       handleFirestoreError(e, OperationType.DELETE, `photos/${id}`);
+    }
+  };
+
+  // Remove a Share Spot. Deleting its pairing code means that device can't
+  // reconnect as a Share Spot without a new code.
+  const handleRemoveShareSpot = async (spot: GuestSession) => {
+    if (!window.confirm(`Remove the Share Spot "${spot.nickname}"? That device will need a new code to reconnect.`)) return;
+    try {
+      if (spot.pairing_code) await deleteDoc(doc(db, 'spotPairings', spot.pairing_code));
+      await deleteDoc(doc(db, 'sessions', spot.sessionId));
+    } catch (e) {
+      console.error('Remove Share Spot failed:', e);
+      handleFirestoreError(e, OperationType.DELETE, `sessions/${spot.sessionId}`);
     }
   };
 
@@ -663,12 +677,14 @@ export default function HostDashboard({
                 <span className="flex items-center gap-1.5">
                   <Laptop className="w-4 h-4 text-g2-blue-light" /> Share Spots ({tripods.length})
                 </span>
-                <span className="text-[10px] text-g2-muted font-medium">Any spare phone on a stand</span>
+                <span className="text-[10px] text-g2-muted font-medium">Any spare phone or tablet on a stand</span>
               </h3>
+
+              <AddShareSpot />
 
               {tripods.length === 0 ? (
                 <div className="p-6 bg-black/30 border border-white/5 rounded-xl text-center text-g2-muted text-xs">
-                  No Share Spots yet. Open the event link on a spare phone and choose “Set up this phone as a Share Spot.”
+                  No Share Spots yet. Tap “Add a Share Spot,” then enter the code on the device you want to use.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -692,6 +708,15 @@ export default function HostDashboard({
                         <span className="absolute top-2 left-2 text-[10px] font-bold bg-black/60 backdrop-blur-md text-g2-blue-light px-2 py-0.5 rounded-full border border-g2-blue/20">
                           {tripod.nickname}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveShareSpot(tripod)}
+                          aria-label={`Remove ${tripod.nickname}`}
+                          title="Remove this Share Spot"
+                          className="absolute bottom-2 left-2 p-1.5 bg-black/60 hover:bg-red-500/30 border border-white/10 hover:border-red-400/40 text-g2-secondary hover:text-red-300 rounded-full cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                         <div className="absolute top-2 right-2 flex items-center gap-1.5 text-[10px] bg-black/60 px-2 py-0.5 rounded-full">
                           <Battery className="w-3.5 h-3.5 text-emerald-400" />
                           <span className="text-g2-secondary">{tripod.deviceInfo?.batteryLevel || 100}%</span>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, X, ShieldAlert, Battery, Wifi, Settings, Zap } from 'lucide-react';
-import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, collection, getDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, collection, getDoc, serverTimestamp } from 'firebase/firestore';
+import { normalizePairingCode, formatPairingCode, STORED_SPOT_CODE_KEY } from '../spotPairing';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { motion } from 'motion/react';
 
@@ -11,6 +12,11 @@ interface TripodModeProps {
 
 export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const [tripodName, setTripodName] = useState('');
+  // Host-issued pairing code. Remembered so this device can reconnect after a reload.
+  const [pairingCode, setPairingCode] = useState(() => {
+    try { return localStorage.getItem(STORED_SPOT_CODE_KEY) || ''; } catch { return ''; }
+  });
+  const [connecting, setConnecting] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [error, setError] = useState('');
   const [batteryLevel, setBatteryLevel] = useState<number | undefined>(undefined);
@@ -112,7 +118,19 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
     const docRef = doc(db, 'sessions', sessionId);
     const unsubscribe = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
+      if (!snap.exists()) {
+        // The host removed this Share Spot from the Host Console.
+        if (registeredRef.current) {
+          registeredRef.current = false;
+          stopCamera();
+          setIsRegistered(false);
+          try { localStorage.removeItem(STORED_SPOT_CODE_KEY); } catch { /* ignore */ }
+          setPairingCode('');
+          setError('The host removed this Share Spot. Ask them for a new code to set it up again.');
+        }
+        return;
+      }
+      {
         const data = snap.data();
         if (data.trigger_shutter === true) {
           triggerShutterCapture(true);
@@ -131,45 +149,76 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tripodName.trim()) {
-      setError('Give this Share Spot a name, like "Stage".');
+    const code = normalizePairingCode(pairingCode);
+    if (code.length !== 6) {
+      setError('Enter the 6-character code from the Host Console.');
       return;
     }
+    setError('');
+    setConnecting(true);
 
     try {
-      setError('');
-      // Request camera access (front camera by default)
-      attachStream(await openCamera(facingMode));
-
-      // Register this device as a Tripod in the Sessions Firestore collection
-      const docRef = doc(db, 'sessions', sessionId);
+      // 1. Claim the code (or confirm this device already claimed it earlier).
+      const pairingRef = doc(db, 'spotPairings', code);
+      let spotName = '';
       try {
-        await setDoc(docRef, {
+        const existing = await getDoc(pairingRef); // only readable once it's ours
+        if (existing.exists() && existing.data().claimedBy === sessionId) spotName = existing.data().spotName;
+      } catch {
+        // Not ours yet: claim it below.
+      }
+      if (!spotName) {
+        try {
+          await updateDoc(pairingRef, { claimedBy: sessionId, claimedAt: serverTimestamp() });
+          const claimed = await getDoc(pairingRef);
+          spotName = claimed.data()?.spotName || '';
+        } catch (err) {
+          console.error('Pairing failed:', err);
+          setError("That code didn't work. Codes work once and expire after 10 minutes, so ask the host for a new one.");
+          return;
+        }
+      }
+      try { localStorage.setItem(STORED_SPOT_CODE_KEY, code); } catch { /* ignore */ }
+      setTripodName(spotName);
+
+      // 2. Open the camera (front by default).
+      try {
+        attachStream(await openCamera(facingMode));
+      } catch (err) {
+        console.error(err);
+        setError("Couldn't open the camera. Allow camera access for this site and try again.");
+        return;
+      }
+
+      // 3. Register as a Share Spot. The database checks the pairing code.
+      try {
+        await setDoc(doc(db, 'sessions', sessionId), {
           sessionId: sessionId,
-          nickname: tripodName.trim(),
+          nickname: spotName,
           role: 'tripod',
+          pairing_code: code,
           lastActive: Date.now(),
           deviceInfo: {
             batteryLevel: batteryLevel || 100,
             userAgent: navigator.userAgent,
-            deviceName: `${tripodName.trim()} Lens`,
+            deviceName: `${spotName} Lens`,
           },
           lens_status: 'streaming',
           invited_to_lens: false,
           trigger_shutter: false,
         }, { merge: true });
       } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, `sessions/${sessionId}`);
+        console.error('Share Spot registration failed:', err);
+        stopCamera();
+        setError("Couldn't connect this Share Spot. Ask the host for a new code.");
+        return;
       }
 
       registeredRef.current = true;
       setIsRegistered(true);
-
-      // Start periodic low-res thumbnail frame streaming (monitoring feed)
       startFrameStreaming();
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't open the camera. Allow camera access for this site and try again.");
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -353,26 +402,30 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
               <Camera className="w-8 h-8" />
             </div>
             <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Share Spot setup</p>
-            <h1 className="font-expanded font-black text-2xl leading-tight text-white">Make this phone a Share Spot</h1>
+            <h1 className="font-expanded font-black text-2xl leading-tight text-white">Connect this device</h1>
             <p className="text-xs text-g2-tertiary leading-relaxed">
-              Mount it on a stand, keep it plugged in, and give it a name. The host sees what it sees and can take a photo from anywhere in the room.
+              Mount it on a stand, keep it plugged in, and enter the code from the Host Console. Only the event host can add Share Spots.
             </p>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="spot-name" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">
-                Where is it?
+              <label htmlFor="spot-code" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">
+                Pairing code
               </label>
               <input
-                id="spot-name"
+                id="spot-code"
                 type="text"
-                placeholder="e.g. Stage, Bar, Balcony"
-                value={tripodName}
-                onChange={(e) => setTripodName(e.target.value)}
-                maxLength={20}
-                className="w-full bg-g2-panel/80 border border-white/10 focus:border-g2-blue focus:ring-1 focus:ring-g2-blue/30 rounded-xl px-4 py-3 text-white placeholder-g2-muted focus:outline-none transition-all text-sm"
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="ABC 123"
+                value={formatPairingCode(normalizePairingCode(pairingCode))}
+                onChange={(e) => { setPairingCode(normalizePairingCode(e.target.value)); setError(''); }}
+                className="w-full bg-g2-page border border-white/10 focus:border-g2-blue focus:ring-1 focus:ring-g2-blue/30 rounded-xl px-4 py-3 text-white placeholder-g2-muted focus:outline-none transition-all font-mono text-2xl tracking-[0.2em] text-center uppercase"
               />
+              <p className="text-[11px] text-g2-muted">The host gets this code under Share Spots → Add a Share Spot.</p>
             </div>
 
             {error && (
@@ -412,9 +465,10 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
             <button
               type="submit"
-              className="w-full bg-g2-blue hover:bg-g2-blue-hover text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-g2-blue/20 cursor-pointer"
+              disabled={connecting}
+              className="w-full bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-g2-blue/20 cursor-pointer disabled:cursor-default"
             >
-              Start Share Spot
+              {connecting ? 'Connecting…' : 'Start Share Spot'}
             </button>
           </form>
         </div>

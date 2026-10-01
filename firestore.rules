@@ -16,6 +16,9 @@ rules_version = '2';
 //     host fired that device's shutter in the last 2 minutes. Otherwise it
 //     must go in as 'pending'.
 //   * Guests can delete only their own photos and sessions.
+//   * Only the host can add Share Spots: a device can register as a Share Spot
+//     only after claiming a one-time pairing code the host created (codes must
+//     be claimed within 10 minutes).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -166,12 +169,49 @@ service cloud.firestore {
       allow delete: if isHost() || isOwner(existing().sessionId);
     }
 
+    // ---------- Share Spot pairing codes ----------
+
+    function isPairingCode(code) {
+      return code is string && code.matches('^[A-Z0-9]{6}$');
+    }
+
+    function pairingPath(code) {
+      return /databases/$(database)/documents/spotPairings/$(code);
+    }
+
+    match /spotPairings/{code} {
+      // The host sees all codes; a Share Spot can read the one it claimed (for its name).
+      allow get: if isHost() || (signedIn() && existing().claimedBy == request.auth.uid);
+      allow list: if isHost();
+
+      allow create: if isHost()
+                    && isPairingCode(code)
+                    && incoming().keys().hasOnly(['spotName', 'createdAt', 'claimedBy'])
+                    && incoming().keys().hasAll(['spotName', 'createdAt', 'claimedBy'])
+                    && incoming().spotName is string
+                    && incoming().spotName.size() > 0 && incoming().spotName.size() <= 30
+                    && incoming().createdAt == request.time
+                    && incoming().claimedBy == null;
+
+      // A device claims an unclaimed, unexpired code for itself. Once only.
+      allow update: if signedIn()
+                    && existing().claimedBy == null
+                    && request.time < existing().createdAt + duration.value(10, 'm')
+                    && changed().hasOnly(['claimedBy', 'claimedAt'])
+                    && incoming().claimedBy == request.auth.uid
+                    && incoming().claimedAt == request.time;
+
+      // Deleting a code (cancel, or removing the Share Spot) stops that device
+      // from registering as a Share Spot again.
+      allow delete: if isHost();
+    }
+
     // ---------- Sessions (guests, tripods, guest lenses) ----------
 
     function sessionKeys() {
       return ['sessionId', 'nickname', 'role', 'lastActive', 'deviceInfo',
               'lens_status', 'stream_frame', 'invited_to_lens', 'trigger_shutter',
-              'last_trigger_at', 'invited_by'];
+              'last_trigger_at', 'invited_by', 'pairing_code'];
     }
 
     function isValidSession(data, sid) {
@@ -188,7 +228,22 @@ service cloud.firestore {
         && (!('invited_to_lens' in data) || data.invited_to_lens is bool)
         && (!('trigger_shutter' in data) || data.trigger_shutter is bool)
         && (!('invited_by' in data) || data.invited_by is string)
-        && (!('last_trigger_at' in data) || data.last_trigger_at is timestamp);
+        && (!('last_trigger_at' in data) || data.last_trigger_at is timestamp)
+        && (!('pairing_code' in data) || isPairingCode(data.pairing_code));
+    }
+
+    // A Share Spot ('tripod') must point at a pairing code this device claimed.
+    // Only checked when a device becomes a Share Spot, not on every preview frame.
+    function isPairedSpot(sid) {
+      let code = incoming().get('pairing_code', '');
+      return isPairingCode(code)
+        && exists(pairingPath(code))
+        && get(pairingPath(code)).data.claimedBy == sid;
+    }
+
+    function roleAllowed(sid) {
+      return incoming().role == 'guest'
+        || (incoming().role == 'tripod' && isPairedSpot(sid));
     }
 
     // A device may turn these off on itself, but only the host can turn them on.
@@ -205,7 +260,7 @@ service cloud.firestore {
       allow create: if isOwner(sid)
                     && isValidId(sid)
                     && isValidSession(incoming(), sid)
-                    && incoming().role in ['guest', 'tripod']
+                    && roleAllowed(sid)
                     && incoming().get('invited_to_lens', false) == false
                     && incoming().get('trigger_shutter', false) == false
                     && incoming().get('lens_status', 'off') != 'requesting'
@@ -217,7 +272,9 @@ service cloud.firestore {
                       // The device updating itself (heartbeat, battery, preview frames,
                       // accepting/declining a lens invite, clearing a fired shutter).
                       (isOwner(sid)
-                        && (incoming().role == existing().role || incoming().role in ['guest', 'tripod'])
+                        && ((incoming().role == existing().role
+                             && incoming().get('pairing_code', null) == existing().get('pairing_code', null))
+                            || roleAllowed(sid))
                         && onlyHostCanEnable('invited_to_lens')
                         && onlyHostCanEnable('trigger_shutter')
                         && (incoming().get('lens_status', 'off') != 'requesting'

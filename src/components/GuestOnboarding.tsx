@@ -8,7 +8,6 @@ import Get2ShareLockup from './Get2ShareLockup';
 interface OnboardingProps {
   onJoin: (nickname: string) => void;
   onGoToHost: () => void;
-  onGoToTripod: () => void;
 }
 
 const PROMISES = [
@@ -29,7 +28,7 @@ const PROMISES = [
   },
 ];
 
-export default function GuestOnboarding({ onJoin, onGoToHost, onGoToTripod }: OnboardingProps) {
+export default function GuestOnboarding({ onJoin, onGoToHost }: OnboardingProps) {
   const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
   const [eventTitle, setEventTitle] = useState('');
@@ -143,15 +142,8 @@ export default function GuestOnboarding({ onJoin, onGoToHost, onGoToTripod }: On
           <p className="text-center text-xs text-g2-tertiary">No app. No sign-up. Just a nickname.</p>
         </form>
 
-        <button
-          onClick={onGoToTripod}
-          className="mt-1.5 h-11 flex items-center justify-center gap-2 text-[13px] font-semibold text-g2-blue-light hover:text-white transition-colors cursor-pointer"
-        >
-          <Camera className="w-4 h-4" aria-hidden="true" />
-          Set up this phone as a Share Spot
-        </button>
 
-        <p className="text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
+        <p className="mt-4 text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
           A Get2 product · share.get2.one
         </p>
       </div>

@@ -25,6 +25,16 @@ export interface GuestSession {
   invited_to_lens?: boolean;
   lens_status?: 'off' | 'requesting' | 'streaming' | 'declined';
   stream_frame?: string; // base64 low-res preview frame for live viewfinder stream
+  trigger_shutter?: boolean;
+  pairing_code?: string; // Share Spots only: the host-issued code this device claimed
+}
+
+/** A one-time code the host creates so a tablet/phone can become a Share Spot. */
+export interface SpotPairing {
+  spotName: string;
+  createdAt: { toMillis(): number } | null;
+  claimedBy: string | null;
+  claimedAt?: { toMillis(): number } | null;
 }
 
 export interface ShutterCommand {
