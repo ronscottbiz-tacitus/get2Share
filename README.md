@@ -2,7 +2,7 @@
 
 Live event photo sharing with remote camera triggers: guests snap and share from their phones, stationary "tripod" phones fire on command, and the host can borrow a guest's lens for a group shot.
 
-Built in Google AI Studio (project `ddc6e1c1`), backed by Firebase (Firestore + Storage + Auth).
+A React + Vite web app backed by Firebase (Firestore, Storage, Auth). Originally prototyped in Google AI Studio; now maintained here on GitHub.
 
 ## Run locally
 
@@ -22,11 +22,11 @@ Prerequisite: Node.js
 
 ## One-time Firebase setup
 
-In the [Firebase console](https://console.firebase.google.com/) for project `gen-lang-client-0927699826`:
+In the [Firebase console](https://console.firebase.google.com/) for the app's project (configured in `src/firebase-config.ts`):
 
 1. **Authentication → Sign-in method**: enable **Anonymous** and **Google**.
-2. **Authentication → Settings → Authorized domains**: add `get2share.ai.studio` (and any preview domain you test on).
-3. **Firestore → Rules**: make sure the deployed rules match `firestore.rules` (for the `ai-studio-get2share-…` database). If AI Studio doesn't deploy them on publish, paste them in and click **Publish**.
+2. **Authentication → Settings → Authorized domains**: add the site's domain (and any preview domain you test on).
+3. **Firestore → Rules**: paste in `firestore.rules` and click **Publish** whenever that file changes.
 
 ## Changing hosts
 

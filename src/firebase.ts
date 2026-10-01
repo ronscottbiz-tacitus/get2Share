@@ -3,21 +3,13 @@ import { getFirestore } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
-// Credentials derived from firebase-applet-config.json
-const firebaseConfig = {
-  apiKey: "AIzaSyBh-Hsd6OFOiKxiSpkXwRCA3MDjt_gE2Sg",
-  authDomain: "gen-lang-client-0927699826.firebaseapp.com",
-  projectId: "gen-lang-client-0927699826",
-  storageBucket: "gen-lang-client-0927699826.firebasestorage.app",
-  messagingSenderId: "384324268180",
-  appId: "1:384324268180:web:ee39b0d94fa11ee2134481"
-};
+import { firebaseConfig, firestoreDatabaseId } from './firebase-config';
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with the custom database ID from provisioning
-const db = getFirestore(app, "ai-studio-get2share-ddc6e1c1-20ed-4765-b2ee-cda7103acab8");
+// Initialize Firestore (named database if one is configured, otherwise the default)
+const db = firestoreDatabaseId ? getFirestore(app, firestoreDatabaseId) : getFirestore(app);
 
 // Initialize Storage
 const storage = getStorage(app);
