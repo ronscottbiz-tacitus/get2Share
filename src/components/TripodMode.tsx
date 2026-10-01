@@ -14,7 +14,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const [isRegistered, setIsRegistered] = useState(false);
   const [error, setError] = useState('');
   const [batteryLevel, setBatteryLevel] = useState<number | undefined>(undefined);
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  // Front camera by default so guests can see themselves on the Share Spot's screen.
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [capturing, setCapturing] = useState(false);
   const [lastCapturedUrl, setLastCapturedUrl] = useState<string | null>(null);
 
@@ -22,6 +23,47 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameStreamingIntervalRef = useRef<any>(null);
+  // Refs (not state) so timers and listeners always see the current values.
+  const registeredRef = useRef(false);
+  const capturingRef = useRef(false);
+
+  // Open a camera, falling back gracefully on older devices that reject strict requests.
+  const openCamera = async (facing: 'user' | 'environment') => {
+    const attempts: MediaStreamConstraints[] = [
+      { video: { facingMode: { exact: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+      { video: { facingMode: facing }, audio: false },
+      { video: true, audio: false },
+    ];
+    let lastErr: unknown;
+    for (const c of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(c);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
+  };
+
+  const attachStream = (stream: MediaStream) => {
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
+  // Stop the camera and preview frames without removing this Share Spot.
+  const stopCamera = () => {
+    if (frameStreamingIntervalRef.current) {
+      clearInterval(frameStreamingIntervalRef.current);
+      frameStreamingIntervalRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  };
 
   // Callback ref to bind stream as soon as video element is mounted in DOM
   const setVideoRef = (node: HTMLVideoElement | null) => {
@@ -96,21 +138,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
     try {
       setError('');
-      // Request Camera Access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facingMode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
-
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
+      // Request camera access (front camera by default)
+      attachStream(await openCamera(facingMode));
 
       // Register this device as a Tripod in the Sessions Firestore collection
       const docRef = doc(db, 'sessions', sessionId);
@@ -133,6 +162,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
         handleFirestoreError(err, OperationType.CREATE, `sessions/${sessionId}`);
       }
 
+      registeredRef.current = true;
       setIsRegistered(true);
 
       // Start periodic low-res thumbnail frame streaming (monitoring feed)
@@ -147,7 +177,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     if (frameStreamingIntervalRef.current) clearInterval(frameStreamingIntervalRef.current);
 
     frameStreamingIntervalRef.current = setInterval(() => {
-      if (!videoRef.current || !streamRef.current || !isRegistered) return;
+      if (!videoRef.current || !streamRef.current || !registeredRef.current) return;
+      if (!videoRef.current.videoWidth) return; // camera not ready yet
 
       const video = videoRef.current;
       if (!canvasRef.current) {
@@ -158,8 +189,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Small monitoring frame
-      const width = 240;
+      // Small monitoring frame for the Host Console
+      const width = 320;
       const height = Math.round((video.videoHeight / video.videoWidth) * width) || 180;
       canvas.width = width;
       canvas.height = height;
@@ -176,15 +207,16 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       }).catch((err) => {
         handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`);
       });
-    }, 700);
+    }, 1500);
   };
 
   // fromHost = the host fired the remote shutter (publishes immediately).
   // A local "Test Shutter" follows the event's normal approval setting.
   const triggerShutterCapture = async (fromHost: boolean = false) => {
-    if (!videoRef.current || capturing) return;
+    if (!videoRef.current || capturingRef.current) return;
 
     try {
+      capturingRef.current = true;
       setCapturing(true);
 
       const video = videoRef.current;
@@ -200,6 +232,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       captureCanvas.toBlob(
         async (blob) => {
           if (!blob) {
+            capturingRef.current = false;
             setCapturing(false);
             return;
           }
@@ -243,6 +276,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           } catch (uploadErr) {
             console.error('Tripod photo upload error:', uploadErr);
           } finally {
+            capturingRef.current = false;
             setCapturing(false);
           }
         },
@@ -251,54 +285,34 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       );
     } catch (err) {
       console.error('Shutter trigger capture error:', err);
+      capturingRef.current = false;
       setCapturing(false);
     }
   };
 
   const toggleFacingMode = async () => {
     const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
-    setFacingMode(nextFacing);
-
-    cleanupStream();
-
-    setTimeout(async () => {
+    stopCamera();
+    try {
+      attachStream(await openCamera(nextFacing));
+      setFacingMode(nextFacing);
+    } catch (err) {
+      console.error('Camera switch failed:', err);
+      // Fall back to whichever camera works
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: nextFacing,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
-
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-
-        if (isRegistered) {
-          startFrameStreaming();
-        }
-      } catch (err) {
-        console.error('Camera switch failed:', err);
+        attachStream(await openCamera(facingMode));
+      } catch {
+        setError("Couldn't switch cameras on this device.");
       }
-    }, 150);
+    }
+    if (registeredRef.current) startFrameStreaming();
   };
 
+  // Stop the camera and remove this Share Spot from the Host Console.
   const cleanupStream = () => {
-    if (frameStreamingIntervalRef.current) {
-      clearInterval(frameStreamingIntervalRef.current);
-      frameStreamingIntervalRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    if (isRegistered && sessionId) {
+    stopCamera();
+    if (registeredRef.current && sessionId) {
+      registeredRef.current = false;
       deleteDoc(doc(db, 'sessions', sessionId)).catch((err) => {
         handleFirestoreError(err, OperationType.DELETE, `sessions/${sessionId}`);
       });
@@ -360,6 +374,34 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
               </div>
             )}
 
+            <fieldset className="space-y-1.5">
+              <legend className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary mb-1.5">
+                Which camera?
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { value: 'user', label: 'Front', hint: 'Guests see themselves' },
+                  { value: 'environment', label: 'Back', hint: 'Points at the room' },
+                ] as const).map((opt) => {
+                  const active = facingMode === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setFacingMode(opt.value)}
+                      className={`rounded-xl px-3 py-2.5 text-left border transition-colors cursor-pointer ${
+                        active ? 'border-g2-blue bg-g2-blue/10' : 'border-white/10 hover:border-white/25'
+                      }`}
+                    >
+                      <span className="block text-sm font-bold text-white">{opt.label}</span>
+                      <span className="block text-[11px] text-g2-tertiary">{opt.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
             <button
               type="submit"
               className="w-full bg-g2-blue hover:bg-g2-blue-hover text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-g2-blue/20 cursor-pointer"
@@ -405,7 +447,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           autoPlay
           playsInline
           muted
-          className="w-full h-full object-cover"
+          className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
         />
 
         {/* Technical Hud Overlay */}
