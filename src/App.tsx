@@ -128,11 +128,14 @@ export default function App() {
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') return;
       console.error('Host sign-in failed:', err);
-      setHostSignInError(
-        err?.code === 'auth/unauthorized-domain'
-          ? 'This website address is not authorized for sign-in yet. Add it under Firebase Authentication → Settings → Authorized domains.'
-          : 'Google sign-in failed. Please try again.'
-      );
+      const code: string = err?.code || 'unknown';
+      const messages: Record<string, string> = {
+        'auth/unauthorized-domain': `This address (${window.location.hostname}) isn't approved for sign-in yet. Add it under Firebase → Authentication → Settings → Authorized domains.`,
+        'auth/popup-blocked': 'Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.',
+        'auth/operation-not-allowed': 'Google sign-in is turned off for this project. Turn it on under Firebase → Authentication → Sign-in method.',
+        'auth/network-request-failed': "Couldn't reach Google. Check your connection and try again.",
+      };
+      setHostSignInError(messages[code] ?? `Google sign-in failed (${code}). Please try again.`);
     }
   };
 
