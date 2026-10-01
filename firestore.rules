@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE SECURITY PRIMITIVES ---
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming(request) {
+      return request.resource.data;
+    }
+
+    function existing(resource) {
+      return resource.data;
+    }
+
+    // --- VALIDATION BLUEPRINTS ---
+
+    function isValidPhoto(data) {
+      return data.url is string && data.url.size() <= 1048576
+        && data.nickname is string && data.nickname.size() <= 64
+        && data.sessionId is string && data.sessionId.size() <= 64
+        && data.createdAt is int
+        && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected')
+        && data.reactions is map
+        && data.reactions.likes is int
+        && data.reactions.dislikes is int
+        && data.flagged is bool;
+    }
+
+    function isValidSession(data) {
+      return data.sessionId is string && data.sessionId.size() <= 64
+        && data.nickname is string && data.nickname.size() <= 64
+        && data.role is string && (data.role == 'guest' || data.role == 'tripod' || data.role == 'host')
+        && data.lastActive is int;
+    }
+
+    function isValidSettings(data) {
+      return (data.autoApproval == null || data.autoApproval is bool)
+        && (data.eventTitle == null || (data.eventTitle is string && data.eventTitle.size() <= 300))
+        && (data.eventSubtitle == null || (data.eventSubtitle is string && data.eventSubtitle.size() <= 500))
+        && (data.guestLensEnabled == null || data.guestLensEnabled is bool);
+    }
+
+    // --- COLLECTION RULES ---
+
+    // Settings Collection Rules
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow create: if settingsId == 'event-settings'
+                    && isValidSettings(incoming(request));
+      allow update: if settingsId == 'event-settings'
+                    && isValidSettings(incoming(request));
+    }
+
+    // Photos Collection Rules
+    match /photos/{photoId} {
+      allow read: if true;
+      allow delete: if true;
+      
+      allow create: if isValidId(photoId)
+                    && isValidPhoto(incoming(request))
+                    && incoming(request).keys().hasAll(['url', 'nickname', 'sessionId', 'createdAt', 'status', 'reactions', 'flagged'])
+                    && incoming(request).keys().size() == 7;
+
+      allow update: if isValidId(photoId)
+                    && isValidPhoto(incoming(request))
+                    && (
+                      // Action 1: Reacting (upvote/downvote)
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['reactions'])
+                      ) ||
+                      // Action 2: Flagging
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['flagged'])
+                      ) ||
+                      // Action 3: Moderation (Approving/Rejecting)
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['status'])
+                      ) ||
+                      // Action 4: Host panel multi-field updates (dismissing flags and approving status)
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['status', 'flagged'])
+                      )
+                    );
+    }
+
+    // Sessions Collection Rules
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow delete: if true;
+
+      allow create: if isValidId(sessionId)
+                    && isValidSession(incoming(request))
+                    && sessionId == incoming(request).sessionId
+                    && incoming(request).keys().hasAll(['sessionId', 'nickname', 'role', 'lastActive'])
+                    && incoming(request).keys().size() >= 4 && incoming(request).keys().size() <= 10;
+
+      allow update: if isValidId(sessionId)
+                    && isValidSession(incoming(request))
+                    && (
+                      // Action 1: Heartbeat update only
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['lastActive'])
+                      ) ||
+                      // Action 2: Battery or device info metadata update
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['deviceInfo'])
+                      ) ||
+                      // Action 3: Trigger remote shutter signal
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasOnly(['trigger_shutter'])
+                      ) ||
+                      // Action 4: Lens handshake / guest viewfinder streaming states
+                      (
+                        incoming(request).diff(existing(resource)).affectedKeys().hasAny(['invited_to_lens', 'lens_status', 'stream_frame', 'trigger_shutter', 'lastActive', 'deviceInfo'])
+                      )
+                    );
+    }
+  }
+}

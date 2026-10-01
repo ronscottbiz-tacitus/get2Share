@@ -1,0 +1,6 @@
+{
+  "name": "Get2Share",
+  "description": "Frictionless, real-time event photo sharing with ad-hoc remote lenses and tripod controls.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
