@@ -176,8 +176,11 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const startFrameStreaming = () => {
     if (frameStreamingIntervalRef.current) clearInterval(frameStreamingIntervalRef.current);
 
+    let frameInFlight = false;
     frameStreamingIntervalRef.current = setInterval(() => {
       if (!videoRef.current || !streamRef.current || !registeredRef.current) return;
+      // On a slow connection, skip this tick rather than stacking up writes.
+      if (frameInFlight) return;
       if (!videoRef.current.videoWidth) return; // camera not ready yet
 
       const video = videoRef.current;
@@ -201,12 +204,17 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       const base64Frame = canvas.toDataURL('image/jpeg', 0.5);
 
       const docRef = doc(db, 'sessions', sessionId);
+      frameInFlight = true;
       updateDoc(docRef, {
         stream_frame: base64Frame,
         lastActive: Date.now(),
-      }).catch((err) => {
-        handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`);
-      });
+      })
+        .catch((err) => {
+          handleFirestoreError(err, OperationType.UPDATE, `sessions/${sessionId}`);
+        })
+        .finally(() => {
+          frameInFlight = false;
+        });
     }, 1500);
   };
 

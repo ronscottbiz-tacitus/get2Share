@@ -11,6 +11,8 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
 import Get2ShareLockup from './Get2ShareLockup';
+import { useRemoteShutter } from './useRemoteShutter';
+import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 
 interface HostDashboardProps {
   onLaunchSlideshow: () => void;
@@ -60,6 +62,9 @@ export default function HostDashboard({
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   const joinLink = window.location.origin;
+
+  // Remote "Take photo": tracks each shot from tap → device heard it → photo landed.
+  const { shots, fire: fireShutter } = useRemoteShutter(sessions, photos);
 
   // Generate QR code on mount or when joinLink changes
   useEffect(() => {
@@ -326,17 +331,6 @@ export default function HostDashboard({
     }
   };
 
-  // Remote Tripod shutter triggers
-  const handleTriggerTripodShutter = async (tripodSessionId: string) => {
-    try {
-      const docRef = doc(db, 'sessions', tripodSessionId);
-      await updateDoc(docRef, { trigger_shutter: true, last_trigger_at: serverTimestamp() });
-    } catch (e) {
-      console.error('Tripod shutter trigger failed:', e);
-      handleFirestoreError(e, OperationType.UPDATE, `sessions/${tripodSessionId}`);
-    }
-  };
-
   // Ad-Hoc Guest Lens invitation trigger
   const handleRequestLens = async (guestSessionId: string) => {
     try {
@@ -372,16 +366,6 @@ export default function HostDashboard({
       }));
     } catch (e) {
       console.error('Cancel lens failed:', e);
-      handleFirestoreError(e, OperationType.UPDATE, `sessions/${guestSessionId}`);
-    }
-  };
-
-  const handleTriggerLensShutter = async (guestSessionId: string) => {
-    try {
-      const docRef = doc(db, 'sessions', guestSessionId);
-      await updateDoc(docRef, { trigger_shutter: true, last_trigger_at: serverTimestamp() });
-    } catch (e) {
-      console.error('Lens trigger shutter failed:', e);
       handleFirestoreError(e, OperationType.UPDATE, `sessions/${guestSessionId}`);
     }
   };
@@ -704,6 +688,7 @@ export default function HostDashboard({
                             <p className="text-[10px] text-g2-muted">Waiting for preview</p>
                           </div>
                         )}
+                        <ShotOverlay shot={shots[tripod.sessionId]} />
                         <span className="absolute top-2 left-2 text-[10px] font-bold bg-black/60 backdrop-blur-md text-g2-blue-light px-2 py-0.5 rounded-full border border-g2-blue/20">
                           {tripod.nickname}
                         </span>
@@ -714,15 +699,13 @@ export default function HostDashboard({
                       </div>
 
                       <div className="p-3.5 bg-black/40 flex justify-between items-center">
-                        <span className="text-[10px] text-g2-muted font-mono">
-                          Ready
+                        <span className="text-[10px] text-g2-muted font-mono" aria-live="polite">
+                          {shotStatusText(shots[tripod.sessionId])}
                         </span>
-                        <button
-                          onClick={() => handleTriggerTripodShutter(tripod.sessionId)}
-                          className="bg-g2-blue hover:bg-g2-blue-hover text-white font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition-all duration-300 shadow-md shadow-g2-blue/20"
-                        >
-                          <Camera className="w-3.5 h-3.5" /> Take photo
-                        </button>
+                        <ShutterButton
+                          shot={shots[tripod.sessionId]}
+                          onFire={() => fireShutter(tripod.sessionId)}
+                        />
                       </div>
                     </div>
                   ))}
@@ -763,6 +746,7 @@ export default function HostDashboard({
                       ) : (
                         <span className="text-[10px] text-gray-500 animate-pulse">Waiting for feed...</span>
                       )}
+                      {lensState.activeRequester && <ShotOverlay shot={shots[lensState.activeRequester]} />}
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-g2-blue-light flex items-center gap-1">
@@ -773,13 +757,18 @@ export default function HostDashboard({
                   </div>
 
                   {/* Shutter Trigger Button */}
-                  <button
-                    onClick={() => setLensState(prev => ({ ...prev, triggerRequested: true }))}
-                    className="bg-g2-blue hover:bg-g2-blue-hover text-white font-black text-xs py-2.5 px-5 rounded-xl transition duration-150 active:scale-95 flex items-center gap-2 cursor-pointer"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    Take photo
-                  </button>
+                  {lensState.activeRequester && (
+                    <div className="flex flex-col items-center gap-1">
+                      <ShutterButton
+                        size="md"
+                        shot={shots[lensState.activeRequester]}
+                        onFire={() => fireShutter(lensState.activeRequester!)}
+                      />
+                      <span className="text-[10px] text-g2-muted font-mono" aria-live="polite">
+                        {shotStatusText(shots[lensState.activeRequester], '')}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -822,6 +811,7 @@ export default function HostDashboard({
                           <div className="w-32 aspect-video bg-black/40 rounded-lg border border-white/5 overflow-hidden relative">
                             <img src={guest.stream_frame} alt="Preview" className="w-full h-full object-cover" />
                             <span className="absolute bottom-1 right-1 bg-red-600 w-1.5 h-1.5 rounded-full animate-ping" />
+                            <ShotOverlay shot={shots[guest.sessionId]} />
                           </div>
                         )}
 
@@ -840,12 +830,11 @@ export default function HostDashboard({
 
                           {isStreaming && (
                             <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleTriggerLensShutter(guest.sessionId)}
-                                className="bg-white hover:bg-g2-secondary text-g2-page font-extrabold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <Camera className="w-3.5 h-3.5" /> Take photo
-                              </button>
+                              <ShutterButton
+                                variant="white"
+                                shot={shots[guest.sessionId]}
+                                onFire={() => fireShutter(guest.sessionId)}
+                              />
                               <button
                                 onClick={() => handleCancelLens(guest.sessionId)}
                                 className="bg-white/5 hover:bg-white/10 text-g2-tertiary px-2.5 py-1.5 rounded-lg text-[10px] cursor-pointer"
