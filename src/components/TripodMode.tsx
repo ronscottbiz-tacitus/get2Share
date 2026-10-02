@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, X, ShieldAlert, Battery, Wifi, Settings, Zap } from 'lucide-react';
 import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { paths } from '../events';
+import { eventPhase, expiryOf, paths } from '../events';
 import { normalizePairingCode, formatPairingCode, STORED_SPOT_CODE_KEY } from '../spotPairing';
 import { BACKGROUND_MS, FOCUS_MS, FRAME, NORMAL_MS, WATCH_TIMEOUT_MS } from '../liveConsole';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
@@ -18,6 +18,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const [eventId, setEventId] = useState<string | null>(null);
   const eventIdRef = useRef<string | null>(null);
   const sessionRef = () => paths.session(eventIdRef.current as string, sessionId);
+  // The event's end and cleanup dates, so photos and this spot expire with the album.
+  const eventTimesRef = useRef<{ endsAt?: any; expireAt?: any } | null>(null);
   // Host-issued pairing code. Remembered so this device can reconnect after a reload.
   const [pairingCode, setPairingCode] = useState(() => {
     try { return localStorage.getItem(STORED_SPOT_CODE_KEY) || ''; } catch { return ''; }
@@ -115,6 +117,27 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     });
   }, [batteryLevel, charging, isRegistered, sessionId]);
 
+  // When the event ends, this Share Spot switches itself off.
+  useEffect(() => {
+    if (!isRegistered || !eventIdRef.current) return;
+    const check = (data: any) => {
+      eventTimesRef.current = data ? { endsAt: data.endsAt, expireAt: data.expireAt } : null;
+      if (data && eventPhase(data) !== 'live' && registeredRef.current) {
+        cleanupStream();
+        setIsRegistered(false);
+        setError('This event has ended, so the Share Spot is off. Thanks for helping everyone get in the picture!');
+      }
+    };
+    let latest: any = null;
+    const unsub = onSnapshot(paths.event(eventIdRef.current), (snap) => {
+      latest = snap.exists() ? snap.data() : null;
+      check(latest);
+    }, () => {});
+    const t = setInterval(() => check(latest), 30000);
+    return () => { unsub(); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRegistered]);
+
   // Listen for the Host Console. Only send previews while someone is watching.
   // "Watching" is judged by when the last heartbeat *arrived* on this device,
   // so a tablet with the wrong clock still behaves.
@@ -208,11 +231,13 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       const pairingRef = doc(db, 'spotPairings', code);
       let spotName = '';
       let spotEventId = '';
+      let spotExpireAt: any = null;
       try {
         const existing = await getDoc(pairingRef); // only readable once it's ours
         if (existing.exists() && existing.data().claimedBy === sessionId) {
           spotName = existing.data().spotName;
           spotEventId = existing.data().eventId;
+          spotExpireAt = existing.data().expireAt ?? null;
         }
       } catch {
         // Not ours yet: claim it below.
@@ -223,6 +248,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           const claimed = await getDoc(pairingRef);
           spotName = claimed.data()?.spotName || '';
           spotEventId = claimed.data()?.eventId || '';
+          spotExpireAt = claimed.data()?.expireAt ?? null;
         } catch (err) {
           console.error('Pairing failed:', err);
           setError("That code didn't work. Codes work once and expire after 10 minutes, so ask the host for a new one.");
@@ -239,11 +265,21 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       setEventId(spotEventId);
 
       // Join the event as a Share Spot (the database checks the pairing code).
+      let eventData: any = null;
       try {
         const memberRef = paths.member(spotEventId, sessionId);
         const already = await getDoc(memberRef).then((m) => m.exists()).catch(() => false);
         if (!already) {
-          await setDoc(memberRef, { nickname: spotName, joinedAt: serverTimestamp(), joinCode: code, role: 'spot' });
+          await setDoc(memberRef, {
+            nickname: spotName, joinedAt: serverTimestamp(), joinCode: code, role: 'spot',
+            ...(spotExpireAt ? { expireAt: spotExpireAt } : {}),
+          });
+        }
+        eventData = await getDoc(paths.event(spotEventId)).then((d) => (d.exists() ? d.data() : null)).catch(() => null);
+        eventTimesRef.current = eventData ? { endsAt: eventData.endsAt, expireAt: eventData.expireAt } : null;
+        if (eventData && eventPhase(eventData) !== 'live') {
+          setError('This event has already ended, so it can\'t take Share Spots any more.');
+          return;
         }
       } catch (err) {
         console.error('Share Spot join failed:', err);
@@ -275,6 +311,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             deviceName: `${spotName} Lens`,
           },
           lens_status: 'streaming',
+          ...expiryOf(eventTimesRef.current),
           invited_to_lens: false,
           trigger_shutter: false,
         }, { merge: true });
@@ -376,7 +413,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             const file = new File([blob], `tripod_${tripodName}_${Date.now()}.jpg`, { type: 'image/jpeg' });
             // Automatic client-side canvas downscale & compress to 1200px wide, ~80% JPEG quality
             const compressedBlob = await compressPhoto(file);
-            const downloadUrl = await uploadPhotoAsset(compressedBlob, `tripod_${tripodName}_${Date.now()}.jpg`);
+            const downloadUrl = await uploadPhotoAsset(compressedBlob, `tripod_${tripodName}_${Date.now()}.jpg`, eventIdRef.current as string);
 
             // Host-triggered captures publish immediately (the database verifies the
             // host fired the shutter in the last 2 minutes). Local test shots follow
@@ -401,6 +438,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
                 status,
                 reactions: { likes: 0, dislikes: 0 },
                 flagged: false,
+                ...expiryOf(eventTimesRef.current),
               });
             } catch (err) {
               handleFirestoreError(err, OperationType.CREATE, 'photos');

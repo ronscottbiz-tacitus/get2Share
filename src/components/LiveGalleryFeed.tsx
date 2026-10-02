@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Heart, Image as ImageIcon, LogOut, Clock, RefreshCw, Trash2 } from 'lucide-react';
+import { Camera, Heart, Image as ImageIcon, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { query, where, onSnapshot, addDoc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { paths } from '../events';
+import { eventPhase, expiryOf, formatDay, paths } from '../events';
 import { useEvent } from '../EventContext';
-import { compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
+import { deletePhotoFile, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -16,6 +16,7 @@ interface LiveGalleryFeedProps {
   favorites: string[];
   hiddenIds: string[];
   onGoToHost: () => void;
+  onOpenKeepsake: () => void;
   eventTitle?: string;
   eventSubtitle?: string;
   isHost?: boolean;
@@ -29,6 +30,7 @@ export default function LiveGalleryFeed({
   favorites,
   hiddenIds,
   onGoToHost,
+  onOpenKeepsake,
   eventTitle,
   eventSubtitle,
   isHost,
@@ -40,6 +42,17 @@ export default function LiveGalleryFeed({
   const { event } = useEvent();
   const eventId = event.id;
   const autoApproval = event.autoApproval;
+
+  // Where the event is in its life (live → wrap-up → album). Re-checked every 30s.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const phase = eventPhase(event, now);
+  const uploadsOpen = phase === 'live' || phase === 'wrapup';
+  const endMs = event.endsAt?.toMillis?.() ?? null;
+  const albumUntil = event.expireAt?.toMillis?.() ?? null;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -100,6 +113,7 @@ export default function LiveGalleryFeed({
             nickname: nickname,
             role: 'guest',
             lastActive: Date.now(),
+            ...expiryOf(event),
           });
         }
       } catch (e) {
@@ -138,7 +152,7 @@ export default function LiveGalleryFeed({
 
       setUploadProgress('Uploading…');
       // 2. Upload to Cloud Storage with Base64 fallback
-      const fileUrl = await uploadPhotoAsset(compressedBlob, file.name);
+      const fileUrl = await uploadPhotoAsset(compressedBlob, file.name, eventId);
 
       setUploadProgress('Adding it to the gallery…');
       
@@ -155,6 +169,7 @@ export default function LiveGalleryFeed({
           status: defaultStatus,
           reactions: { likes: 0, dislikes: 0 },
           flagged: false,
+          ...expiryOf(event),
         });
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, 'photos');
@@ -219,6 +234,14 @@ export default function LiveGalleryFeed({
             </button>
           )}
           <button
+            onClick={onOpenKeepsake}
+            aria-label="Save my photos"
+            title="Save my photos"
+            className="w-11 h-11 flex items-center justify-center text-g2-secondary hover:text-white transition-colors cursor-pointer"
+          >
+            <Bookmark className="w-[18px] h-[18px]" />
+          </button>
+          <button
             onClick={onExitSession}
             aria-label="Leave event or change nickname"
             title="Leave event"
@@ -232,13 +255,35 @@ export default function LiveGalleryFeed({
       {/* Event */}
       <section className="px-5 pt-4 pb-3 max-w-3xl mx-auto">
         <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary flex items-center gap-2">
-          <span className="w-[7px] h-[7px] rounded-full bg-emerald-400" />
-          Live event · {approvedCount} {approvedCount === 1 ? 'photo' : 'photos'}
+          <span className={`w-[7px] h-[7px] rounded-full ${uploadsOpen ? 'bg-emerald-400' : 'bg-g2-muted'}`} />
+          {phase === 'live' ? 'Live event' : phase === 'wrapup' ? 'Wrapping up' : 'Album'} · {approvedCount} {approvedCount === 1 ? 'photo' : 'photos'}
         </p>
         {title && (
           <h1 className="mt-1.5 font-expanded font-black text-2xl leading-tight text-white">{title}</h1>
         )}
         {subtitle && <p className="mt-1 text-[13px] leading-relaxed text-g2-secondary">{subtitle}</p>}
+
+        {phase === 'wrapup' && endMs && (
+          <p className="mt-3 px-3.5 py-2.5 rounded-lg bg-amber-400/10 border border-amber-400/25 text-[13px] text-amber-100">
+            The party's wrapping up. Last photos until {new Date(endMs + 60 * 60 * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.
+          </p>
+        )}
+        {!uploadsOpen && (
+          <div className="mt-3 p-4 rounded-xl bg-g2-panel border border-g2-blue/40 flex flex-col gap-3">
+            <div>
+              <p className="text-[15px] font-bold text-white">That's a wrap.</p>
+              <p className="mt-0.5 text-[13px] leading-relaxed text-g2-secondary">
+                {albumUntil ? `This album is open until ${formatDay(albumUntil)}. ` : ''}Save your photos to keep them for good.
+              </p>
+            </div>
+            <button
+              onClick={onOpenKeepsake}
+              className="h-12 rounded-lg bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] cursor-pointer transition-colors"
+            >
+              Save my photos
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Filters */}
@@ -320,7 +365,7 @@ export default function LiveGalleryFeed({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (window.confirm('Delete this photo from the event for everyone?')) {
-                          deleteDoc(paths.photo(eventId, photo.id)).catch((err) => {
+                          deleteDoc(paths.photo(eventId, photo.id)).then(() => deletePhotoFile(photo.url)).catch((err) => {
                             console.error('Host delete failed:', err);
                             handleFirestoreError(err, OperationType.DELETE, `photos/${photo.id}`);
                           });
@@ -388,6 +433,11 @@ export default function LiveGalleryFeed({
         </AnimatePresence>
 
         <div className="h-28 flex flex-col items-center justify-center gap-1.5">
+          {!uploadsOpen ? (
+            <p className="px-6 text-center text-[13px] text-g2-tertiary">
+              New photos are closed for this event.
+            </p>
+          ) : (
           <button
             onClick={handleUploadClick}
             disabled={uploading}
@@ -398,6 +448,7 @@ export default function LiveGalleryFeed({
               <Camera className="w-[26px] h-[26px]" aria-hidden="true" />
             </span>
           </button>
+          )}
         </div>
 
         {/* Hidden native input */}

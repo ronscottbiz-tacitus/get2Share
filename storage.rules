@@ -1,11 +1,16 @@
 rules_version = '2';
 
 // Get2Share photo storage.
-//   * Each device (anonymous guest, Share Spot, or host) uploads only into
-//     photos/<its own uid>/, images only, up to 5 MB.
+//   * Photos live under events/<eventId>/<uploader uid>/. Each device uploads
+//     only into its own folder: images only, up to 5 MB.
+//   * The uploader, the event's hosts, or an admin can delete a photo's file
+//     (deleting a photo in the app deletes its file too).
 //   * Photos are viewed through their download links (the gallery stores
 //     those links), so no one can list or browse other people's folders.
-//   * The uploader can delete their own files.
+//   * photos/<uid>/ is the older layout from before events existed.
+//
+// The host check reads the event from Firestore. The first time you publish
+// this, Firebase asks to let Storage rules read Firestore: allow it.
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -13,13 +18,30 @@ service firebase.storage {
       allow read, write: if false;
     }
 
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '').lower() in ['ronaldscott.ca@gmail.com', 'ronscottbiz@gmail.com'];
+    }
+
+    function isValidImage() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /events/{eventId}/{uid}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid && isValidImage();
+      allow delete: if request.auth != null
+                    && (request.auth.uid == uid
+                        || isAdmin()
+                        || request.auth.uid in firestore.get(/databases/(default)/documents/events/$(eventId)).data.hostUids);
+    }
+
     match /photos/{uid}/{fileName} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null
-                    && request.auth.uid == uid
-                    && request.resource.size < 5 * 1024 * 1024
-                    && request.resource.contentType.matches('image/.*');
-      allow delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid && isValidImage();
+      allow delete: if request.auth != null && (request.auth.uid == uid || isAdmin());
     }
   }
 }

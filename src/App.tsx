@@ -5,19 +5,20 @@ import PhotoLightbox from './components/PhotoLightbox';
 import HostDashboard from './components/HostDashboard';
 import HostHome from './components/HostHome';
 import Landing from './components/Landing';
+import Keepsake from './components/Keepsake';
 import TripodMode from './components/TripodMode';
 import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import { Photo } from './types';
 import { X, Check, Users } from 'lucide-react';
 import { updateDoc, onSnapshot, addDoc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
+import { linkWithPopup, onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
 import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
 import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   EVENT_PATH_PREFIX, EventWithId, HOST_PATH, isMemberOf, joinEvent, normalizeJoinCode, paths,
-  findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode,
+  findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf,
 } from './events';
 import { EventContext } from './EventContext';
 
@@ -80,7 +81,7 @@ export default function App() {
   }, []);
 
   // ---------- Guest side of an event (/e/CODE) ----------
-  const [joinInfo, setJoinInfo] = useState<{ code: string; eventId: string; name: string } | null>(null);
+  const [joinInfo, setJoinInfo] = useState<({ code: string } & JoinInfo) | null>(null);
   const [membership, setMembership] = useState<'checking' | 'member' | 'not'>('checking');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState('');
@@ -97,8 +98,15 @@ export default function App() {
     : null;
   const eventIdRef = useRef<string | null>(null);
   eventIdRef.current = activeEventId;
+  const eventStateRef = useRef<EventWithId | null>(null);
 
   const [hostView, setHostView] = useState<'console' | 'slideshow'>('console');
+
+  // "Save my photos": link this phone's guest identity to a Google account.
+  const [showKeepsake, setShowKeepsake] = useState(false);
+  const [savingPhotos, setSavingPhotos] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [, setAuthVersion] = useState(0);
 
   // Favorites & hidden photos persisted locally
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -196,6 +204,7 @@ export default function App() {
             if (n) setNickname(n);
           } catch { /* keep local nickname */ }
           rememberEvent({ code: routeCode, name: found.name, eventId: found.eventId });
+          recordJoined(sessionId, found.eventId, { name: found.name, code: routeCode, expireAt: found.expireAt });
         }
         setMembership(member ? 'member' : 'not');
       } catch (err) {
@@ -232,6 +241,7 @@ export default function App() {
     );
   }, [activeEventId, sessionId]);
 
+  eventStateRef.current = event;
   const isEventHost =
     !!event && hasAccount && (isAdmin || (event.hostUids || []).includes(sessionId));
 
@@ -240,7 +250,7 @@ export default function App() {
     setJoining(true);
     setJoinError('');
     try {
-      await joinEvent(joinInfo.eventId, sessionId, enteredNickname, joinInfo.code);
+      await joinEvent(joinInfo.eventId, sessionId, enteredNickname, joinInfo.code, joinInfo.name, joinInfo.expireAt);
       try { localStorage.setItem('get2share-nickname', enteredNickname); } catch { /* ignore */ }
       setNickname(enteredNickname);
       rememberEvent({ code: joinInfo.code, name: joinInfo.name, eventId: joinInfo.eventId });
@@ -276,6 +286,39 @@ export default function App() {
         'auth/network-request-failed': "Couldn't reach Google. Check your connection and try again.",
       };
       setHostSignInError(messages[code] ?? `Google sign-in failed (${code}). Please try again.`);
+    }
+  };
+
+  // Keeps the same identity (uid), so every photo and event this phone joined
+  // stays theirs, now reachable from any device by signing in.
+  const handleSavePhotos = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    setSavingPhotos(true);
+    setSaveError('');
+    try {
+      const res = await linkWithPopup(user, googleProvider);
+      await res.user.getIdToken(true); // the database sees the account right away
+      setAuthUser(res.user);
+      setAuthVersion((v) => v + 1);
+    } catch (err: any) {
+      const code: string = err?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        // they changed their mind
+      } else if (code === 'auth/credential-already-in-use' || code === 'auth/email-already-in-use') {
+        setSaveError('That Google account is already used with Get2Share, so these photos can\'t move into it. Try a different Google account, or keep using this phone.');
+      } else if (code === 'auth/provider-already-linked') {
+        setAuthVersion((v) => v + 1);
+      } else if (code === 'auth/unauthorized-domain') {
+        setSaveError(`This address (${window.location.hostname}) isn't approved for sign-in yet. Add it under Firebase → Authentication → Settings → Authorized domains.`);
+      } else if (code === 'auth/popup-blocked') {
+        setSaveError('Your browser blocked the Google window. Allow pop-ups for this site and try again.');
+      } else {
+        console.error('Save my photos failed:', err);
+        setSaveError(`Couldn't save right now (${code || 'unknown error'}). Try again.`);
+      }
+    } finally {
+      setSavingPhotos(false);
     }
   };
 
@@ -469,7 +512,7 @@ export default function App() {
             try {
               const rawFile = new File([blob], `lens_snap_${Date.now()}.jpg`, { type: 'image/jpeg' });
               const compressed = await compressPhoto(rawFile);
-              const fileUrl = await uploadPhotoAsset(compressed, `lens_snap_${Date.now()}.jpg`);
+              const fileUrl = await uploadPhotoAsset(compressed, `lens_snap_${Date.now()}.jpg`, eventIdRef.current as string);
 
               // Create new photo item in Firestore
               await addDoc(paths.photos(eventIdRef.current as string), {
@@ -479,7 +522,8 @@ export default function App() {
                 createdAt: Date.now(),
                 status: 'approved',
                 reactions: { likes: 0, dislikes: 0 },
-                flagged: false
+                flagged: false,
+                ...expiryOf(eventStateRef.current),
               });
             } catch (e) {
               console.error('Failed to upload lens snap:', e);
@@ -593,6 +637,11 @@ export default function App() {
         onSignIn={handleHostSignIn}
         onSignOut={handleHostSignOut}
         onOpenEvent={(id) => { setHostView('console'); navigate(`${HOST_PATH}/${id}`); }}
+        onOpenJoined={(j) => {
+          // Seed this device's memory so an old code still finds the event.
+          rememberEvent({ code: j.code, name: j.name, eventId: j.eventId });
+          navigate(`${EVENT_PATH_PREFIX}${j.code}`);
+        }}
         onBack={() => navigate('/')}
       />
     );
@@ -663,8 +712,26 @@ export default function App() {
         favorites={favorites}
         hiddenIds={hiddenIds}
         onGoToHost={() => navigate(`${HOST_PATH}/${event.id}`)}
+        onOpenKeepsake={() => { setSaveError(''); setShowKeepsake(true); }}
         isHost={isEventHost}
       />
+
+      <AnimatePresence>
+        {showKeepsake && (
+          <Keepsake
+            key="keepsake"
+            sessionId={sessionId}
+            nickname={nickname}
+            saved={hasAccount}
+            email={authUser.email}
+            saving={savingPhotos}
+            saveError={saveError}
+            onSave={handleSavePhotos}
+            onOpenAccount={() => { setShowKeepsake(false); navigate(HOST_PATH); }}
+            onClose={() => setShowKeepsake(false)}
+          />
+        )}
+      </AnimatePresence>
 
   {/* Camera request from the host: a bottom sheet the guest must accept */}
       <AnimatePresence>

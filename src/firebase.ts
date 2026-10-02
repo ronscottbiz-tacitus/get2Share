@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
 import { firebaseConfig, firestoreDatabaseId } from './firebase-config';
@@ -89,7 +89,8 @@ export async function compressPhoto(file: File): Promise<Blob> {
  */
 export async function uploadPhotoAsset(
   compressedBlob: Blob,
-  fileName: string
+  fileName: string,
+  eventId: string
 ): Promise<string> {
   // Give real uploads time on busy venue Wi-Fi before falling back.
   const timeoutPromise = new Promise<never>((_, reject) =>
@@ -102,7 +103,7 @@ export async function uploadPhotoAsset(
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error('Not signed in');
       const safeName = fileName.replace(/[^A-Za-z0-9._-]/g, '_');
-      const storageRef = ref(storage, `photos/${uid}/${Date.now()}_${safeName}`);
+      const storageRef = ref(storage, `events/${eventId}/${uid}/${Date.now()}_${safeName}`);
       const uploadResult = await uploadBytes(storageRef, compressedBlob, { contentType: compressedBlob.type || 'image/jpeg' });
       const downloadUrl = await getDownloadURL(uploadResult.ref);
       return downloadUrl;
@@ -173,4 +174,15 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
+}
+
+/** Delete a photo's stored file, if it has one. Old photos kept the image inside
+ *  the database instead (data: links), so there is nothing to delete for those. */
+export async function deletePhotoFile(url: string) {
+  if (!url || !url.startsWith('https://firebasestorage.googleapis.com/')) return;
+  try {
+    await deleteObject(ref(storage, url));
+  } catch (e: any) {
+    if (e?.code !== 'storage/object-not-found') console.warn('Could not delete photo file:', e);
+  }
 }

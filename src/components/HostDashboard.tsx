@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import {
   Shield, Check, X, Camera, Info, QrCode, Sliders, Smartphone, Laptop,
   Battery, AlertCircle, Trash2, HelpCircle, ExternalLink, RefreshCw, ChevronDown, ChevronUp, Radio,
-  Lock, Edit3, Save, CheckCircle2, UserX, Image as ImageIcon
+  Lock, Edit3, Save, CheckCircle2, UserX, Image as ImageIcon, Clock
 } from 'lucide-react';
 import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { joinUrl, paths, resetJoinCode, saveEventDetails } from '../events';
+import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
+import { ALBUM_DAYS, eventPhase, formatDay, formatWhen, joinUrl, paths, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -68,6 +68,18 @@ export default function HostDashboard({
   const [resettingLink, setResettingLink] = useState(false);
   const [importState, setImportState] = useState('');
   const [galleryLimit, setGalleryLimit] = useState(24);
+  const [endInput, setEndInput] = useState(() => (event.endsAt ? toLocalInput(new Date(event.endsAt.toMillis())) : ''));
+  const [timingBusy, setTimingBusy] = useState(false);
+  const [timingMsg, setTimingMsg] = useState('');
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    setEndInput(event.endsAt ? toLocalInput(new Date(event.endsAt.toMillis())) : '');
+  }, [event.endsAt?.toMillis?.()]);
+  const phase = eventPhase(event, nowTick);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [savedMetadataSuccess, setSavedMetadataSuccess] = useState(false);
 
@@ -213,7 +225,7 @@ export default function HostDashboard({
     if (!window.confirm(`Delete all ${pendingList.length} photos waiting for review?`)) return;
 
     try {
-      await Promise.all(pendingList.map((p) => deleteDoc(paths.photo(eventId, p.id))));
+      await Promise.all(pendingList.map((p) => deleteDoc(paths.photo(eventId, p.id)).then(() => deletePhotoFile(p.url))));
     } catch (e) {
       console.error('Failed bulk delete pending photos:', e);
       handleFirestoreError(e, OperationType.DELETE, 'photos');
@@ -228,7 +240,7 @@ export default function HostDashboard({
     if (!window.confirm(`Delete all ${flaggedList.length} reported photos from the event?`)) return;
 
     try {
-      await Promise.all(flaggedList.map((p) => deleteDoc(paths.photo(eventId, p.id))));
+      await Promise.all(flaggedList.map((p) => deleteDoc(paths.photo(eventId, p.id)).then(() => deletePhotoFile(p.url))));
     } catch (e) {
       console.error('Failed bulk clear flagged photos:', e);
       handleFirestoreError(e, OperationType.DELETE, 'photos');
@@ -308,7 +320,9 @@ export default function HostDashboard({
   const handleDeletePhoto = async (id: string) => {
     if (!window.confirm('Delete this photo for everyone?')) return;
     try {
+      const url = photos.find((p) => p.id === id)?.url;
       await deleteDoc(paths.photo(eventId, id));
+      if (url) deletePhotoFile(url);
     } catch (e) {
       console.error('Delete failed:', e);
       handleFirestoreError(e, OperationType.DELETE, `photos/${id}`);
@@ -368,12 +382,43 @@ export default function HostDashboard({
     }
   };
 
+  const changeEnd = async (end: Date, msg: string) => {
+    try {
+      setTimingBusy(true);
+      setTimingMsg('');
+      await setEventEnd(eventId, event.joinCode, end);
+      setTimingMsg(msg);
+      setTimeout(() => setTimingMsg(''), 3000);
+    } catch (e) {
+      console.error('Changing the end time failed:', e);
+      setTimingMsg("Couldn't change the end time. Try again.");
+    } finally {
+      setTimingBusy(false);
+    }
+  };
+
+  const handleSaveEnd = () => {
+    const d = new Date(endInput);
+    if (!endInput || isNaN(d.getTime())) {
+      setTimingMsg('Pick a date and time first.');
+      return;
+    }
+    changeEnd(d, 'End time saved.');
+  };
+
+  const handleEndNow = () => {
+    if (!window.confirm('End the event now? Guests get an hour for last photos, then the gallery becomes an album they can view and save.')) return;
+    changeEnd(new Date(), 'Event ended.');
+  };
+
+  const handleReopen = () => changeEnd(new Date(Date.now() + 3 * 60 * 60 * 1000), 'Reopened for 3 more hours.');
+
   // New join link: the old QR code and link stop working; people already in stay in.
   const handleResetJoinLink = async () => {
     if (!window.confirm('Make a new join link? The current QR code and link will stop working. Guests who already joined stay in.')) return;
     try {
       setResettingLink(true);
-      await resetJoinCode(eventId, event.joinCode, event.name);
+      await resetJoinCode(eventId, event.joinCode, event.name, event.expireAt);
     } catch (e) {
       console.error('Reset join link failed:', e);
       alert("Couldn't make a new link. Check your connection and try again.");
@@ -512,6 +557,74 @@ export default function HostDashboard({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Column 1: Metadata, Governance Switches, Proximity Sharing & QR */}
           <div className="space-y-6 lg:col-span-1">
+            {/* Event timing: live → wrap-up → album */}
+            <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
+              <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-g2-blue-light" /> Event timing
+                </span>
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                  phase === 'live' ? 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10'
+                  : phase === 'wrapup' ? 'text-amber-300 border-amber-400/30 bg-amber-400/10'
+                  : 'text-g2-secondary border-white/10 bg-white/5'
+                }`}>
+                  {phase === 'live' ? 'Live' : phase === 'wrapup' ? 'Wrapping up' : phase === 'album' ? 'Album' : 'Expired'}
+                </span>
+              </h3>
+              <p className="text-xs text-g2-tertiary leading-relaxed">
+                {!event.endsAt
+                  ? 'No end time yet. Set one so the gallery closes and cleans up on its own.'
+                  : phase === 'live'
+                    ? `Ends ${formatWhen(event.endsAt.toMillis())}. Last photos an hour after that.`
+                    : phase === 'wrapup'
+                      ? `Ended ${formatWhen(event.endsAt.toMillis())}. Last photos until ${new Date(event.endsAt.toMillis() + 3600000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`
+                      : `New photos are closed. Guests can view and save the album until ${event.expireAt ? formatDay(event.expireAt.toMillis()) : 'it expires'}, then it's deleted.`}
+              </p>
+              <div className="space-y-1.5">
+                <label htmlFor="ev-end-edit" className="text-[11px] font-bold uppercase tracking-wider text-g2-muted">Ends</label>
+                <div className="flex gap-2">
+                  <input
+                    id="ev-end-edit"
+                    type="datetime-local"
+                    value={endInput}
+                    onChange={(e) => setEndInput(e.target.value)}
+                    className="flex-1 min-w-0 bg-black/40 border border-white/10 focus:border-g2-blue rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none [color-scheme:dark]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveEnd}
+                    disabled={timingBusy}
+                    className="px-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+              {phase === 'live' ? (
+                <button
+                  type="button"
+                  onClick={handleEndNow}
+                  disabled={timingBusy}
+                  className="w-full h-10 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-bold cursor-pointer disabled:opacity-60 transition-colors"
+                >
+                  End the event now
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleReopen}
+                  disabled={timingBusy}
+                  className="w-full h-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-xs font-bold cursor-pointer disabled:opacity-60 transition-colors"
+                >
+                  Reopen for 3 more hours
+                </button>
+              )}
+              <p className="text-[10px] text-g2-muted leading-relaxed">
+                The album stays up for {ALBUM_DAYS} days after the end, then photos and guest info are deleted automatically.
+              </p>
+              {timingMsg && <p className="text-[11px] text-g2-secondary" aria-live="polite">{timingMsg}</p>}
+            </div>
+
             {/* Event Metadata Settings Card */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
               <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center justify-between">
@@ -541,7 +654,7 @@ export default function HostDashboard({
 
                 <div>
                   <label className="text-[10px] text-g2-tertiary font-bold uppercase tracking-wider block mb-1">
-                    Announcement
+                    Welcome line
                   </label>
                   <input
                     type="text"
@@ -558,7 +671,7 @@ export default function HostDashboard({
                   className="w-full bg-g2-blue hover:bg-g2-blue-hover text-white font-extrabold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-g2-blue/20 transition-all"
                 >
                   <Save className="w-4 h-4" />
-                  {savingMetadata ? 'Saving…' : 'Save for everyone'}
+                  {savingMetadata ? 'Saving…' : 'Save event details'}
                 </button>
               </div>
             </div>

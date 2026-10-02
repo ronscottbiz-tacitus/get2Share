@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ThumbsUp, ThumbsDown, Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye } from 'lucide-react';
 import { updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
-import { handleFirestoreError, OperationType } from '../firebase';
+import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
 import { paths } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo } from '../types';
@@ -116,6 +116,7 @@ export default function PhotoLightbox({
       setDeleting(true);
       const docRef = paths.photo(eventId, photo.id);
       await deleteDoc(docRef);
+      deletePhotoFile(photo.url);
       onClose();
     } catch (e) {
       console.error('Failed to delete photo:', e);

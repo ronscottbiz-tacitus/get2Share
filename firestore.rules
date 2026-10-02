@@ -26,6 +26,11 @@ rules_version = '2';
 //   * A guest photo goes live immediately only if auto-approval is on, or a host
 //     fired that device's shutter in the last 2 minutes. Otherwise 'pending'.
 //   * Guests can delete only their own photos.
+//   * Events end: an hour after the end time no new photos can be added. The
+//     album stays viewable until expireAt (end + 30 days), when Firestore's TTL
+//     cleanup deletes every document carrying that expireAt.
+//   * users/{uid}/joined lists the events a device joined, so a guest who saves
+//     their photos (links a Google account) keeps them on any device.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -124,7 +129,33 @@ service cloud.firestore {
 
     function eventKeys() {
       return ['name', 'subtitle', 'ownerUid', 'hostUids', 'joinCode', 'access',
-              'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt'];
+              'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt', 'expireAt'];
+    }
+
+    function albumDays() {
+      return duration.value(30, 'd');
+    }
+
+    // An end time always comes with its cleanup date, 30 days later.
+    function endsLineUp(d) {
+      return (!('endsAt' in d) || d.endsAt == null)
+        ? (!('expireAt' in d) || d.expireAt == null)
+        : (d.endsAt is timestamp && 'expireAt' in d && d.expireAt == d.endsAt + albumDays());
+    }
+
+    function hasEnd(e) {
+      return 'endsAt' in e && e.endsAt is timestamp;
+    }
+
+    // New photos are accepted until an hour after the end time.
+    function uploadsOpen(eid) {
+      let e = eventData(eid);
+      return !hasEnd(e) || request.time < e.endsAt + duration.value(1, 'h');
+    }
+
+    // People can join (and see the album) until the cleanup date.
+    function joinOpen(e) {
+      return !hasEnd(e) || request.time < e.expireAt;
     }
 
     function isOptionalTime(d, key) {
@@ -146,7 +177,9 @@ service cloud.firestore {
         && d.guestLensEnabled is bool
         && d.status in ['live', 'wrapup', 'album', 'archived']
         && isOptionalTime(d, 'startsAt')
-        && isOptionalTime(d, 'endsAt');
+        && isOptionalTime(d, 'endsAt')
+        && isOptionalTime(d, 'expireAt')
+        && endsLineUp(d);
     }
 
     match /events/{eid} {
@@ -168,7 +201,7 @@ service cloud.firestore {
       allow update: if isEventHost(eid)
                     && isValidEvent(incoming())
                     && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
-                                          'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'hostUids'])
+                                          'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids'])
                     && incoming().ownerUid == existing().ownerUid
                     // Only the owner (or an admin) changes who the hosts are.
                     && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())
@@ -188,15 +221,17 @@ service cloud.firestore {
 
       allow create: if hasAccount()
                     && isCode(code)
-                    && incoming().keys().hasOnly(['eventId', 'name'])
+                    && incoming().keys().hasOnly(['eventId', 'name', 'expireAt'])
+                    && isOptionalTime(incoming(), 'expireAt')
                     && incoming().eventId is string
                     && incoming().name is string && incoming().name.size() <= 80
                     && getAfter(eventPath(incoming().eventId)).data.joinCode == code
                     && (isAdmin() || myUid() in getAfter(eventPath(incoming().eventId)).data.hostUids);
 
       allow update: if isEventHost(existing().eventId)
-                    && changed().hasOnly(['name'])
-                    && incoming().name is string && incoming().name.size() <= 80;
+                    && changed().hasOnly(['name', 'expireAt'])
+                    && incoming().name is string && incoming().name.size() <= 80
+                    && isOptionalTime(incoming(), 'expireAt');
 
       allow delete: if isEventHost(existing().eventId);
     }
@@ -216,8 +251,9 @@ service cloud.firestore {
       allow list: if isEventHost(eid);
 
       allow create: if isOwner(mid)
-                    && incoming().keys().hasOnly(['nickname', 'joinedAt', 'joinCode', 'role'])
+                    && incoming().keys().hasOnly(['nickname', 'joinedAt', 'joinCode', 'role', 'expireAt'])
                     && incoming().keys().hasAll(['nickname', 'joinedAt', 'joinCode', 'role'])
+                    && isOptionalTime(incoming(), 'expireAt')
                     && incoming().nickname is string
                     && incoming().nickname.size() > 0 && incoming().nickname.size() <= 40
                     && incoming().joinedAt == request.time
@@ -227,6 +263,7 @@ service cloud.firestore {
                         && exists(eventPath(eid))
                         && eventData(eid).access == 'link'
                         && eventData(eid).status == 'live'
+                        && joinOpen(eventData(eid))
                         && incoming().joinCode == eventData(eid).joinCode)
                       // Share Spots: they claimed a pairing code the host made for this event.
                       || (incoming().role == 'spot' && spotPairedTo(eid, incoming().joinCode, mid))
@@ -270,7 +307,8 @@ service cloud.firestore {
 
     function isValidPhoto(data) {
       return data.keys().hasAll(photoKeys())
-        && data.keys().hasOnly(photoKeys())
+        && data.keys().hasOnly(photoKeys().concat(['expireAt']))
+        && isOptionalTime(data, 'expireAt')
         && data.url is string && data.url.size() > 0 && data.url.size() <= 1000000
         && data.nickname is string && data.nickname.size() > 0 && data.nickname.size() <= 64
         && data.sessionId is string && data.sessionId.size() <= 128
@@ -306,6 +344,7 @@ service cloud.firestore {
                       // Admin: bringing over photos from before events existed.
                       isAdmin()
                       || (canSee(eid)
+                          && uploadsOpen(eid)
                           && incoming().sessionId == myUid()
                           && incoming().reactions.likes == 0
                           && incoming().reactions.dislikes == 0
@@ -338,7 +377,7 @@ service cloud.firestore {
     function sessionKeys() {
       return ['sessionId', 'nickname', 'role', 'lastActive', 'deviceInfo',
               'lens_status', 'stream_frame', 'invited_to_lens', 'trigger_shutter',
-              'last_trigger_at', 'invited_by', 'pairing_code'];
+              'last_trigger_at', 'invited_by', 'pairing_code', 'expireAt'];
     }
 
     function isValidSession(data, sid) {
@@ -356,7 +395,8 @@ service cloud.firestore {
         && (!('trigger_shutter' in data) || data.trigger_shutter is bool)
         && (!('invited_by' in data) || data.invited_by is string)
         && (!('last_trigger_at' in data) || data.last_trigger_at is timestamp)
-        && (!('pairing_code' in data) || isCode(data.pairing_code));
+        && (!('pairing_code' in data) || isCode(data.pairing_code))
+        && isOptionalTime(data, 'expireAt');
     }
 
     // A Share Spot ('tripod') must point at a pairing code it claimed for this event.
@@ -420,7 +460,8 @@ service cloud.firestore {
       allow list: if isAdmin();
 
       allow create: if isCode(code)
-                    && incoming().keys().hasOnly(['spotName', 'createdAt', 'claimedBy', 'eventId'])
+                    && incoming().keys().hasOnly(['spotName', 'createdAt', 'claimedBy', 'eventId', 'expireAt'])
+                    && isOptionalTime(incoming(), 'expireAt')
                     && incoming().keys().hasAll(['spotName', 'createdAt', 'claimedBy', 'eventId'])
                     && incoming().eventId is string
                     && isEventHost(incoming().eventId)
@@ -440,6 +481,20 @@ service cloud.firestore {
       // Deleting a code (cancel, or removing the Share Spot) stops that device
       // from registering as a Share Spot again.
       allow delete: if isEventHost(existing().eventId);
+    }
+
+    // ---------- Events a device joined ----------
+
+    match /users/{uid}/joined/{eid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+                            && isValidId(eid)
+                            && incoming().keys().hasOnly(['name', 'code', 'joinedAt', 'expireAt'])
+                            && incoming().name is string && incoming().name.size() <= 80
+                            && isCode(incoming().code)
+                            && incoming().joinedAt == request.time
+                            && isOptionalTime(incoming(), 'expireAt')
+                            && exists(memberPath(eid, uid));
     }
 
     // ---------- From before events existed (admin only, for bringing photos over) ----------

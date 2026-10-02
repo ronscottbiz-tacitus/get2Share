@@ -43,7 +43,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost }:
             onClick={onHost}
             className="h-11 px-4 rounded-full border border-white/10 text-g2-secondary hover:text-white hover:border-white/25 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer"
           >
-            Host sign-in
+            Sign in
           </button>
         </header>
 

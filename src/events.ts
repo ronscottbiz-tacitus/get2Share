@@ -20,10 +20,70 @@ export interface EventDoc {
   createdAt: Timestamp | null;
   startsAt?: Timestamp | null;
   endsAt?: Timestamp | null;
+  /** When the album closes and everything for this event is cleaned up. */
+  expireAt?: Timestamp | null;
 }
 
 export interface EventWithId extends EventDoc {
   id: string;
+}
+
+// ---------- Lifecycle ----------
+//   live     until the end time
+//   wrapup   1 hour after the end: last uploads still land, Share Spots are off
+//   album    30 days after the end: view, react, save; no new photos
+//   expired  the cleanup removes it
+
+export const UPLOAD_GRACE_MS = 60 * 60 * 1000;
+export const ALBUM_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type EventPhase = 'live' | 'wrapup' | 'album' | 'expired';
+
+export function eventPhase(ev: Pick<EventDoc, 'endsAt' | 'expireAt'>, now = Date.now()): EventPhase {
+  const end = ev.endsAt?.toMillis?.();
+  if (!end || now < end) return 'live';
+  if (now < end + UPLOAD_GRACE_MS) return 'wrapup';
+  const exp = ev.expireAt?.toMillis?.() ?? end + ALBUM_DAYS * DAY_MS;
+  return now < exp ? 'album' : 'expired';
+}
+
+/** endsAt and the matching cleanup date (the rules check they line up). */
+export function endTimes(end: Date) {
+  return {
+    endsAt: Timestamp.fromDate(end),
+    expireAt: Timestamp.fromMillis(end.getTime() + ALBUM_DAYS * DAY_MS),
+  };
+}
+
+/** Default end time for a new event: 5 hours from now, on the hour. */
+export function defaultEnd(): Date {
+  const d = new Date(Date.now() + 5 * 60 * 60 * 1000);
+  d.setMinutes(0, 0, 0);
+  return d;
+}
+
+/** Change (or set) when an event ends. Also used for "End now" and "Reopen". */
+export async function setEventEnd(eid: string, code: string, end: Date) {
+  const t = endTimes(end);
+  const batch = writeBatch(db);
+  batch.update(paths.event(eid), t);
+  batch.update(paths.joinCode(code), { expireAt: t.expireAt });
+  await batch.commit();
+}
+
+export function formatWhen(ms: number) {
+  return new Date(ms).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+export function formatDay(ms: number) {
+  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** <input type="datetime-local"> value for a Date, in local time. */
+export function toLocalInput(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export const paths = {
@@ -36,6 +96,8 @@ export const paths = {
   sessions: (eid: string) => collection(db, 'events', eid, 'sessions'),
   session: (eid: string, uid: string) => doc(db, 'events', eid, 'sessions', uid),
   console: (eid: string) => doc(db, 'events', eid, 'live', 'console'),
+  joined: (uid: string) => collection(db, 'users', uid, 'joined'),
+  joinedEvent: (uid: string, eid: string) => doc(db, 'users', uid, 'joined', eid),
 };
 
 export const EVENT_PATH_PREFIX = '/e/';
@@ -87,18 +149,21 @@ export function findJoinedByCode(code: string): LastEvent | null {
 }
 
 /** CODE → { eventId, name }, or null if no event uses that code (any more). */
-export async function resolveJoinCode(code: string): Promise<{ eventId: string; name: string } | null> {
+export interface JoinInfo { eventId: string; name: string; expireAt: Timestamp | null }
+
+export async function resolveJoinCode(code: string): Promise<JoinInfo | null> {
   const snap = await getDoc(paths.joinCode(code));
   if (!snap.exists()) return null;
-  const d = snap.data() as { eventId: string; name: string };
-  return { eventId: d.eventId, name: d.name || 'Get2Share event' };
+  const d = snap.data() as { eventId: string; name: string; expireAt?: Timestamp };
+  return { eventId: d.eventId, name: d.name || 'Get2Share event', expireAt: d.expireAt ?? null };
 }
 
 /** Create an event owned by `uid`, with a fresh join code. Returns its ID. */
 export async function createEvent(
   uid: string,
-  input: { name: string; subtitle?: string; autoApproval: boolean }
+  input: { name: string; subtitle?: string; autoApproval: boolean; end: Date }
 ): Promise<{ id: string; code: string }> {
+  const times = endTimes(input.end);
   const ref = doc(paths.events());
   let lastErr: unknown;
   // A code collision fails the batch; just try another code.
@@ -116,9 +181,10 @@ export async function createEvent(
       guestLensEnabled: true,
       status: 'live',
       createdAt: serverTimestamp(),
+      ...times,
     };
     batch.set(ref, data);
-    batch.set(paths.joinCode(code), { eventId: ref.id, name: data.name });
+    batch.set(paths.joinCode(code), { eventId: ref.id, name: data.name, expireAt: times.expireAt });
     try {
       await batch.commit();
       return { id: ref.id, code };
@@ -130,7 +196,9 @@ export async function createEvent(
 }
 
 /** Join as a guest (or update the nickname if this device already joined). */
-export async function joinEvent(eid: string, uid: string, nickname: string, code: string) {
+export async function joinEvent(
+  eid: string, uid: string, nickname: string, code: string, name: string, expireAt: Timestamp | null
+) {
   const ref = paths.member(eid, uid);
   let exists = false;
   try {
@@ -141,8 +209,21 @@ export async function joinEvent(eid: string, uid: string, nickname: string, code
   if (exists) {
     await updateDoc(ref, { nickname });
   } else {
-    await setDoc(ref, { nickname, joinedAt: serverTimestamp(), joinCode: code, role: 'guest' });
+    await setDoc(ref, {
+      nickname, joinedAt: serverTimestamp(), joinCode: code, role: 'guest',
+      ...(expireAt ? { expireAt } : {}),
+    });
   }
+  await recordJoined(uid, eid, { name, code, expireAt });
+}
+
+/** This device's list of events it joined (kept with the account once saved). */
+export async function recordJoined(uid: string, eid: string, info: { name: string; code: string; expireAt: Timestamp | null }) {
+  await setDoc(
+    paths.joinedEvent(uid, eid),
+    { name: info.name, code: info.code, joinedAt: serverTimestamp(), ...(info.expireAt ? { expireAt: info.expireAt } : {}) },
+    { merge: true }
+  ).catch((e) => console.warn('Could not record joined event:', e));
 }
 
 export async function isMemberOf(eid: string, uid: string): Promise<boolean> {
@@ -154,12 +235,14 @@ export async function isMemberOf(eid: string, uid: string): Promise<boolean> {
 }
 
 /** New join link: the old one stops working; people already in stay in. */
-export async function resetJoinCode(eid: string, oldCode: string, name: string): Promise<string> {
+export async function resetJoinCode(
+  eid: string, oldCode: string, name: string, expireAt?: Timestamp | null
+): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
     const code = newCode();
     const batch = writeBatch(db);
-    batch.set(paths.joinCode(code), { eventId: eid, name });
+    batch.set(paths.joinCode(code), { eventId: eid, name, ...(expireAt ? { expireAt } : {}) });
     batch.update(paths.event(eid), { joinCode: code });
     if (oldCode) batch.delete(paths.joinCode(oldCode));
     try {
@@ -178,4 +261,9 @@ export async function saveEventDetails(eid: string, code: string, name: string, 
   batch.update(paths.event(eid), { name: name.trim(), subtitle: subtitle.trim() });
   batch.update(paths.joinCode(code), { name: name.trim() });
   await batch.commit();
+}
+
+/** Fields every photo/session in an event carries so the cleanup removes it with the album. */
+export function expiryOf(ev: { expireAt?: Timestamp | null } | null | undefined) {
+  return ev?.expireAt ? { expireAt: ev.expireAt } : {};
 }

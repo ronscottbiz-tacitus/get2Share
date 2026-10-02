@@ -77,7 +77,10 @@ export default function AddShareSpot() {
         const ref = doc(db, 'spotPairings', candidate);
         try {
           // If the code is already taken this write is refused; try another.
-          await setDoc(ref, { spotName, createdAt: serverTimestamp(), claimedBy: null, eventId: event.id });
+          await setDoc(ref, {
+            spotName, createdAt: serverTimestamp(), claimedBy: null, eventId: event.id,
+            ...(event.expireAt ? { expireAt: event.expireAt } : {}),
+          });
           setNow(Date.now());
           setCode(candidate);
           return;
