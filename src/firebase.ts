@@ -91,15 +91,19 @@ export async function uploadPhotoAsset(
   compressedBlob: Blob,
   fileName: string
 ): Promise<string> {
-  // Create a timeout promise that rejects after 4 seconds
+  // Give real uploads time on busy venue Wi-Fi before falling back.
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Firebase Storage upload timed out after 4 seconds')), 4000)
+    setTimeout(() => reject(new Error('Firebase Storage upload timed out after 15 seconds')), 15000)
   );
 
   try {
     const uploadPromise = (async () => {
-      const storageRef = ref(storage, `photos/${Date.now()}_${fileName}`);
-      const uploadResult = await uploadBytes(storageRef, compressedBlob);
+      // Each device uploads under its own folder; storage.rules enforces it.
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Not signed in');
+      const safeName = fileName.replace(/[^A-Za-z0-9._-]/g, '_');
+      const storageRef = ref(storage, `photos/${uid}/${Date.now()}_${safeName}`);
+      const uploadResult = await uploadBytes(storageRef, compressedBlob, { contentType: compressedBlob.type || 'image/jpeg' });
       const downloadUrl = await getDownloadURL(uploadResult.ref);
       return downloadUrl;
     })();
