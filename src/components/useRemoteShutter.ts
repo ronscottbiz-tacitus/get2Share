@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { serverTimestamp, updateDoc } from 'firebase/firestore';
+import { paths } from '../events';
 import { Photo, GuestSession } from '../types';
 
 /**
@@ -39,7 +39,7 @@ const SHOW_RESULT_MS = 3500; // how long "Saved" / errors stay up before returni
 
 export const isShotBusy = (s?: ShotState) => !!s && BUSY.includes(s.phase);
 
-export function useRemoteShutter(sessions: GuestSession[], photos: Photo[]) {
+export function useRemoteShutter(eventId: string, sessions: GuestSession[], photos: Photo[]) {
   const [shots, setShots] = useState<Record<string, ShotState>>({});
   const photosRef = useRef(photos);
   photosRef.current = photos;
@@ -61,7 +61,7 @@ export function useRemoteShutter(sessions: GuestSession[], photos: Photo[]) {
       [id]: { phase: 'sending', phaseAt: Date.now(), sawTrigger: false, knownPhotoIds },
     }));
     try {
-      await updateDoc(doc(db, 'sessions', id), {
+      await updateDoc(paths.session(eventId, id), {
         trigger_shutter: true,
         last_trigger_at: serverTimestamp(),
       });
@@ -74,7 +74,7 @@ export function useRemoteShutter(sessions: GuestSession[], photos: Photo[]) {
       console.error('Remote shutter failed:', e);
       setPhase(id, 'error');
     }
-  }, []);
+  }, [eventId]);
 
   // Device acknowledgment: it flips trigger_shutter back to false when it hears us.
   // Re-check when a shot moves to 'waiting', in case the reset arrived while still 'sending'.

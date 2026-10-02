@@ -33,6 +33,7 @@ export interface GuestSession {
 /** A one-time code the host creates so a tablet/phone can become a Share Spot. */
 export interface SpotPairing {
   spotName: string;
+  eventId: string;
   createdAt: { toMillis(): number } | null;
   claimedBy: string | null;
   claimedAt?: { toMillis(): number } | null;

@@ -10,8 +10,6 @@
 // Timing uses each device's own clock for "when did I last hear from you",
 // so clock differences between devices don't matter.
 
-export const CONSOLE_DOC = ['live', 'console'] as const;
-
 export const HEARTBEAT_MS = 30_000;
 export const WATCH_TIMEOUT_MS = 75_000; // spot stops if it hears nothing for this long
 export const FOCUS_AUTO_OFF_MS = 2 * 60_000;

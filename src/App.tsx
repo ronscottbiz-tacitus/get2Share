@@ -1,51 +1,121 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import GuestOnboarding from './components/GuestOnboarding';
 import LiveGalleryFeed from './components/LiveGalleryFeed';
 import PhotoLightbox from './components/PhotoLightbox';
 import HostDashboard from './components/HostDashboard';
+import HostHome from './components/HostHome';
+import Landing from './components/Landing';
 import TripodMode from './components/TripodMode';
 import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import { Photo } from './types';
-import { Camera, X, Check, Users } from 'lucide-react';
-import { doc, updateDoc, onSnapshot, addDoc, collection } from 'firebase/firestore';
+import { X, Check, Users } from 'lucide-react';
+import { updateDoc, onSnapshot, addDoc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
-import { db, auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
-import { isHostEmail } from './hosts';
+import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
+import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  EVENT_PATH_PREFIX, EventWithId, HOST_PATH, isMemberOf, joinEvent, normalizeJoinCode, paths,
+  readLastEvent, rememberEvent, resolveJoinCode,
+} from './events';
+import { EventContext } from './EventContext';
+
+// ---------- Routes ----------
+//   /              landing: join by code, or host your own
+//   /e/CODE        an event's join link → nickname → live gallery
+//   /host          host sign-in + "Your events" + create an event
+//   /host/EVENTID  Host Console for one event
+//   /spot          set up a Share Spot (needs a pairing code)
+
+type Route =
+  | { kind: 'landing'; notFound?: string }
+  | { kind: 'event'; code: string }
+  | { kind: 'host' }
+  | { kind: 'hostEvent'; eventId: string }
+  | { kind: 'spot' };
+
+function parseRoute(pathname: string): Route {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  if (p === SPOT_SETUP_PATH) return { kind: 'spot' };
+  if (p === HOST_PATH) return { kind: 'host' };
+  if (p.startsWith(HOST_PATH + '/')) {
+    const id = p.slice(HOST_PATH.length + 1);
+    if (/^[A-Za-z0-9_-]{1,128}$/.test(id)) return { kind: 'hostEvent', eventId: id };
+  }
+  if (p.startsWith(EVENT_PATH_PREFIX)) {
+    const code = normalizeJoinCode(decodeURIComponent(p.slice(EVENT_PATH_PREFIX.length)));
+    if (code.length === 6) return { kind: 'event', code };
+  }
+  return { kind: 'landing' };
+}
+
+type LensState = {
+  activeRequester: string | null;      // Session ID of the targeted guest
+  status: 'idle' | 'invited' | 'connected' | 'flashing';
+  liveViewfinderFrame: string | null;  // Low-res preview
+  triggerRequested: boolean;           // Set when a host fires this camera
+};
 
 export default function App() {
-  // Session ID is the Firebase Auth uid (anonymous for guests, Google for the host).
+  // Identity is the Firebase Auth uid (anonymous for guests, Google for hosts).
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState('');
   const [hostSignInError, setHostSignInError] = useState('');
   const sessionId = authUser?.uid ?? '';
-  const isHost = !!authUser && !authUser.isAnonymous && authUser.emailVerified && isHostEmail(authUser.email);
+  const hasAccount = !!authUser && !authUser.isAnonymous;
+  const isAdmin = hasAccount && !!authUser?.emailVerified && isAdminEmail(authUser?.email);
 
-  const [nickname, setNickname] = useState<string>('');
-  const [currentView, setCurrentView] = useState<'onboarding' | 'gallery' | 'host' | 'tripod' | 'slideshow'>('onboarding');
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
+  const navigate = useCallback((path: string, replace = false) => {
+    if (replace) window.history.replaceState(null, '', path);
+    else window.history.pushState(null, '', path);
+    setRoute(parseRoute(path));
+  }, []);
+  useEffect(() => {
+    const onPop = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
-  // Favorites & Hidden Photos persisted locally
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  // ---------- Guest side of an event (/e/CODE) ----------
+  const [joinInfo, setJoinInfo] = useState<{ code: string; eventId: string; name: string } | null>(null);
+  const [membership, setMembership] = useState<'checking' | 'member' | 'not'>('checking');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState('');
+  const [nickname, setNickname] = useState<string>(() => {
+    try { return localStorage.getItem('get2share-nickname') || ''; } catch { return ''; }
+  });
 
-  // Selected photo for the active lightbox modal
+  // The event being shown (guest gallery or Host Console), kept live.
+  const [event, setEvent] = useState<EventWithId | null>(null);
+  const [eventError, setEventError] = useState('');
+  const activeEventId =
+    route.kind === 'hostEvent' ? (hasAccount ? route.eventId : null)
+    : route.kind === 'event' && membership === 'member' ? joinInfo?.eventId ?? null
+    : null;
+  const eventIdRef = useRef<string | null>(null);
+  eventIdRef.current = activeEventId;
+
+  const [hostView, setHostView] = useState<'console' | 'slideshow'>('console');
+
+  // Favorites & hidden photos persisted locally
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('get2share-favorites') || '[]'); } catch { return []; }
+  });
+  const [hiddenIds, setHiddenIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('get2share-hidden-ids') || '[]'); } catch { return []; }
+  });
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
 
-  // 1. ADD THESE STATES AND REFS AT THE TOP OF YOUR APP COMPONENT
-  const [lensState, setLensState] = useState<{
-    activeRequester: string | null;      // Session ID of the targeted guest (e.g., 'user-sarah')
-    status: 'idle' | 'invited' | 'connected' | 'flashing';
-    liveViewfinderFrame: string | null;  // Real-time low-res preview Base64 string (~5KB)
-    triggerRequested: boolean;           // Flag written by Host to command a capture
-  }>({
+  // Camera sharing ("Take one of us")
+  const [lensState, setLensState] = useState<LensState>({
     activeRequester: null,
     status: 'idle',
     liveViewfinderFrame: null,
-    triggerRequested: false
+    triggerRequested: false,
   });
-
   const localStreamRef = useRef<MediaStream | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
@@ -77,58 +147,107 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Initialize nickname and local caches
   useEffect(() => {
     // Old builds stored a random session ID here; identity now comes from Firebase Auth.
-    localStorage.removeItem('get2share-session-id');
-
-    // 1. Nickname persistence
-    const storedNickname = localStorage.getItem('get2share-nickname') || '';
-    setNickname(storedNickname);
-
-    if (window.location.pathname.replace(/\/+$/, '') === SPOT_SETUP_PATH) {
-      // share.get2.one/spot — the host's Share Spot setup page (needs a pairing code).
-      setCurrentView('tripod');
-    } else if (storedNickname) {
-      setCurrentView('gallery');
-    } else {
-      setCurrentView('onboarding');
-    }
-
-    // 2. Load favorites and hidden IDs
-    const storedFavs = JSON.parse(localStorage.getItem('get2share-favorites') || '[]');
-    setFavorites(storedFavs);
-
-    const storedHidden = JSON.parse(localStorage.getItem('get2share-hidden-ids') || '[]');
-    setHiddenIds(storedHidden);
+    try { localStorage.removeItem('get2share-session-id'); } catch { /* ignore */ }
   }, []);
 
-  const handleJoinEvent = (enteredNickname: string) => {
-    localStorage.setItem('get2share-nickname', enteredNickname);
-    setNickname(enteredNickname);
-    setCurrentView('gallery');
+  // /e/CODE: find the event, then check whether this device already joined it.
+  const routeCode = route.kind === 'event' ? route.code : null;
+  useEffect(() => {
+    if (!routeCode || !sessionId) return;
+    let cancelled = false;
+    setMembership('checking');
+    setJoinError('');
+    (async () => {
+      try {
+        const found = await resolveJoinCode(routeCode);
+        if (cancelled) return;
+        if (!found) {
+          setJoinInfo(null);
+          navigate('/', true);
+          setRoute({ kind: 'landing', notFound: routeCode });
+          return;
+        }
+        setJoinInfo({ code: routeCode, ...found });
+        const member = await isMemberOf(found.eventId, sessionId);
+        if (cancelled) return;
+        if (member) {
+          try {
+            const m = await getDoc(paths.member(found.eventId, sessionId));
+            const n = (m.data() as any)?.nickname;
+            if (n) setNickname(n);
+          } catch { /* keep local nickname */ }
+          rememberEvent({ code: routeCode, name: found.name });
+        }
+        setMembership(member ? 'member' : 'not');
+      } catch (err) {
+        console.error('Event lookup failed:', err);
+        if (!cancelled) {
+          setJoinInfo(null);
+          setJoinError("Couldn't reach the event. Check your connection and reload.");
+          setMembership('not');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [routeCode, sessionId, navigate]);
+
+  // Keep the active event live (name, settings, join code).
+  useEffect(() => {
+    setEvent(null);
+    setEventError('');
+    if (!activeEventId || !sessionId) return;
+    return onSnapshot(
+      paths.event(activeEventId),
+      (snap) => {
+        if (!snap.exists()) {
+          setEventError('This event no longer exists.');
+          setEvent(null);
+          return;
+        }
+        setEvent({ id: snap.id, ...(snap.data() as any) } as EventWithId);
+      },
+      (err) => {
+        console.error('Event listener error:', err);
+        setEventError("You don't have access to this event.");
+      }
+    );
+  }, [activeEventId, sessionId]);
+
+  const isEventHost =
+    !!event && hasAccount && (isAdmin || (event.hostUids || []).includes(sessionId));
+
+  const handleJoinEvent = async (enteredNickname: string) => {
+    if (!joinInfo) return;
+    setJoining(true);
+    setJoinError('');
+    try {
+      await joinEvent(joinInfo.eventId, sessionId, enteredNickname, joinInfo.code);
+      try { localStorage.setItem('get2share-nickname', enteredNickname); } catch { /* ignore */ }
+      setNickname(enteredNickname);
+      rememberEvent({ code: joinInfo.code, name: joinInfo.name });
+      setMembership('member');
+    } catch (err) {
+      console.error('Join failed:', err);
+      setJoinError("Couldn't join. The host may have changed the event's link; ask them for the new one.");
+    } finally {
+      setJoining(false);
+    }
   };
 
   const handleExitSession = () => {
-    if (window.confirm('Are you sure you want to log out and clear all your guest session data? This will reset your device identity so you can register a new profile.')) {
-      localStorage.removeItem('get2share-nickname');
-      setNickname('');
-      // Signing out triggers a fresh anonymous identity via onAuthStateChanged.
-      signOut(auth).catch((err) => console.error('Sign-out failed:', err));
-      setCurrentView('onboarding');
+    if (window.confirm('Leave this event? Your photos stay in the gallery. You can come back with the same link.')) {
+      navigate('/');
     }
   };
 
-  // Host sign-in with Google. The database rules only grant host powers to
-  // the accounts listed in firestore.rules (mirrored in src/hosts.ts).
+  // Host sign-in with Google. Anyone can sign in and create an event; the
+  // database rules decide which events each account can run.
   const handleHostSignIn = async () => {
     setHostSignInError('');
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      if (!isHostEmail(result.user.email)) {
-        setHostSignInError(`${result.user.email ?? 'This account'} is not an event host. Signed back out.`);
-        await signOut(auth);
-      }
+      await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') return;
       console.error('Host sign-in failed:', err);
@@ -145,29 +264,23 @@ export default function App() {
 
   const handleHostSignOut = async () => {
     await signOut(auth).catch((err) => console.error('Sign-out failed:', err));
+    navigate('/host');
   };
 
   const handleToggleFavorite = (id: string) => {
-    let updated;
-    if (favorites.includes(id)) {
-      updated = favorites.filter((fId) => fId !== id);
-    } else {
-      updated = [...favorites, id];
-    }
+    const updated = favorites.includes(id) ? favorites.filter((f) => f !== id) : [...favorites, id];
     setFavorites(updated);
-    localStorage.setItem('get2share-favorites', JSON.stringify(updated));
+    try { localStorage.setItem('get2share-favorites', JSON.stringify(updated)); } catch { /* ignore */ }
   };
 
   const handleToggleHideLocally = (id: string) => {
-    let updated;
-    if (hiddenIds.includes(id)) {
-      updated = hiddenIds.filter((hId) => hId !== id);
-    } else {
-      updated = [...hiddenIds, id];
-    }
+    const updated = hiddenIds.includes(id) ? hiddenIds.filter((h) => h !== id) : [...hiddenIds, id];
     setHiddenIds(updated);
-    localStorage.setItem('get2share-hidden-ids', JSON.stringify(updated));
+    try { localStorage.setItem('get2share-hidden-ids', JSON.stringify(updated)); } catch { /* ignore */ }
   };
+
+  const inGallery = route.kind === 'event' && membership === 'member' && !!event;
+  const galleryEventId = inGallery ? event!.id : null;
 
   // Callback ref to bind the stream as soon as the video element mounts in the DOM
   const setVideoElementRef = (node: HTMLVideoElement | null) => {
@@ -210,7 +323,7 @@ export default function App() {
 
       // Update guest's Firestore status to 'streaming' so host receives stream
       if (sessionId) {
-        const docRef = doc(db, 'sessions', sessionId);
+        const docRef = paths.session(eventIdRef.current as string, sessionId);
         updateDoc(docRef, {
           lens_status: 'streaming',
           lastActive: Date.now()
@@ -236,7 +349,7 @@ export default function App() {
           setLensState(prev => ({ ...prev, liveViewfinderFrame: tinyFrame }));
 
           if (sessionId) {
-            const docRef = doc(db, 'sessions', sessionId);
+            const docRef = paths.session(eventIdRef.current as string, sessionId);
             updateDoc(docRef, {
               stream_frame: tinyFrame,
               lastActive: Date.now()
@@ -248,7 +361,7 @@ export default function App() {
       console.error("Camera access failed:", err);
       setLensState(prev => ({ ...prev, status: 'idle', activeRequester: null }));
       if (sessionId) {
-        const docRef = doc(db, 'sessions', sessionId);
+        const docRef = paths.session(eventIdRef.current as string, sessionId);
         updateDoc(docRef, {
           lens_status: 'declined',
           invited_to_lens: false
@@ -272,7 +385,7 @@ export default function App() {
     setLensState({ activeRequester: null, status: 'idle', liveViewfinderFrame: null, triggerRequested: false });
 
     if (sessionId) {
-      const docRef = doc(db, 'sessions', sessionId);
+      const docRef = paths.session(eventIdRef.current as string, sessionId);
       updateDoc(docRef, {
         lens_status: 'off',
         invited_to_lens: false,
@@ -284,7 +397,7 @@ export default function App() {
 
   const handleDeclineLens = async () => {
     if (sessionId) {
-      const docRef = doc(db, 'sessions', sessionId);
+      const docRef = paths.session(eventIdRef.current as string, sessionId);
       await updateDoc(docRef, {
         lens_status: 'declined',
         invited_to_lens: false
@@ -334,7 +447,7 @@ export default function App() {
               const fileUrl = await uploadPhotoAsset(compressed, `lens_snap_${Date.now()}.jpg`);
 
               // Create new photo item in Firestore
-              await addDoc(collection(db, 'photos'), {
+              await addDoc(paths.photos(eventIdRef.current as string), {
                 url: fileUrl,
                 nickname: `${nickname} (Group Shot)`,
                 sessionId: sessionId,
@@ -359,9 +472,9 @@ export default function App() {
 
   // Guest-side: listen for live invitations and triggers from Firestore
   useEffect(() => {
-    if (!sessionId || currentView !== 'gallery') return;
+    if (!sessionId || !inGallery || !galleryEventId) return;
 
-    const docRef = doc(db, 'sessions', sessionId);
+    const docRef = paths.session(eventIdRef.current as string, sessionId);
     const unsubscribe = onSnapshot(docRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -390,15 +503,11 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, [sessionId, currentView, lensState.status]);
+  }, [sessionId, inGallery, galleryEventId, lensState.status]);
 
   // Wait for the silent sign-in before showing anything that reads the database.
   if (!authReady || (!authUser && !authError)) {
-    return (
-      <div className="bg-g2-page text-g2-tertiary min-h-screen flex items-center justify-center font-sans text-sm">
-        Connecting to the event…
-      </div>
-    );
+    return <Centered>Connecting…</Centered>;
   }
 
   if (!authUser) {
@@ -417,197 +526,242 @@ export default function App() {
     );
   }
 
-  return (
+  const shell = (children: React.ReactNode) => (
     <div className="bg-g2-page text-g2-text min-h-screen selection:bg-g2-blue selection:text-white antialiased">
-      {/* 1. Onboarding Landing View */}
-      {currentView === 'onboarding' && (
-        <GuestOnboarding
-          onJoin={handleJoinEvent}
-          onGoToHost={() => setCurrentView('host')}
-        />
-      )}
+      {children}
+    </div>
+  );
 
-      {/* 2. Live Gallery Feed View */}
-      {currentView === 'gallery' && (
-        <>
-          <LiveGalleryFeed
+  // ---------- /spot ----------
+  if (route.kind === 'spot') {
+    return shell(<TripodMode sessionId={sessionId} onExit={() => navigate('/')} />);
+  }
+
+  // ---------- / ----------
+  if (route.kind === 'landing') {
+    return shell(
+      <Landing
+        lastEvent={readLastEvent()}
+        notFoundCode={route.notFound}
+        onJoinCode={(code) => navigate(`${EVENT_PATH_PREFIX}${code}`)}
+        onHost={() => navigate(HOST_PATH)}
+      />
+    );
+  }
+
+  // ---------- /host and /host/EVENTID ----------
+  if (route.kind === 'host' || (route.kind === 'hostEvent' && (!hasAccount || eventError || (event && !isEventHost)))) {
+    const notice =
+      route.kind === 'hostEvent' && hasAccount
+        ? "That event isn't one you host. Ask its owner to add you as a co-host."
+        : route.kind === 'hostEvent'
+          ? 'Sign in to open that event.'
+          : undefined;
+    return shell(
+      <HostHome
+        hasAccount={hasAccount}
+        uid={sessionId}
+        email={authUser.email}
+        isAdmin={isAdmin}
+        signInError={hostSignInError}
+        notice={notice}
+        onSignIn={handleHostSignIn}
+        onSignOut={handleHostSignOut}
+        onOpenEvent={(id) => { setHostView('console'); navigate(`${HOST_PATH}/${id}`); }}
+        onBack={() => navigate('/')}
+      />
+    );
+  }
+
+  if (route.kind === 'hostEvent') {
+    if (!event) return <Centered>Opening the Host Console…</Centered>;
+    return shell(
+      <EventContext.Provider value={{ event, isEventHost }}>
+        {hostView === 'slideshow' ? (
+          <ProjectionSlideshow onClose={() => setHostView('console')} />
+        ) : (
+          <HostDashboard
             sessionId={sessionId}
-            nickname={nickname}
-            onOpenLightbox={(photo) => setSelectedPhoto(photo)}
-            onExitSession={handleExitSession}
-            favorites={favorites}
-            hiddenIds={hiddenIds}
-            onGoToHost={() => setCurrentView('host')}
-            isHost={isHost}
+            onLaunchSlideshow={() => setHostView('slideshow')}
+            onExit={() => navigate(HOST_PATH)}
+            lensState={lensState}
+            setLensState={setLensState}
+            isHost={isEventHost}
+            isAdmin={isAdmin}
+            signedInEmail={authUser.isAnonymous ? null : authUser.email}
+            authError={hostSignInError}
+            onHostSignIn={handleHostSignIn}
+            onHostSignOut={handleHostSignOut}
           />
-          
-          {/* Camera request from the host: a bottom sheet the guest must accept */}
-          <AnimatePresence>
-            {lensState.status === 'invited' && (
-              <motion.div
-                key="lens-invite"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 bg-g2-page/75 flex items-end justify-center font-sans"
-              >
-                <motion.section
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="lens-invite-title"
-                  initial={{ y: 40 }}
-                  animate={{ y: 0 }}
-                  exit={{ y: 40 }}
-                  className="w-full max-w-md bg-g2-panel border-t border-white/10 rounded-t-[20px] px-5 pt-3 pb-7 flex flex-col gap-4"
-                >
-                  <div className="w-10 h-1 rounded-full bg-white/15 self-center" />
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-g2-blue text-white flex items-center justify-center shrink-0">
-                      <Users className="w-6 h-6" aria-hidden="true" />
-                    </div>
-                    <div>
-                      <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Host request</p>
-                      <h2 id="lens-invite-title" className="mt-0.5 font-expanded font-black text-[22px] leading-tight text-white">
-                        Share your camera?
-                      </h2>
-                    </div>
-                  </div>
-                  <p className="text-sm leading-relaxed text-g2-secondary">
-                    The host wants to use your camera for a group shot. Point your phone at the group. The host frames it and takes the picture.
-                  </p>
-                  <ul className="flex flex-col gap-2.5">
-                    {[
-                      "The host sees your camera only while you're sharing.",
-                      'A 3-second countdown before the shot. Stop anytime.',
-                    ].map((line) => (
-                      <li key={line} className="flex gap-2.5 items-start text-[13px] leading-normal text-g2-text">
-                        <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex flex-col gap-2 mt-1">
-                    <button
-                      onClick={startGuestCameraStream}
-                      className="h-[52px] rounded-lg bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] cursor-pointer transition-colors"
-                    >
-                      Share my camera
-                    </button>
-                    <button
-                      onClick={handleDeclineLens}
-                      className="h-[52px] rounded-lg border border-white/10 text-g2-secondary hover:text-white font-semibold text-[15px] cursor-pointer transition-colors"
-                    >
-                      Not now
-                    </button>
-                  </div>
-                </motion.section>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        )}
+      </EventContext.Provider>
+    );
+  }
 
-          {/* Shared camera: always shows who can see it, the countdown, and a way out */}
-          {(lensState.status === 'connected' || lensState.status === 'flashing') && (
-            <div className="fixed inset-0 bg-black z-50 font-sans">
-              <div className="absolute inset-0 flex items-center justify-center bg-black">
-                <video
-                  ref={setVideoElementRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover"
-                />
+  // ---------- /e/CODE ----------
+  if (membership === 'checking' && !joinError) return <Centered>Finding the event…</Centered>;
+
+  if (membership !== 'member' || !joinInfo) {
+    if (!joinInfo) {
+      return shell(
+        <Landing
+          lastEvent={readLastEvent()}
+          notFoundCode={undefined}
+          onJoinCode={(code) => navigate(`${EVENT_PATH_PREFIX}${code}`)}
+          onHost={() => navigate(HOST_PATH)}
+        />
+      );
+    }
+    return shell(
+      <GuestOnboarding
+        eventName={joinInfo.name}
+        defaultNickname={nickname}
+        joining={joining}
+        joinError={joinError}
+        onJoin={handleJoinEvent}
+        onGoToHost={() => navigate(HOST_PATH)}
+      />
+    );
+  }
+
+  if (!event) {
+    return eventError ? <Centered>{eventError}</Centered> : <Centered>Opening the gallery…</Centered>;
+  }
+
+  return shell(
+    <EventContext.Provider value={{ event, isEventHost }}>
+      <LiveGalleryFeed
+        sessionId={sessionId}
+        nickname={nickname}
+        onOpenLightbox={(photo) => setSelectedPhoto(photo)}
+        onExitSession={handleExitSession}
+        favorites={favorites}
+        hiddenIds={hiddenIds}
+        onGoToHost={() => navigate(`${HOST_PATH}/${event.id}`)}
+        isHost={isEventHost}
+      />
+
+  {/* Camera request from the host: a bottom sheet the guest must accept */}
+      <AnimatePresence>
+        {lensState.status === 'invited' && (
+          <motion.div
+            key="lens-invite"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-g2-page/75 flex items-end justify-center font-sans"
+          >
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="lens-invite-title"
+              initial={{ y: 40 }}
+              animate={{ y: 0 }}
+              exit={{ y: 40 }}
+              className="w-full max-w-md bg-g2-panel border-t border-white/10 rounded-t-[20px] px-5 pt-3 pb-7 flex flex-col gap-4"
+            >
+              <div className="w-10 h-1 rounded-full bg-white/15 self-center" />
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-g2-blue text-white flex items-center justify-center shrink-0">
+                  <Users className="w-6 h-6" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Host request</p>
+                  <h2 id="lens-invite-title" className="mt-0.5 font-expanded font-black text-[22px] leading-tight text-white">
+                    Share your camera?
+                  </h2>
+                </div>
               </div>
-
-              <header className="absolute top-0 inset-x-0 pt-4 pl-5 pr-4 flex justify-between items-center z-10">
-                <div className="h-8 px-3 flex items-center gap-2 rounded-full bg-g2-page/85 border border-g2-live font-mono text-[10.5px] font-bold tracking-[0.06em] uppercase text-red-300">
-                  <span className="w-2 h-2 rounded-full bg-g2-live animate-pulse" />
-                  Live · host can see this
-                </div>
+              <p className="text-sm leading-relaxed text-g2-secondary">
+                The host wants to use your camera for a group shot. Point your phone at the group. The host frames it and takes the picture.
+              </p>
+              <ul className="flex flex-col gap-2.5">
+                {[
+                  "The host sees your camera only while you're sharing.",
+                  'A 3-second countdown before the shot. Stop anytime.',
+                ].map((line) => (
+                  <li key={line} className="flex gap-2.5 items-start text-[13px] leading-normal text-g2-text">
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-col gap-2 mt-1">
                 <button
-                  onClick={cleanupCameraStream}
-                  aria-label="Stop sharing"
-                  className="w-11 h-11 rounded-full border border-white/15 bg-g2-page/60 text-white flex items-center justify-center cursor-pointer"
+                  onClick={startGuestCameraStream}
+                  className="h-[52px] rounded-lg bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] cursor-pointer transition-colors"
                 >
-                  <X className="w-[18px] h-[18px]" />
+                  Share my camera
                 </button>
-              </header>
-
-              {countdown !== null && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3.5 z-10" aria-live="assertive">
-                  <p className="font-condensed font-extrabold text-[13px] tracking-[0.16em] uppercase text-white">Get ready</p>
-                  <div className="w-[168px] h-[168px] rounded-full border-4 border-white bg-g2-page/55 flex items-center justify-center">
-                    <span className="font-expanded font-black text-8xl leading-none text-white">{countdown}</span>
-                  </div>
-                </div>
-              )}
-
-              {lensState.status === 'flashing' && (
-                <div className="absolute inset-0 bg-white flex items-center justify-center z-20">
-                  <span className="font-expanded font-black text-3xl text-g2-page">Got it!</span>
-                </div>
-              )}
-
-              <canvas ref={canvasElementRef} className="hidden" />
-
-              <footer className="absolute bottom-0 inset-x-0 px-5 pt-5 pb-8 bg-g2-page/90 border-t border-white/[0.08] flex flex-col gap-3.5 z-10">
-                <p className="text-center text-[15px] leading-normal text-g2-text">
-                  Hold steady. The host is taking the shot.
-                </p>
                 <button
-                  onClick={cleanupCameraStream}
-                  className="h-[52px] rounded-lg border border-white/15 text-white font-semibold text-[15px] cursor-pointer"
+                  onClick={handleDeclineLens}
+                  className="h-[52px] rounded-lg border border-white/10 text-g2-secondary hover:text-white font-semibold text-[15px] cursor-pointer transition-colors"
                 >
-                  Stop sharing
+                  Not now
                 </button>
-              </footer>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Shared camera: always shows who can see it, the countdown, and a way out */}
+      {(lensState.status === 'connected' || lensState.status === 'flashing') && (
+        <div className="fixed inset-0 bg-black z-50 font-sans">
+          <div className="absolute inset-0 flex items-center justify-center bg-black">
+            <video
+              ref={setVideoElementRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          <header className="absolute top-0 inset-x-0 pt-4 pl-5 pr-4 flex justify-between items-center z-10">
+            <div className="h-8 px-3 flex items-center gap-2 rounded-full bg-g2-page/85 border border-g2-live font-mono text-[10.5px] font-bold tracking-[0.06em] uppercase text-red-300">
+              <span className="w-2 h-2 rounded-full bg-g2-live animate-pulse" />
+              Live · host can see this
+            </div>
+            <button
+              onClick={cleanupCameraStream}
+              aria-label="Stop sharing"
+              className="w-11 h-11 rounded-full border border-white/15 bg-g2-page/60 text-white flex items-center justify-center cursor-pointer"
+            >
+              <X className="w-[18px] h-[18px]" />
+            </button>
+          </header>
+
+          {countdown !== null && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3.5 z-10" aria-live="assertive">
+              <p className="font-condensed font-extrabold text-[13px] tracking-[0.16em] uppercase text-white">Get ready</p>
+              <div className="w-[168px] h-[168px] rounded-full border-4 border-white bg-g2-page/55 flex items-center justify-center">
+                <span className="font-expanded font-black text-8xl leading-none text-white">{countdown}</span>
+              </div>
             </div>
           )}
-        </>
-      )}
 
-      {/* 3. Event Host Console View */}
-      {currentView === 'host' && (
-        <HostDashboard
-          sessionId={sessionId}
-          onLaunchSlideshow={() => setCurrentView('slideshow')}
-          onExit={() => {
-            if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
-            if (nickname) {
-              setCurrentView('gallery');
-            } else {
-              setCurrentView('onboarding');
-            }
-          }}
-          lensState={lensState}
-          setLensState={setLensState}
-          isHost={isHost}
-          signedInEmail={authUser.isAnonymous ? null : authUser.email}
-          authError={hostSignInError}
-          onHostSignIn={handleHostSignIn}
-          onHostSignOut={handleHostSignOut}
-        />
-      )}
+          {lensState.status === 'flashing' && (
+            <div className="absolute inset-0 bg-white flex items-center justify-center z-20">
+              <span className="font-expanded font-black text-3xl text-g2-page">Got it!</span>
+            </div>
+          )}
 
-      {/* 4. Stationary Tripod Mode View */}
-      {currentView === 'tripod' && (
-        <TripodMode
-          sessionId={sessionId}
-          onExit={() => {
-            if (nickname) {
-              setCurrentView('gallery');
-            } else {
-              setCurrentView('onboarding');
-            }
-          }}
-        />
-      )}
+          <canvas ref={canvasElementRef} className="hidden" />
 
-      {/* 5. Projector Slideshow Presentation View */}
-      {currentView === 'slideshow' && (
-        <ProjectionSlideshow onClose={() => setCurrentView('host')} />
+          <footer className="absolute bottom-0 inset-x-0 px-5 pt-5 pb-8 bg-g2-page/90 border-t border-white/[0.08] flex flex-col gap-3.5 z-10">
+            <p className="text-center text-[15px] leading-normal text-g2-text">
+              Hold steady. The host is taking the shot.
+            </p>
+            <button
+              onClick={cleanupCameraStream}
+              className="h-[52px] rounded-lg border border-white/15 text-white font-semibold text-[15px] cursor-pointer"
+            >
+              Stop sharing
+            </button>
+          </footer>
+        </div>
       )}
-
-      {/* 6. Photo Lightbox Modal overlay */}
       {selectedPhoto && (
         <PhotoLightbox
           photo={selectedPhoto}
@@ -617,9 +771,17 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           isHiddenLocally={hiddenIds.includes(selectedPhoto.id)}
           onToggleHideLocally={handleToggleHideLocally}
-          isHost={isHost}
+          isHost={isEventHost}
         />
       )}
+    </EventContext.Provider>
+  );
+}
+
+function Centered({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-g2-page text-g2-tertiary min-h-screen flex items-center justify-center font-sans text-sm px-6 text-center">
+      {children}
     </div>
   );
 }

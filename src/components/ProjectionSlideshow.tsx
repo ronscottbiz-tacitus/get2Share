@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Play, Pause, ChevronLeft, ChevronRight, Minimize, QrCode } from 'lucide-react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { query, where, onSnapshot } from 'firebase/firestore';
+import { joinUrl, paths } from '../events';
+import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
@@ -12,6 +13,8 @@ interface ProjectionSlideshowProps {
 }
 
 export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProps) {
+  const { event } = useEvent();
+  const link = joinUrl(event.joinCode);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -21,7 +24,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
 
   // Generate QR code on mount
   useEffect(() => {
-    QRCode.toDataURL(window.location.origin, {
+    QRCode.toDataURL(link, {
       margin: 2,
       width: 150,
       color: {
@@ -31,13 +34,13 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
     })
     .then(url => setQrDataUrl(url))
     .catch(err => console.error('Error generating QR code in slideshow:', err));
-  }, []);
+  }, [link]);
 
   // 1. Listen for approved photos in real-time
   useEffect(() => {
     // Sorted on the device so no composite database index is needed.
     const q = query(
-      collection(db, 'photos'),
+      paths.photos(event.id),
       where('status', '==', 'approved')
     );
 
@@ -53,7 +56,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [event.id]);
 
   // 2. Playback / rotation timer loop
   useEffect(() => {
@@ -84,6 +87,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
       <div className="absolute top-0 inset-x-0 p-6 bg-gradient-to-b from-black/95 to-transparent flex justify-between items-center z-20">
         <div className="flex items-center gap-3">
           <Get2ShareLockup className="text-2xl" />
+          <span className="font-expanded font-black text-lg text-white">{event.name}</span>
           <span className="font-mono text-xs font-bold tracking-[0.08em] uppercase text-g2-secondary flex items-center gap-2">
             <span className="w-2 h-2 bg-emerald-400 rounded-full" />
             Live · {photos.length} photo{photos.length === 1 ? '' : 's'}
@@ -204,7 +208,7 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
             </div>
             <div className="space-y-0.5">
               <p className="text-sm font-extrabold text-white">Scan to join</p>
-              <p className="font-mono text-[11px] text-g2-secondary">{window.location.host}</p>
+              <p className="font-mono text-[11px] text-g2-secondary">{link.replace(/^https?:\/\//, '')}</p>
               <p className="text-[11px] text-g2-tertiary">No app. Just a nickname.</p>
             </div>
           </div>

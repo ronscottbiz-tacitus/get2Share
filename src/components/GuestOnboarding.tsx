@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Camera, LayoutGrid, ScanFace, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
 import Get2ShareLockup from './Get2ShareLockup';
 
 interface OnboardingProps {
+  eventName: string;
+  defaultNickname?: string;
+  joining?: boolean;
+  joinError?: string;
   onJoin: (nickname: string) => void;
   onGoToHost: () => void;
 }
@@ -28,20 +30,10 @@ const PROMISES = [
   },
 ];
 
-export default function GuestOnboarding({ onJoin, onGoToHost }: OnboardingProps) {
-  const [nickname, setNickname] = useState('');
+export default function GuestOnboarding({ eventName, defaultNickname = '', joining = false, joinError = '', onJoin, onGoToHost }: OnboardingProps) {
+  const [nickname, setNickname] = useState(defaultNickname);
   const [error, setError] = useState('');
-  const [eventTitle, setEventTitle] = useState('');
-
-  // The host sets the event name in the Host Console; show it here.
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      doc(db, 'settings', 'event-settings'),
-      (snap) => setEventTitle(snap.exists() ? snap.data().eventTitle || '' : ''),
-      () => setEventTitle('')
-    );
-    return () => unsubscribe();
-  }, []);
+  const eventTitle = eventName;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,13 +123,14 @@ export default function GuestOnboarding({ onJoin, onGoToHost }: OnboardingProps)
             autoComplete="off"
             className="h-[52px] px-4 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-g2-text placeholder-g2-muted text-base focus:outline-none transition-colors"
           />
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+          {(error || joinError) && <p className="text-red-400 text-xs">{error || joinError}</p>}
           <button
             type="submit"
-            className="h-[52px] bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer"
+            disabled={joining}
+            className="h-[52px] bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-60 text-white font-bold text-[15px] rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer"
           >
             <Camera className="w-[18px] h-[18px]" aria-hidden="true" />
-            Join the event
+            {joining ? 'Joining…' : 'Join the event'}
           </button>
           <p className="text-center text-xs text-g2-tertiary">No app. No sign-up. Just a nickname.</p>
         </form>

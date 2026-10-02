@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, X, ShieldAlert, Battery, Wifi, Settings, Zap } from 'lucide-react';
-import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, collection, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, updateDoc, addDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { paths } from '../events';
 import { normalizePairingCode, formatPairingCode, STORED_SPOT_CODE_KEY } from '../spotPairing';
-import { BACKGROUND_MS, CONSOLE_DOC, FOCUS_MS, FRAME, NORMAL_MS, WATCH_TIMEOUT_MS } from '../liveConsole';
+import { BACKGROUND_MS, FOCUS_MS, FRAME, NORMAL_MS, WATCH_TIMEOUT_MS } from '../liveConsole';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { motion } from 'motion/react';
 
@@ -13,6 +14,10 @@ interface TripodModeProps {
 
 export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const [tripodName, setTripodName] = useState('');
+  // The event this Share Spot belongs to (learned from its pairing code).
+  const [eventId, setEventId] = useState<string | null>(null);
+  const eventIdRef = useRef<string | null>(null);
+  const sessionRef = () => paths.session(eventIdRef.current as string, sessionId);
   // Host-issued pairing code. Remembered so this device can reconnect after a reload.
   const [pairingCode, setPairingCode] = useState(() => {
     try { return localStorage.getItem(STORED_SPOT_CODE_KEY) || ''; } catch { return ''; }
@@ -102,7 +107,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
   useEffect(() => {
     if (!isRegistered || !sessionId) return;
-    updateDoc(doc(db, 'sessions', sessionId), {
+    updateDoc(sessionRef(), {
       'deviceInfo.batteryLevel': batteryLevel,
       'deviceInfo.charging': charging,
     }).catch((err) => {
@@ -127,7 +132,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       }
     };
     const unsub = onSnapshot(
-      doc(db, ...CONSOLE_DOC),
+      paths.console(eventIdRef.current as string),
       (snap) => {
         latest = snap.exists() ? (snap.data() as any) : {};
         lastBeatAt = Date.now();
@@ -157,7 +162,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   useEffect(() => {
     if (!isRegistered || !sessionId) return;
 
-    const docRef = doc(db, 'sessions', sessionId);
+    const docRef = sessionRef();
     const unsubscribe = onSnapshot(docRef, (snap) => {
       if (!snap.exists()) {
         // The host removed this Share Spot from the Host Console.
@@ -202,9 +207,13 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       // 1. Claim the code (or confirm this device already claimed it earlier).
       const pairingRef = doc(db, 'spotPairings', code);
       let spotName = '';
+      let spotEventId = '';
       try {
         const existing = await getDoc(pairingRef); // only readable once it's ours
-        if (existing.exists() && existing.data().claimedBy === sessionId) spotName = existing.data().spotName;
+        if (existing.exists() && existing.data().claimedBy === sessionId) {
+          spotName = existing.data().spotName;
+          spotEventId = existing.data().eventId;
+        }
       } catch {
         // Not ours yet: claim it below.
       }
@@ -213,14 +222,34 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           await updateDoc(pairingRef, { claimedBy: sessionId, claimedAt: serverTimestamp() });
           const claimed = await getDoc(pairingRef);
           spotName = claimed.data()?.spotName || '';
+          spotEventId = claimed.data()?.eventId || '';
         } catch (err) {
           console.error('Pairing failed:', err);
           setError("That code didn't work. Codes work once and expire after 10 minutes, so ask the host for a new one.");
           return;
         }
       }
+      if (!spotEventId) {
+        setError("That code isn't linked to an event. Ask the host for a new one.");
+        return;
+      }
       try { localStorage.setItem(STORED_SPOT_CODE_KEY, code); } catch { /* ignore */ }
       setTripodName(spotName);
+      eventIdRef.current = spotEventId;
+      setEventId(spotEventId);
+
+      // Join the event as a Share Spot (the database checks the pairing code).
+      try {
+        const memberRef = paths.member(spotEventId, sessionId);
+        const already = await getDoc(memberRef).then((m) => m.exists()).catch(() => false);
+        if (!already) {
+          await setDoc(memberRef, { nickname: spotName, joinedAt: serverTimestamp(), joinCode: code, role: 'spot' });
+        }
+      } catch (err) {
+        console.error('Share Spot join failed:', err);
+        setError("Couldn't connect this Share Spot. Ask the host for a new code.");
+        return;
+      }
 
       // 2. Open the camera (front by default).
       try {
@@ -233,7 +262,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
 
       // 3. Register as a Share Spot. The database checks the pairing code.
       try {
-        await setDoc(doc(db, 'sessions', sessionId), {
+        await setDoc(sessionRef(), {
           sessionId: sessionId,
           nickname: spotName,
           role: 'tripod',
@@ -286,7 +315,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     frameInFlightRef.current = true;
-    updateDoc(doc(db, 'sessions', sessionId), {
+    updateDoc(sessionRef(), {
       stream_frame: canvas.toDataURL('image/jpeg', quality),
       lastActive: Date.now(),
     })
@@ -357,14 +386,14 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
               status = 'approved';
             } else {
               try {
-                const settingsSnap = await getDoc(doc(db, 'settings', 'event-settings'));
+                const settingsSnap = await getDoc(paths.event(eventIdRef.current as string));
                 if (settingsSnap.exists() && settingsSnap.data().autoApproval === true) status = 'approved';
               } catch {
                 // keep 'pending'
               }
             }
             try {
-              await addDoc(collection(db, 'photos'), {
+              await addDoc(paths.photos(eventIdRef.current as string), {
                 url: downloadUrl,
                 nickname: `${tripodName} (Share Spot)`,
                 sessionId: sessionId,
@@ -419,7 +448,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     stopCamera();
     if (registeredRef.current && sessionId) {
       registeredRef.current = false;
-      deleteDoc(doc(db, 'sessions', sessionId)).catch((err) => {
+      deleteDoc(sessionRef()).catch((err) => {
         handleFirestoreError(err, OperationType.DELETE, `sessions/${sessionId}`);
       });
     }

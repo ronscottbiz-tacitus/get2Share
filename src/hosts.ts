@@ -1,15 +1,19 @@
 /**
- * Google accounts allowed to run the Host Console.
+ * Get2Share admins: can help with any event (and bring over photos from
+ * before events existed).
  *
- * This list only controls what the app SHOWS. The real enforcement is the
- * HOST_EMAILS list inside firestore.rules — keep the two lists identical.
+ * This list only controls what the app SHOWS. The real enforcement is
+ * adminEmails() inside firestore.rules. Keep the two lists identical.
  * Emails must be lowercase.
+ *
+ * Hosting an event no longer needs this list: anyone signed in with Google
+ * can create an event and becomes its host.
  */
-export const HOST_EMAILS: string[] = [
+export const ADMIN_EMAILS: string[] = [
   'ronaldscott.ca@gmail.com',
   'ronscottbiz@gmail.com',
 ];
 
-export function isHostEmail(email: string | null | undefined): boolean {
-  return !!email && HOST_EMAILS.includes(email.toLowerCase());
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return !!email && ADMIN_EMAILS.includes(email.toLowerCase());
 }

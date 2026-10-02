@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Plus, X } from 'lucide-react';
-import { deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { useEvent } from '../EventContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { SpotPairing } from '../types';
 import { PAIRING_TTL_MS, SPOT_SETUP_PATH, formatPairingCode, newPairingCode } from '../spotPairing';
@@ -10,6 +11,7 @@ import { PAIRING_TTL_MS, SPOT_SETUP_PATH, formatPairingCode, newPairingCode } fr
  * The database only lets a device become a Share Spot by claiming one of these.
  */
 export default function AddShareSpot() {
+  const { event } = useEvent();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [code, setCode] = useState<string | null>(null);
@@ -74,9 +76,8 @@ export default function AddShareSpot() {
         const candidate = newPairingCode();
         const ref = doc(db, 'spotPairings', candidate);
         try {
-          const taken = await getDoc(ref);
-          if (taken.exists()) continue;
-          await setDoc(ref, { spotName, createdAt: serverTimestamp(), claimedBy: null });
+          // If the code is already taken this write is refused; try another.
+          await setDoc(ref, { spotName, createdAt: serverTimestamp(), claimedBy: null, eventId: event.id });
           setNow(Date.now());
           setCode(candidate);
           return;

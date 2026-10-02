@@ -1,26 +1,31 @@
 rules_version = '2';
 
-// Get2Share security rules.
+// Get2Share security rules: many events, each sealed off from the others.
 //
 // Who is who:
-//   * Every device signs in with Firebase Auth. Guests and tripods get a silent
-//     anonymous account; its uid is their session ID.
-//   * The host signs in with Google. Only the verified emails in hostEmails()
-//     get host powers. Keep this list identical to src/hosts.ts.
+//   * Every device signs in with Firebase Auth. Guests and Share Spots get a
+//     silent anonymous account; its uid is their ID everywhere.
+//   * Hosts sign in with Google. Anyone signed in with Google can create an
+//     event and becomes its owner/host. The owner can add co-hosts.
+//   * Admins (adminEmails) can help with any event. Keep in sync with src/hosts.ts.
+//
+// Layout:
+//   events/{eventId}                  name, hosts, join code, settings
+//     members/{uid}                   who joined (guests and Share Spots)
+//     photos/{photoId}
+//     sessions/{uid}                  live device state (camera sharing, Share Spots)
+//     live/console                    "the Host Console is watching"
+//   joinCodes/{CODE}                  CODE → eventId, so a link or code finds its event
+//   spotPairings/{CODE}               one-time Share Spot codes, tied to one event
 //
 // What this enforces:
-//   * Only the host can approve/reject photos, change event settings, see other
-//     devices' sessions and camera previews, invite lenses, or fire shutters.
-//   * Guests can only create their own session and photos, react, and flag.
-//   * A guest photo publishes immediately only if auto-approval is on, or the
-//     host fired that device's shutter in the last 2 minutes. Otherwise it
-//     must go in as 'pending'.
-//   * Guests can delete only their own photos and sessions.
-//   * Only the host can say it's watching (live/console), which turns Share
-//     Spot previews on and off.
-//   * Only the host can add Share Spots: a device can register as a Share Spot
-//     only after claiming a one-time pairing code the host created (codes must
-//     be claimed within 10 minutes).
+//   * You only see an event's photos if you joined it (with its current join
+//     code) or host it. Knowing another event's name or ID gets you nothing.
+//   * Only that event's hosts moderate, change settings, see devices and
+//     previews, ask for cameras, fire shutters, or add Share Spots and screens.
+//   * A guest photo goes live immediately only if auto-approval is on, or a host
+//     fired that device's shutter in the last 2 minutes. Otherwise 'pending'.
+//   * Guests can delete only their own photos.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -32,7 +37,7 @@ service cloud.firestore {
 
     // ---------- Identity ----------
 
-    function hostEmails() {
+    function adminEmails() {
       return ['ronaldscott.ca@gmail.com', 'ronscottbiz@gmail.com'];
     }
 
@@ -40,14 +45,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isHost() {
+    function myUid() {
+      return request.auth.uid;
+    }
+
+    // Signed in with a real account (Google etc.), not an anonymous guest.
+    function hasAccount() {
       return signedIn()
-        && request.auth.token.get('email_verified', false) == true
-        && request.auth.token.get('email', '').lower() in hostEmails();
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.auth.token.get('email_verified', false) == true;
+    }
+
+    function isAdmin() {
+      return hasAccount() && request.auth.token.get('email', '').lower() in adminEmails();
     }
 
     function isOwner(uid) {
-      return signedIn() && request.auth.uid == uid;
+      return signedIn() && myUid() == uid;
     }
 
     // ---------- Helpers ----------
@@ -68,37 +82,177 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
-    function settingsPath() {
-      return /databases/$(database)/documents/settings/event-settings;
+    function isCode(code) {
+      return code is string && code.matches('^[A-Z0-9]{6}$');
     }
 
-    function autoApprovalOn() {
-      return exists(settingsPath()) && get(settingsPath()).data.get('autoApproval', false) == true;
+    function eventPath(eid) {
+      return /databases/$(database)/documents/events/$(eid);
     }
 
-    // True if the host fired this device's shutter within the last 2 minutes.
-    function hostTriggeredRecently() {
-      let path = /databases/$(database)/documents/sessions/$(request.auth.uid);
-      let t = exists(path) ? get(path).data.get('last_trigger_at', null) : null;
-      return t is timestamp && request.time < t + duration.value(2, 'm');
+    function eventData(eid) {
+      return get(eventPath(eid)).data;
     }
 
-    // ---------- Settings ----------
-
-    function isValidSettings(data) {
-      return data.keys().hasOnly(['autoApproval', 'eventTitle', 'eventSubtitle', 'guestLensEnabled'])
-        && (!('autoApproval' in data) || data.autoApproval is bool)
-        && (!('eventTitle' in data) || (data.eventTitle is string && data.eventTitle.size() <= 300))
-        && (!('eventSubtitle' in data) || (data.eventSubtitle is string && data.eventSubtitle.size() <= 500))
-        && (!('guestLensEnabled' in data) || data.guestLensEnabled is bool);
+    function joinCodePath(code) {
+      return /databases/$(database)/documents/joinCodes/$(code);
     }
 
-    match /settings/{settingsId} {
-      allow read: if true;
-      allow create, update: if settingsId == 'event-settings'
-                            && isHost()
-                            && isValidSettings(incoming());
-      allow delete: if false;
+    function pairingPath(code) {
+      return /databases/$(database)/documents/spotPairings/$(code);
+    }
+
+    function memberPath(eid, uid) {
+      return /databases/$(database)/documents/events/$(eid)/members/$(uid);
+    }
+
+    function isEventHost(eid) {
+      return signedIn()
+        && (isAdmin() || (exists(eventPath(eid)) && myUid() in eventData(eid).hostUids));
+    }
+
+    function isMember(eid) {
+      return signedIn() && exists(memberPath(eid, myUid()));
+    }
+
+    // Joined the event, or hosts it.
+    function canSee(eid) {
+      return isMember(eid) || isEventHost(eid);
+    }
+
+    // ---------- Events ----------
+
+    function eventKeys() {
+      return ['name', 'subtitle', 'ownerUid', 'hostUids', 'joinCode', 'access',
+              'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt'];
+    }
+
+    function isOptionalTime(d, key) {
+      return !(key in d) || d[key] == null || d[key] is timestamp;
+    }
+
+    function isValidEvent(d) {
+      return d.keys().hasOnly(eventKeys())
+        && d.keys().hasAll(['name', 'ownerUid', 'hostUids', 'joinCode', 'access',
+                            'autoApproval', 'guestLensEnabled', 'status', 'createdAt'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 80
+        && (!('subtitle' in d) || (d.subtitle is string && d.subtitle.size() <= 200))
+        && d.ownerUid is string
+        && d.hostUids is list && d.hostUids.size() >= 1 && d.hostUids.size() <= 10
+        && d.ownerUid in d.hostUids
+        && isCode(d.joinCode)
+        && d.access in ['link', 'list']
+        && d.autoApproval is bool
+        && d.guestLensEnabled is bool
+        && d.status in ['live', 'wrapup', 'album', 'archived']
+        && isOptionalTime(d, 'startsAt')
+        && isOptionalTime(d, 'endsAt');
+    }
+
+    match /events/{eid} {
+      allow get: if canSee(eid);
+      // "My events": a host lists the events they host.
+      allow list: if hasAccount() && (isAdmin() || myUid() in resource.data.hostUids);
+
+      // Anyone with an account can create an event; they become its owner and host.
+      // The event and its join code are written together.
+      allow create: if hasAccount()
+                    && isValidId(eid)
+                    && isValidEvent(incoming())
+                    && incoming().ownerUid == myUid()
+                    && incoming().hostUids == [myUid()]
+                    && incoming().createdAt == request.time
+                    && incoming().status == 'live'
+                    && getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid;
+
+      allow update: if isEventHost(eid)
+                    && isValidEvent(incoming())
+                    && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
+                                          'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'hostUids'])
+                    && incoming().ownerUid == existing().ownerUid
+                    // Only the owner (or an admin) changes who the hosts are.
+                    && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())
+                    // A new join code must point back at this event.
+                    && (!('joinCode' in changed())
+                        || getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid);
+
+      allow delete: if isAdmin() || (signedIn() && existing().ownerUid == myUid());
+    }
+
+    // ---------- Join codes ----------
+
+    match /joinCodes/{code} {
+      // Looking up one code is how a link finds its event. No browsing the list.
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if hasAccount()
+                    && isCode(code)
+                    && incoming().keys().hasOnly(['eventId', 'name'])
+                    && incoming().eventId is string
+                    && incoming().name is string && incoming().name.size() <= 80
+                    && getAfter(eventPath(incoming().eventId)).data.joinCode == code
+                    && (isAdmin() || myUid() in getAfter(eventPath(incoming().eventId)).data.hostUids);
+
+      allow update: if isEventHost(existing().eventId)
+                    && changed().hasOnly(['name'])
+                    && incoming().name is string && incoming().name.size() <= 80;
+
+      allow delete: if isEventHost(existing().eventId);
+    }
+
+    // ---------- Members ----------
+
+    // A Share Spot joins with the one-time code the host made for this event.
+    function spotPairedTo(eid, code, uid) {
+      return isCode(code)
+        && exists(pairingPath(code))
+        && get(pairingPath(code)).data.claimedBy == uid
+        && get(pairingPath(code)).data.eventId == eid;
+    }
+
+    match /events/{eid}/members/{mid} {
+      allow get: if isOwner(mid) || isEventHost(eid);
+      allow list: if isEventHost(eid);
+
+      allow create: if isOwner(mid)
+                    && incoming().keys().hasOnly(['nickname', 'joinedAt', 'joinCode', 'role'])
+                    && incoming().keys().hasAll(['nickname', 'joinedAt', 'joinCode', 'role'])
+                    && incoming().nickname is string
+                    && incoming().nickname.size() > 0 && incoming().nickname.size() <= 40
+                    && incoming().joinedAt == request.time
+                    && (
+                      // Guests: the event is open to anyone with the link, and they have its current code.
+                      (incoming().role == 'guest'
+                        && exists(eventPath(eid))
+                        && eventData(eid).access == 'link'
+                        && eventData(eid).status == 'live'
+                        && incoming().joinCode == eventData(eid).joinCode)
+                      // Share Spots: they claimed a pairing code the host made for this event.
+                      || (incoming().role == 'spot' && spotPairedTo(eid, incoming().joinCode, mid))
+                    );
+
+      allow update: if isOwner(mid)
+                    && changed().hasOnly(['nickname'])
+                    && incoming().nickname is string
+                    && incoming().nickname.size() > 0 && incoming().nickname.size() <= 40;
+
+      allow delete: if isOwner(mid) || isEventHost(eid);
+    }
+
+    // ---------- Event presence ----------
+
+    // The Host Console says "I'm watching" (and which Share Spot is focused) so
+    // Share Spots only send preview frames when someone is looking.
+    match /events/{eid}/live/{docId} {
+      allow read: if canSee(eid);
+      allow write: if isEventHost(eid)
+                   && docId == 'console'
+                   && incoming().keys().hasOnly(['watching', 'focusSpot', 'heartbeatAt'])
+                   && incoming().watching is bool
+                   && (incoming().focusSpot == null
+                       || (incoming().focusSpot is string && incoming().focusSpot.size() <= 128))
+                   && incoming().heartbeatAt == request.time;
     }
 
     // ---------- Photos ----------
@@ -132,98 +286,54 @@ service cloud.firestore {
         && math.abs(incoming().reactions.dislikes - existing().reactions.dislikes) <= 1;
     }
 
-    match /photos/{photoId} {
-      // Anyone can see approved photos. Pending/rejected ones are visible only
-      // to the host and to the device that uploaded them.
-      allow get, list: if existing().status == 'approved'
-                       || isHost()
-                       || isOwner(existing().sessionId);
+    // True if a host fired this device's shutter within the last 2 minutes.
+    function hostTriggeredRecently(eid) {
+      let path = /databases/$(database)/documents/events/$(eid)/sessions/$(myUid());
+      let t = exists(path) ? get(path).data.get('last_trigger_at', null) : null;
+      return t is timestamp && request.time < t + duration.value(2, 'm');
+    }
 
-      allow create: if signedIn()
-                    && isValidId(photoId)
+    match /events/{eid}/photos/{photoId} {
+      // Members see approved photos. Pending/rejected ones only the hosts and the uploader.
+      allow get, list: if canSee(eid)
+                       && (existing().status == 'approved'
+                           || isEventHost(eid)
+                           || isOwner(existing().sessionId));
+
+      allow create: if isValidId(photoId)
                     && isValidPhoto(incoming())
-                    && incoming().sessionId == request.auth.uid
-                    && incoming().reactions.likes == 0
-                    && incoming().reactions.dislikes == 0
-                    && incoming().flagged == false
                     && (
-                      incoming().status == 'pending'
-                      || (incoming().status == 'approved'
-                          && (isHost() || autoApprovalOn() || hostTriggeredRecently()))
+                      // Admin: bringing over photos from before events existed.
+                      isAdmin()
+                      || (canSee(eid)
+                          && incoming().sessionId == myUid()
+                          && incoming().reactions.likes == 0
+                          && incoming().reactions.dislikes == 0
+                          && incoming().flagged == false
+                          && (incoming().status == 'pending'
+                              || (incoming().status == 'approved'
+                                  && (isEventHost(eid)
+                                      || eventData(eid).autoApproval == true
+                                      || hostTriggeredRecently(eid)))))
                     );
 
       allow update: if isValidPhoto(incoming())
                     && (
-                      // Host moderation: approve / reject / clear or set flags.
-                      (isHost() && changed().hasOnly(['status', 'flagged']))
-                      // Any signed-in viewer: react to an approved photo.
-                      || (signedIn()
+                      (isEventHost(eid) && changed().hasOnly(['status', 'flagged']))
+                      || (canSee(eid)
                           && existing().status == 'approved'
                           && changed().hasOnly(['reactions'])
                           && isSingleReactionChange())
-                      // Any signed-in viewer: flag an approved photo (cannot un-flag).
-                      || (signedIn()
+                      || (canSee(eid)
                           && existing().status == 'approved'
                           && changed().hasOnly(['flagged'])
                           && incoming().flagged == true)
                     );
 
-      allow delete: if isHost() || isOwner(existing().sessionId);
+      allow delete: if isEventHost(eid) || isOwner(existing().sessionId);
     }
 
-    // ---------- Host Console presence ----------
-    // The console says "I'm watching" (and which Share Spot is focused) so
-    // Share Spots only send preview frames when someone is looking.
-
-    match /live/{docId} {
-      allow read: if signedIn();
-      allow write: if isHost()
-                   && docId == 'console'
-                   && incoming().keys().hasOnly(['watching', 'focusSpot', 'heartbeatAt'])
-                   && incoming().watching is bool
-                   && (incoming().focusSpot == null
-                       || (incoming().focusSpot is string && incoming().focusSpot.size() <= 128))
-                   && incoming().heartbeatAt == request.time;
-    }
-
-    // ---------- Share Spot pairing codes ----------
-
-    function isPairingCode(code) {
-      return code is string && code.matches('^[A-Z0-9]{6}$');
-    }
-
-    function pairingPath(code) {
-      return /databases/$(database)/documents/spotPairings/$(code);
-    }
-
-    match /spotPairings/{code} {
-      // The host sees all codes; a Share Spot can read the one it claimed (for its name).
-      allow get: if isHost() || (signedIn() && existing().claimedBy == request.auth.uid);
-      allow list: if isHost();
-
-      allow create: if isHost()
-                    && isPairingCode(code)
-                    && incoming().keys().hasOnly(['spotName', 'createdAt', 'claimedBy'])
-                    && incoming().keys().hasAll(['spotName', 'createdAt', 'claimedBy'])
-                    && incoming().spotName is string
-                    && incoming().spotName.size() > 0 && incoming().spotName.size() <= 30
-                    && incoming().createdAt == request.time
-                    && incoming().claimedBy == null;
-
-      // A device claims an unclaimed, unexpired code for itself. Once only.
-      allow update: if signedIn()
-                    && existing().claimedBy == null
-                    && request.time < existing().createdAt + duration.value(10, 'm')
-                    && changed().hasOnly(['claimedBy', 'claimedAt'])
-                    && incoming().claimedBy == request.auth.uid
-                    && incoming().claimedAt == request.time;
-
-      // Deleting a code (cancel, or removing the Share Spot) stops that device
-      // from registering as a Share Spot again.
-      allow delete: if isHost();
-    }
-
-    // ---------- Sessions (guests, tripods, guest lenses) ----------
+    // ---------- Sessions (guest cameras, Share Spots) ----------
 
     function sessionKeys() {
       return ['sessionId', 'nickname', 'role', 'lastActive', 'deviceInfo',
@@ -246,38 +356,32 @@ service cloud.firestore {
         && (!('trigger_shutter' in data) || data.trigger_shutter is bool)
         && (!('invited_by' in data) || data.invited_by is string)
         && (!('last_trigger_at' in data) || data.last_trigger_at is timestamp)
-        && (!('pairing_code' in data) || isPairingCode(data.pairing_code));
+        && (!('pairing_code' in data) || isCode(data.pairing_code));
     }
 
-    // A Share Spot ('tripod') must point at a pairing code this device claimed.
-    // Only checked when a device becomes a Share Spot, not on every preview frame.
-    function isPairedSpot(sid) {
-      let code = incoming().get('pairing_code', '');
-      return isPairingCode(code)
-        && exists(pairingPath(code))
-        && get(pairingPath(code)).data.claimedBy == sid;
-    }
-
-    function roleAllowed(sid) {
+    // A Share Spot ('tripod') must point at a pairing code it claimed for this event.
+    // Checked only when a device becomes a Share Spot, not on every preview frame.
+    function roleAllowed(eid, sid) {
       return incoming().role == 'guest'
-        || (incoming().role == 'tripod' && isPairedSpot(sid));
+        || (incoming().role == 'tripod' && spotPairedTo(eid, incoming().get('pairing_code', ''), sid));
     }
 
-    // A device may turn these off on itself, but only the host can turn them on.
+    // A device may turn these off on itself, but only a host can turn them on.
     function onlyHostCanEnable(field) {
       return incoming().get(field, false) == false
         || incoming().get(field, false) == existing().get(field, false);
     }
 
-    match /sessions/{sid} {
-      // Sessions include live camera previews: only the host and the device itself can read them.
-      allow get: if isHost() || isOwner(sid);
-      allow list: if isHost();
+    match /events/{eid}/sessions/{sid} {
+      // Sessions include live camera previews: only hosts and the device itself.
+      allow get: if isEventHost(eid) || isOwner(sid);
+      allow list: if isEventHost(eid);
 
       allow create: if isOwner(sid)
                     && isValidId(sid)
+                    && isMember(eid)
                     && isValidSession(incoming(), sid)
-                    && roleAllowed(sid)
+                    && roleAllowed(eid, sid)
                     && incoming().get('invited_to_lens', false) == false
                     && incoming().get('trigger_shutter', false) == false
                     && incoming().get('lens_status', 'off') != 'requesting'
@@ -287,25 +391,69 @@ service cloud.firestore {
       allow update: if isValidSession(incoming(), sid)
                     && (
                       // The device updating itself (heartbeat, battery, preview frames,
-                      // accepting/declining a lens invite, clearing a fired shutter).
+                      // accepting/declining a camera request, clearing a fired shutter).
                       (isOwner(sid)
                         && ((incoming().role == existing().role
                              && incoming().get('pairing_code', null) == existing().get('pairing_code', null))
-                            || roleAllowed(sid))
+                            || roleAllowed(eid, sid))
                         && onlyHostCanEnable('invited_to_lens')
                         && onlyHostCanEnable('trigger_shutter')
                         && (incoming().get('lens_status', 'off') != 'requesting'
                             || existing().get('lens_status', 'off') == 'requesting')
                         && incoming().get('last_trigger_at', null) == existing().get('last_trigger_at', null)
                         && incoming().get('invited_by', null) == existing().get('invited_by', null))
-                      // The host inviting a lens, cancelling it, or firing a shutter.
-                      || (isHost()
+                      // A host asking for a camera, cancelling it, or firing a shutter.
+                      || (isEventHost(eid)
                         && changed().hasOnly(['invited_to_lens', 'lens_status', 'stream_frame',
                                               'trigger_shutter', 'last_trigger_at', 'invited_by'])
                         && (!('last_trigger_at' in changed()) || incoming().last_trigger_at == request.time))
                     );
 
-      allow delete: if isHost() || isOwner(sid);
+      allow delete: if isEventHost(eid) || isOwner(sid);
+    }
+
+    // ---------- Share Spot pairing codes ----------
+
+    match /spotPairings/{code} {
+      // A host sees their event's codes; a Share Spot can read the one it claimed.
+      allow get: if (signedIn() && existing().claimedBy == myUid()) || isEventHost(existing().eventId);
+      allow list: if isAdmin();
+
+      allow create: if isCode(code)
+                    && incoming().keys().hasOnly(['spotName', 'createdAt', 'claimedBy', 'eventId'])
+                    && incoming().keys().hasAll(['spotName', 'createdAt', 'claimedBy', 'eventId'])
+                    && incoming().eventId is string
+                    && isEventHost(incoming().eventId)
+                    && incoming().spotName is string
+                    && incoming().spotName.size() > 0 && incoming().spotName.size() <= 30
+                    && incoming().createdAt == request.time
+                    && incoming().claimedBy == null;
+
+      // A device claims an unclaimed, unexpired code for itself. Once only.
+      allow update: if signedIn()
+                    && existing().claimedBy == null
+                    && request.time < existing().createdAt + duration.value(10, 'm')
+                    && changed().hasOnly(['claimedBy', 'claimedAt'])
+                    && incoming().claimedBy == myUid()
+                    && incoming().claimedAt == request.time;
+
+      // Deleting a code (cancel, or removing the Share Spot) stops that device
+      // from registering as a Share Spot again.
+      allow delete: if isEventHost(existing().eventId);
+    }
+
+    // ---------- From before events existed (admin only, for bringing photos over) ----------
+
+    match /photos/{photoId} {
+      allow read, delete: if isAdmin();
+    }
+
+    match /sessions/{sid} {
+      allow read, delete: if isAdmin();
+    }
+
+    match /settings/{settingsId} {
+      allow read: if isAdmin();
     }
   }
 }

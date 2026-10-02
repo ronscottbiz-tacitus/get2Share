@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { CONSOLE_DOC, FOCUS_AUTO_OFF_MS, HEARTBEAT_MS } from '../liveConsole';
+import { serverTimestamp, setDoc } from 'firebase/firestore';
+import { paths } from '../events';
+import { FOCUS_AUTO_OFF_MS, HEARTBEAT_MS } from '../liveConsole';
 
 /**
  * Host Console side: tells Share Spots "someone is watching" (so they send
  * previews) and which spot is focused (so that one sends faster).
  * Stops when the console closes or the tab is hidden.
  */
-export function useConsolePresence(enabled: boolean) {
+export function useConsolePresence(eventId: string, enabled: boolean) {
   const [focusSpot, setFocusSpotState] = useState<string | null>(null);
   const focusRef = useRef<string | null>(null);
-  const ref = doc(db, ...CONSOLE_DOC);
+  const ref = paths.console(eventId);
 
   const write = (watching: boolean) =>
     setDoc(ref, { watching, focusSpot: watching ? focusRef.current : null, heartbeatAt: serverTimestamp() }).catch(
@@ -38,7 +38,7 @@ export function useConsolePresence(enabled: boolean) {
       write(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  }, [enabled, eventId]);
 
   // Focus one spot (or none). Auto-releases after a couple of minutes.
   const setFocusSpot = useCallback(

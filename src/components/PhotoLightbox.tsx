@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { ThumbsUp, ThumbsDown, Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye } from 'lucide-react';
-import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../firebase';
+import { paths } from '../events';
+import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 
 interface PhotoLightboxProps {
@@ -25,6 +27,8 @@ export default function PhotoLightbox({
   onToggleHideLocally,
   isHost,
 }: PhotoLightboxProps) {
+  const { event } = useEvent();
+  const eventId = event.id;
   const [likes, setLikes] = useState(photo.reactions?.likes || 0);
   const [dislikes, setDislikes] = useState(photo.reactions?.dislikes || 0);
   const [vote, setVote] = useState<'like' | 'dislike' | null>(null);
@@ -73,7 +77,7 @@ export default function PhotoLightbox({
 
     // Sync back to Firestore
     try {
-      const docRef = doc(db, 'photos', photo.id);
+      const docRef = paths.photo(eventId, photo.id);
       await updateDoc(docRef, {
         reactions: {
           likes: newLikes,
@@ -91,7 +95,7 @@ export default function PhotoLightbox({
 
     try {
       setFlagged(true);
-      const docRef = doc(db, 'photos', photo.id);
+      const docRef = paths.photo(eventId, photo.id);
       await updateDoc(docRef, {
         flagged: true,
       });
@@ -110,7 +114,7 @@ export default function PhotoLightbox({
 
     try {
       setDeleting(true);
-      const docRef = doc(db, 'photos', photo.id);
+      const docRef = paths.photo(eventId, photo.id);
       await deleteDoc(docRef);
       onClose();
     } catch (e) {

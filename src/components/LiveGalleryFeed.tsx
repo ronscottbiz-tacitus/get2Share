@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Heart, Image as ImageIcon, LogOut, Clock, RefreshCw, Trash2 } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
-import { collection, query, where, onSnapshot, addDoc, doc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
+import { query, where, onSnapshot, addDoc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { paths } from '../events';
+import { useEvent } from '../EventContext';
+import { compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -35,9 +37,9 @@ export default function LiveGalleryFeed({
   const [activeTab, setActiveTab] = useState<'all' | 'my' | 'favorites'>('all');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
-  const [autoApproval, setAutoApproval] = useState(false);
-  const [liveTitle, setLiveTitle] = useState('');
-  const [liveSubtitle, setLiveSubtitle] = useState('');
+  const { event } = useEvent();
+  const eventId = event.id;
+  const autoApproval = event.autoApproval;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -55,14 +57,14 @@ export default function LiveGalleryFeed({
     };
 
     const unsubApproved = onSnapshot(
-      query(collection(db, 'photos'), where('status', '==', 'approved')),
+      query(paths.photos(eventId), where('status', '==', 'approved')),
       (snap) => setApprovedPhotos(toPhotos(snap)),
       (err) => console.error('Error fetching approved photos:', err)
     );
 
     const unsubMine = sessionId
       ? onSnapshot(
-          query(collection(db, 'photos'), where('sessionId', '==', sessionId)),
+          query(paths.photos(eventId), where('sessionId', '==', sessionId)),
           (snap) => setMyPhotos(toPhotos(snap)),
           (err) => console.error('Error fetching my photos:', err)
         )
@@ -72,7 +74,7 @@ export default function LiveGalleryFeed({
       unsubApproved();
       unsubMine();
     };
-  }, [sessionId]);
+  }, [sessionId, eventId]);
 
   useEffect(() => {
     const byId = new Map<string, Photo>();
@@ -80,27 +82,12 @@ export default function LiveGalleryFeed({
     setPhotos(Array.from(byId.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
   }, [approvedPhotos, myPhotos]);
 
-  // 2. Listen to auto approval settings to know if we should display pending badge
-  useEffect(() => {
-    const docRef = doc(db, 'settings', 'event-settings');
-    const unsubscribe = onSnapshot(docRef, (snap) => {
-      const data = snap.exists() ? snap.data() : {};
-      setAutoApproval(data.autoApproval === true);
-      setLiveTitle(data.eventTitle || '');
-      setLiveSubtitle(data.eventSubtitle || '');
-    }, (err) => {
-      console.error('Error reading event settings:', err);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
   // 3. Keep guest session "active" heartbeat updated
   useEffect(() => {
     if (!sessionId || !nickname) return;
     
     // Register or heartbeat current session
-    const docRef = doc(db, 'sessions', sessionId);
+    const docRef = paths.session(eventId, sessionId);
     const updateHeartbeat = async () => {
       try {
         const snap = await getDoc(docRef);
@@ -123,7 +110,7 @@ export default function LiveGalleryFeed({
     updateHeartbeat();
     const interval = setInterval(updateHeartbeat, 15000); // 15s heartbeat
     return () => clearInterval(interval);
-  }, [sessionId, nickname]);
+  }, [sessionId, nickname, eventId]);
 
   const handleUploadClick = () => {
     if (fileInputRef.current) {
@@ -160,7 +147,7 @@ export default function LiveGalleryFeed({
 
       // 3. Write document to Firestore
       try {
-        await addDoc(collection(db, 'photos'), {
+        await addDoc(paths.photos(eventId), {
           url: fileUrl,
           nickname: nickname,
           sessionId: sessionId,
@@ -203,8 +190,8 @@ export default function LiveGalleryFeed({
     return true;
   });
 
-  const title = liveTitle || eventTitle || '';
-  const subtitle = liveSubtitle || eventSubtitle || '';
+  const title = event.name || eventTitle || '';
+  const subtitle = event.subtitle || eventSubtitle || '';
   const approvedCount = photos.filter((p) => p.status === 'approved').length;
   const hasPending = photos.some((p) => p.sessionId === sessionId && p.status === 'pending');
 
@@ -223,12 +210,14 @@ export default function LiveGalleryFeed({
           <span className="h-[30px] max-w-[120px] px-3 inline-flex items-center rounded-full border border-white/10 font-mono text-[10.5px] font-bold text-g2-secondary truncate">
             @{nickname}
           </span>
-          <button
-            onClick={onGoToHost}
-            className="h-11 px-2.5 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary hover:text-white transition-colors cursor-pointer"
-          >
-            Host
-          </button>
+          {isHost && (
+            <button
+              onClick={onGoToHost}
+              className="h-11 px-2.5 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary hover:text-white transition-colors cursor-pointer"
+            >
+              Host Console
+            </button>
+          )}
           <button
             onClick={onExitSession}
             aria-label="Leave event or change nickname"
@@ -331,7 +320,7 @@ export default function LiveGalleryFeed({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (window.confirm('Delete this photo from the event for everyone?')) {
-                          deleteDoc(doc(db, 'photos', photo.id)).catch((err) => {
+                          deleteDoc(paths.photo(eventId, photo.id)).catch((err) => {
                             console.error('Host delete failed:', err);
                             handleFirestoreError(err, OperationType.DELETE, `photos/${photo.id}`);
                           });

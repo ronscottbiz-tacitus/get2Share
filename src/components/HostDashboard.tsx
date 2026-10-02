@@ -5,9 +5,11 @@ import {
   Lock, Edit3, Save, CheckCircle2, UserX
 } from 'lucide-react';
 import {
-  collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp
+  collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { joinUrl, paths, resetJoinCode, saveEventDetails } from '../events';
+import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
 import Get2ShareLockup from './Get2ShareLockup';
@@ -35,6 +37,7 @@ interface HostDashboardProps {
     triggerRequested: boolean;
   }>>;
   isHost: boolean;
+  isAdmin?: boolean;
   signedInEmail: string | null;
   authError: string;
   onHostSignIn: () => void;
@@ -48,6 +51,7 @@ export default function HostDashboard({
   lensState,
   setLensState,
   isHost,
+  isAdmin = false,
   signedInEmail,
   authError,
   onHostSignIn,
@@ -55,20 +59,30 @@ export default function HostDashboard({
 }: HostDashboardProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [sessions, setSessions] = useState<GuestSession[]>([]);
-  const [autoApproval, setAutoApproval] = useState(true);
-  const [guestLensEnabled, setGuestLensEnabled] = useState(true);
-  const [eventTitle, setEventTitle] = useState('Summer Gala 2026');
-  const [eventSubtitle, setEventSubtitle] = useState('Tap any photo to react!');
+  const { event } = useEvent();
+  const eventId = event.id;
+  const [autoApproval, setAutoApproval] = useState(event.autoApproval);
+  const [guestLensEnabled, setGuestLensEnabled] = useState(event.guestLensEnabled);
+  const [eventTitle, setEventTitle] = useState(event.name);
+  const [eventSubtitle, setEventSubtitle] = useState(event.subtitle || '');
+  const [resettingLink, setResettingLink] = useState(false);
+  const [importState, setImportState] = useState('');
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [savedMetadataSuccess, setSavedMetadataSuccess] = useState(false);
 
   const [openTipId, setOpenTipId] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
-  const joinLink = window.location.origin;
+  const joinLink = joinUrl(event.joinCode);
+
+  // Keep toggles in step with the event (another host may change them).
+  useEffect(() => {
+    setAutoApproval(event.autoApproval);
+    setGuestLensEnabled(event.guestLensEnabled);
+  }, [event.autoApproval, event.guestLensEnabled]);
 
   // Remote "Take photo": tracks each shot from tap → device heard it → photo landed.
-  const { shots, fire: fireShutter } = useRemoteShutter(sessions, photos);
+  const { shots, fire: fireShutter } = useRemoteShutter(eventId, sessions, photos);
 
   // Generate QR code on mount or when joinLink changes
   useEffect(() => {
@@ -87,7 +101,7 @@ export default function HostDashboard({
   // 1. Listen for ALL photos in real time (for moderation) — host only
   useEffect(() => {
     if (!isHost) return;
-    const q = query(collection(db, 'photos'));
+    const q = query(paths.photos(eventId));
     const unsubscribe = onSnapshot(q, (snap) => {
       const docs: Photo[] = [];
       snap.forEach((doc) => {
@@ -100,12 +114,12 @@ export default function HostDashboard({
     });
 
     return () => unsubscribe();
-  }, [isHost]);
+  }, [isHost, eventId]);
 
   // 2. Listen for registered Sessions (for Tripod devices and ad-hoc guest lenses) — host only
   useEffect(() => {
     if (!isHost) return;
-    const q = query(collection(db, 'sessions'));
+    const q = query(paths.sessions(eventId));
     const unsubscribe = onSnapshot(q, (snap) => {
       const docs: GuestSession[] = [];
       snap.forEach((doc) => {
@@ -117,36 +131,7 @@ export default function HostDashboard({
     });
 
     return () => unsubscribe();
-  }, [isHost]);
-
-  // 3. Listen to Event Settings document — host only (bootstraps it if missing)
-  useEffect(() => {
-    if (!isHost) return;
-    const docRef = doc(db, 'settings', 'event-settings');
-    const unsubscribe = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.autoApproval !== undefined) setAutoApproval(data.autoApproval);
-        if (data.guestLensEnabled !== undefined) setGuestLensEnabled(data.guestLensEnabled);
-        if (data.eventTitle) setEventTitle(data.eventTitle);
-        if (data.eventSubtitle) setEventSubtitle(data.eventSubtitle);
-      } else {
-        // Bootstrap settings if not existing
-        setDoc(docRef, {
-          autoApproval: true,
-          guestLensEnabled: true,
-          eventTitle: 'Summer Gala 2026',
-          eventSubtitle: 'Tap any photo to react!'
-        }).catch((e) => {
-          console.error('Failed to create event settings:', e);
-        });
-      }
-    }, (err) => {
-      console.error('Error listening to event settings:', err);
-    });
-
-    return () => unsubscribe();
-  }, [isHost]);
+  }, [isHost, eventId]);
 
   // Sync Host's local lensState based on active session's real-time changes
   useEffect(() => {
@@ -180,7 +165,7 @@ export default function HostDashboard({
   useEffect(() => {
     if (lensState.triggerRequested && lensState.activeRequester) {
       const targetSessionId = lensState.activeRequester;
-      const docRef = doc(db, 'sessions', targetSessionId);
+      const docRef = paths.session(eventId, targetSessionId);
       updateDoc(docRef, { trigger_shutter: true, last_trigger_at: serverTimestamp() })
         .then(() => {
           setLensState(prev => ({ ...prev, triggerRequested: false }));
@@ -196,18 +181,14 @@ export default function HostDashboard({
   const handleSaveMetadata = async () => {
     try {
       setSavingMetadata(true);
-      const docRef = doc(db, 'settings', 'event-settings');
-      await updateDoc(docRef, {
-        eventTitle,
-        eventSubtitle
-      });
+      await saveEventDetails(eventId, event.joinCode, eventTitle || event.name, eventSubtitle);
       setSavingMetadata(false);
       setSavedMetadataSuccess(true);
       setTimeout(() => setSavedMetadataSuccess(false), 3000);
     } catch (e) {
       console.error('Failed to save metadata:', e);
       setSavingMetadata(false);
-      handleFirestoreError(e, OperationType.UPDATE, 'settings/event-settings');
+      handleFirestoreError(e, OperationType.UPDATE, `events/${eventId}`);
     }
   };
 
@@ -216,11 +197,10 @@ export default function HostDashboard({
     try {
       const nextVal = !guestLensEnabled;
       setGuestLensEnabled(nextVal);
-      const docRef = doc(db, 'settings', 'event-settings');
-      await updateDoc(docRef, { guestLensEnabled: nextVal });
+      await updateDoc(paths.event(eventId), { guestLensEnabled: nextVal });
     } catch (e) {
       console.error('Failed to update guest lens setting:', e);
-      handleFirestoreError(e, OperationType.UPDATE, 'settings/event-settings');
+      handleFirestoreError(e, OperationType.UPDATE, `events/${eventId}`);
     }
   };
 
@@ -232,7 +212,7 @@ export default function HostDashboard({
     if (!window.confirm(`Delete all ${pendingList.length} photos waiting for review?`)) return;
 
     try {
-      await Promise.all(pendingList.map((p) => deleteDoc(doc(db, 'photos', p.id))));
+      await Promise.all(pendingList.map((p) => deleteDoc(paths.photo(eventId, p.id))));
     } catch (e) {
       console.error('Failed bulk delete pending photos:', e);
       handleFirestoreError(e, OperationType.DELETE, 'photos');
@@ -247,7 +227,7 @@ export default function HostDashboard({
     if (!window.confirm(`Delete all ${flaggedList.length} reported photos from the event?`)) return;
 
     try {
-      await Promise.all(flaggedList.map((p) => deleteDoc(doc(db, 'photos', p.id))));
+      await Promise.all(flaggedList.map((p) => deleteDoc(paths.photo(eventId, p.id))));
     } catch (e) {
       console.error('Failed bulk clear flagged photos:', e);
       handleFirestoreError(e, OperationType.DELETE, 'photos');
@@ -267,7 +247,7 @@ export default function HostDashboard({
     if (!window.confirm(`Remove ${staleSessions.length} guests who haven't been active for 15+ minutes?`)) return;
 
     try {
-      await Promise.all(staleSessions.map((s) => deleteDoc(doc(db, 'sessions', s.sessionId))));
+      await Promise.all(staleSessions.map((s) => deleteDoc(paths.session(eventId, s.sessionId))));
       alert(`Removed ${staleSessions.length} inactive guests.`);
     } catch (e) {
       console.error('Failed pruning stale sessions:', e);
@@ -280,7 +260,7 @@ export default function HostDashboard({
     if (!window.confirm(`Remove ${guestNickname} from the event? They'll need to rejoin.`)) return;
 
     try {
-      await deleteDoc(doc(db, 'sessions', guestSessionId));
+      await deleteDoc(paths.session(eventId, guestSessionId));
     } catch (e) {
       console.error('Failed kicking guest session:', e);
       handleFirestoreError(e, OperationType.DELETE, `sessions/${guestSessionId}`);
@@ -297,17 +277,16 @@ export default function HostDashboard({
     try {
       const nextVal = !autoApproval;
       setAutoApproval(nextVal);
-      const docRef = doc(db, 'settings', 'event-settings');
-      await updateDoc(docRef, { autoApproval: nextVal });
+      await updateDoc(paths.event(eventId), { autoApproval: nextVal });
     } catch (e) {
       console.error('Failed to update approval setting:', e);
-      handleFirestoreError(e, OperationType.UPDATE, 'settings/event-settings');
+      handleFirestoreError(e, OperationType.UPDATE, `events/${eventId}`);
     }
   };
 
   const handleApprovePhoto = async (id: string) => {
     try {
-      const docRef = doc(db, 'photos', id);
+      const docRef = paths.photo(eventId, id);
       await updateDoc(docRef, { status: 'approved' });
     } catch (e) {
       console.error('Approve failed:', e);
@@ -317,7 +296,7 @@ export default function HostDashboard({
 
   const handleRejectPhoto = async (id: string) => {
     try {
-      const docRef = doc(db, 'photos', id);
+      const docRef = paths.photo(eventId, id);
       await updateDoc(docRef, { status: 'rejected' });
     } catch (e) {
       console.error('Reject failed:', e);
@@ -328,7 +307,7 @@ export default function HostDashboard({
   const handleDeletePhoto = async (id: string) => {
     if (!window.confirm('Delete this photo for everyone?')) return;
     try {
-      await deleteDoc(doc(db, 'photos', id));
+      await deleteDoc(paths.photo(eventId, id));
     } catch (e) {
       console.error('Delete failed:', e);
       handleFirestoreError(e, OperationType.DELETE, `photos/${id}`);
@@ -341,7 +320,8 @@ export default function HostDashboard({
     if (!window.confirm(`Remove the Share Spot "${spot.nickname}"? That device will need a new code to reconnect.`)) return;
     try {
       if (spot.pairing_code) await deleteDoc(doc(db, 'spotPairings', spot.pairing_code));
-      await deleteDoc(doc(db, 'sessions', spot.sessionId));
+      await deleteDoc(paths.session(eventId, spot.sessionId));
+      await deleteDoc(paths.member(eventId, spot.sessionId)).catch(() => {});
     } catch (e) {
       console.error('Remove Share Spot failed:', e);
       handleFirestoreError(e, OperationType.DELETE, `sessions/${spot.sessionId}`);
@@ -351,7 +331,7 @@ export default function HostDashboard({
   // Ad-Hoc Guest Lens invitation trigger
   const handleRequestLens = async (guestSessionId: string) => {
     try {
-      const docRef = doc(db, 'sessions', guestSessionId);
+      const docRef = paths.session(eventId, guestSessionId);
       await updateDoc(docRef, {
         invited_to_lens: true,
         lens_status: 'requesting',
@@ -369,7 +349,7 @@ export default function HostDashboard({
 
   const handleCancelLens = async (guestSessionId: string) => {
     try {
-      const docRef = doc(db, 'sessions', guestSessionId);
+      const docRef = paths.session(eventId, guestSessionId);
       await updateDoc(docRef, {
         invited_to_lens: false,
         lens_status: 'off',
@@ -387,6 +367,50 @@ export default function HostDashboard({
     }
   };
 
+  // New join link: the old QR code and link stop working; people already in stay in.
+  const handleResetJoinLink = async () => {
+    if (!window.confirm('Make a new join link? The current QR code and link will stop working. Guests who already joined stay in.')) return;
+    try {
+      setResettingLink(true);
+      await resetJoinCode(eventId, event.joinCode, event.name);
+    } catch (e) {
+      console.error('Reset join link failed:', e);
+      alert("Couldn't make a new link. Check your connection and try again.");
+    } finally {
+      setResettingLink(false);
+    }
+  };
+
+  // Admin only: copy photos from before events existed into this event.
+  const handleImportLegacyPhotos = async () => {
+    if (!window.confirm(`Copy every photo from before events existed into "${event.name}"? The originals stay where they are.`)) return;
+    try {
+      setImportState('Copying…');
+      const snap = await getDocs(collection(db, 'photos'));
+      let n = 0;
+      let skipped = 0;
+      for (const d of snap.docs) {
+        const p = d.data() as any;
+        if (photos.some((x) => x.id === d.id)) { skipped++; continue; } // already copied
+        await setDoc(paths.photo(eventId, d.id), {
+          url: p.url,
+          nickname: p.nickname || 'Guest',
+          sessionId: p.sessionId || 'legacy',
+          createdAt: typeof p.createdAt === 'number' ? Math.round(p.createdAt) : Date.now(),
+          status: ['pending', 'approved', 'rejected'].includes(p.status) ? p.status : 'pending',
+          reactions: { likes: Math.max(0, p.reactions?.likes | 0), dislikes: Math.max(0, p.reactions?.dislikes | 0) },
+          flagged: p.flagged === true,
+        });
+        n++;
+        setImportState(`Copied ${n} of ${snap.size}…`);
+      }
+      setImportState(`Done: ${n} photos copied${skipped ? `, ${skipped} were already here` : ''}.`);
+    } catch (e) {
+      console.error('Import failed:', e);
+      setImportState("Couldn't finish copying. Try again; photos already copied won't duplicate.");
+    }
+  };
+
   const toggleTip = (id: string) => {
     setOpenTipId(openTipId === id ? null : id);
   };
@@ -396,7 +420,7 @@ export default function HostDashboard({
   const tripods = sessions.filter((s) => s.role === 'tripod');
 
   // Share Spots only send previews while this console is open; one can be focused for speed.
-  const { focusSpot, setFocusSpot } = useConsolePresence(isHost);
+  const { focusSpot, setFocusSpot } = useConsolePresence(eventId, isHost);
   const spotLiveness = useSpotLiveness(tripods);
   const activeGuests = sessions.filter((s) => s.role === 'guest' && s.sessionId !== sessionId);
 
@@ -411,11 +435,11 @@ export default function HostDashboard({
           <div className="space-y-2">
             <h2 className="font-expanded font-black text-xl text-white">Host sign-in</h2>
             <p className="text-xs text-g2-tertiary">
-              Sign in with the organizer's Google account to open Event Control & Moderation.
+              Sign in with the Google account that hosts “{event.name}” to open its Host Console.
             </p>
             {signedInEmail && (
               <p className="text-[11px] text-amber-300">
-                Signed in as {signedInEmail}, which is not a host account.
+                Signed in as {signedInEmail}, which isn't a host of this event. Ask the event owner to add you as a co-host.
               </p>
             )}
           </div>
@@ -454,8 +478,8 @@ export default function HostDashboard({
           <div className="flex items-center gap-3">
             <div>
               <Get2ShareLockup className="text-base" />
-              <h1 className="mt-1 font-expanded font-black text-xl text-white">Host Console</h1>
-              <p className="text-xs text-g2-tertiary">Share Spots, guest cameras and photo review</p>
+              <h1 className="mt-1 font-expanded font-black text-xl text-white">{event.name}</h1>
+              <p className="text-xs text-g2-tertiary">Host Console · Share Spots, guest cameras and photo review</p>
             </div>
           </div>
 
@@ -477,7 +501,7 @@ export default function HostDashboard({
               onClick={onExit}
               className="bg-white/5 hover:bg-white/10 text-g2-secondary border border-white/10 font-semibold px-4 py-2.5 rounded-xl text-xs cursor-pointer transition-all duration-300"
             >
-              Back to gallery
+              My events
             </button>
           </div>
         </header>
@@ -606,12 +630,44 @@ export default function HostDashboard({
                 <p className="text-xs font-bold text-g2-text">Join link</p>
                 <div className="bg-black/40 px-3 py-2 rounded-xl text-xs font-mono text-g2-blue-light break-all border border-white/5 flex items-center justify-between gap-2">
                   <span className="truncate">{joinLink}</span>
-                  <a href={joinLink} target="_blank" rel="noreferrer" className="text-g2-muted hover:text-white shrink-0">
+                  <a href={joinLink} target="_blank" rel="noreferrer" className="text-g2-muted hover:text-white shrink-0" aria-label="Open the guest view">
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
+                <p className="text-[11px] text-g2-muted">
+                  Or enter code <span className="font-mono font-bold text-white tracking-[0.12em]">{event.joinCode}</span> at {window.location.host}
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={handleResetJoinLink}
+                disabled={resettingLink}
+                className="w-full h-10 rounded-xl border border-white/10 text-g2-secondary hover:text-white hover:bg-white/5 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-default transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${resettingLink ? 'animate-spin' : ''}`} aria-hidden="true" />
+                {resettingLink ? 'Making a new link…' : 'Make a new join link'}
+              </button>
+              <p className="text-[10px] text-g2-muted leading-relaxed">
+                Use this if the link ends up somewhere public. The old link stops working; guests already in stay in.
+              </p>
             </div>
+
+            {isAdmin && (
+              <div className="glass-card border border-amber-400/20 rounded-2xl p-5 shadow-lg space-y-3">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300">Admin</h3>
+                <p className="text-xs text-g2-tertiary leading-relaxed">
+                  Copy the photos taken before events existed into this event.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleImportLegacyPhotos}
+                  className="w-full h-10 rounded-xl bg-amber-400/10 border border-amber-400/30 text-amber-200 hover:bg-amber-400/20 text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Bring over earlier photos
+                </button>
+                {importState && <p className="text-[11px] text-g2-secondary" aria-live="polite">{importState}</p>}
+              </div>
+            )}
 
             {/* Proximity Onboarding Cards */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">

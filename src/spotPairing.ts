@@ -2,6 +2,13 @@
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const PAIRING_TTL_MS = 10 * 60 * 1000;
 
+/** A random 6-character code (Share Spot pairing codes and event join codes). */
+export function newCode(): string {
+  const bytes = new Uint32Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join('');
+}
+
 export function newPairingCode(): string {
   const bytes = new Uint32Array(6);
   crypto.getRandomValues(bytes);
