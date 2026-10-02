@@ -17,7 +17,7 @@ import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   EVENT_PATH_PREFIX, EventWithId, HOST_PATH, isMemberOf, joinEvent, normalizeJoinCode, paths,
-  readLastEvent, rememberEvent, resolveJoinCode,
+  findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode,
 } from './events';
 import { EventContext } from './EventContext';
 
@@ -164,6 +164,23 @@ export default function App() {
         const found = await resolveJoinCode(routeCode);
         if (cancelled) return;
         if (!found) {
+          // The host may have made a new join link. If this device already joined
+          // that event, follow it to its current code instead of turning them away.
+          const joined = findJoinedByCode(routeCode);
+          if (joined?.eventId && (await isMemberOf(joined.eventId, sessionId))) {
+            try {
+              const ev = await getDoc(paths.event(joined.eventId));
+              const current = (ev.data() as any)?.joinCode as string | undefined;
+              if (current && current !== routeCode && !cancelled) {
+                rememberEvent({ code: current, name: (ev.data() as any)?.name || joined.name, eventId: joined.eventId });
+                navigate(`${EVENT_PATH_PREFIX}${current}`, true);
+                return;
+              }
+            } catch { /* fall through to "not found" */ }
+          }
+        }
+        if (cancelled) return;
+        if (!found) {
           setJoinInfo(null);
           navigate('/', true);
           setRoute({ kind: 'landing', notFound: routeCode });
@@ -178,7 +195,7 @@ export default function App() {
             const n = (m.data() as any)?.nickname;
             if (n) setNickname(n);
           } catch { /* keep local nickname */ }
-          rememberEvent({ code: routeCode, name: found.name });
+          rememberEvent({ code: routeCode, name: found.name, eventId: found.eventId });
         }
         setMembership(member ? 'member' : 'not');
       } catch (err) {
@@ -226,7 +243,7 @@ export default function App() {
       await joinEvent(joinInfo.eventId, sessionId, enteredNickname, joinInfo.code);
       try { localStorage.setItem('get2share-nickname', enteredNickname); } catch { /* ignore */ }
       setNickname(enteredNickname);
-      rememberEvent({ code: joinInfo.code, name: joinInfo.name });
+      rememberEvent({ code: joinInfo.code, name: joinInfo.name, eventId: joinInfo.eventId });
       setMembership('member');
     } catch (err) {
       console.error('Join failed:', err);
@@ -280,6 +297,14 @@ export default function App() {
   };
 
   const inGallery = route.kind === 'event' && membership === 'member' && !!event;
+
+  // If the host makes a new join link while a guest is in the gallery, quietly
+  // move this page's address and the remembered code to the new one.
+  useEffect(() => {
+    if (!inGallery || !event || route.kind !== 'event' || event.joinCode === route.code) return;
+    rememberEvent({ code: event.joinCode, name: event.name, eventId: event.id });
+    window.history.replaceState(null, '', `${EVENT_PATH_PREFIX}${event.joinCode}`);
+  }, [inGallery, event?.joinCode]);
   const galleryEventId = inGallery ? event!.id : null;
 
   // Callback ref to bind the stream as soon as the video element mounts in the DOM

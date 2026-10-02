@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Shield, Check, X, Camera, Info, QrCode, Sliders, Smartphone, Laptop,
   Battery, AlertCircle, Trash2, HelpCircle, ExternalLink, RefreshCw, ChevronDown, ChevronUp, Radio,
-  Lock, Edit3, Save, CheckCircle2, UserX
+  Lock, Edit3, Save, CheckCircle2, UserX, Image as ImageIcon
 } from 'lucide-react';
 import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
@@ -67,6 +67,7 @@ export default function HostDashboard({
   const [eventSubtitle, setEventSubtitle] = useState(event.subtitle || '');
   const [resettingLink, setResettingLink] = useState(false);
   const [importState, setImportState] = useState('');
+  const [galleryLimit, setGalleryLimit] = useState(24);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [savedMetadataSuccess, setSavedMetadataSuccess] = useState(false);
 
@@ -417,6 +418,7 @@ export default function HostDashboard({
 
   const pendingPhotos = photos.filter((p) => p.status === 'pending');
   const flaggedPhotos = photos.filter((p) => p.flagged === true && p.status !== 'rejected');
+  const approvedPhotos = photos.filter((p) => p.status === 'approved');
   const tripods = sessions.filter((s) => s.role === 'tripod');
 
   // Share Spots only send previews while this console is open; one can be focused for speed.
@@ -1039,6 +1041,59 @@ export default function HostDashboard({
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+
+            {/* Live gallery: everything guests can see right now */}
+            <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4 text-g2-blue-light" /> Live gallery ({approvedPhotos.length})
+                </h3>
+                <a
+                  href={joinLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 text-g2-secondary font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" /> Open guest view
+                </a>
+              </div>
+              {approvedPhotos.length === 0 ? (
+                <div className="p-6 bg-black/30 border border-white/5 rounded-xl text-center text-g2-muted text-xs">
+                  No photos in the gallery yet.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                    {approvedPhotos.slice(0, galleryLimit).map((photo) => (
+                      <div key={photo.id} className="relative aspect-square rounded-lg overflow-hidden bg-black/40 border border-white/5 group">
+                        <img src={photo.url} alt={`Photo from ${photo.nickname}`} loading="lazy" className="w-full h-full object-cover" />
+                        <span className="absolute left-1 bottom-1 max-w-[85%] truncate text-[9px] font-mono font-bold bg-black/70 text-white px-1.5 py-0.5 rounded">
+                          {photo.nickname.replace(/\s*\((Tripod|Photo Spot|Share Spot|Group Shot)\)$/, '')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhoto(photo.id)}
+                          aria-label={`Delete photo from ${photo.nickname}`}
+                          title="Delete for everyone"
+                          className="absolute top-1 right-1 p-1.5 rounded-md bg-black/70 text-g2-secondary hover:text-red-300 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {approvedPhotos.length > galleryLimit && (
+                    <button
+                      type="button"
+                      onClick={() => setGalleryLimit((n) => n + 24)}
+                      className="w-full h-10 rounded-xl border border-white/10 text-g2-secondary hover:text-white hover:bg-white/5 text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Show more ({approvedPhotos.length - galleryLimit} more)
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
