@@ -713,6 +713,7 @@ export default function App() {
         hiddenIds={hiddenIds}
         onGoToHost={() => navigate(`${HOST_PATH}/${event.id}`)}
         onOpenKeepsake={() => { setSaveError(''); setShowKeepsake(true); }}
+        isSaved={hasAccount}
         isHost={isEventHost}
       />
 

@@ -17,6 +17,8 @@ interface LiveGalleryFeedProps {
   hiddenIds: string[];
   onGoToHost: () => void;
   onOpenKeepsake: () => void;
+  /** This phone's photos are already saved to an account. */
+  isSaved?: boolean;
   eventTitle?: string;
   eventSubtitle?: string;
   isHost?: boolean;
@@ -31,6 +33,7 @@ export default function LiveGalleryFeed({
   hiddenIds,
   onGoToHost,
   onOpenKeepsake,
+  isSaved = false,
   eventTitle,
   eventSubtitle,
   isHost,
@@ -273,14 +276,17 @@ export default function LiveGalleryFeed({
             <div>
               <p className="text-[15px] font-bold text-white">That's a wrap.</p>
               <p className="mt-0.5 text-[13px] leading-relaxed text-g2-secondary">
-                {albumUntil ? `This album is open until ${formatDay(albumUntil)}. ` : ''}Save your photos to keep them for good.
+                {albumUntil ? `This album is open until ${formatDay(albumUntil)}. ` : ''}
+                {isSaved ? 'Your photos are saved to your account.' : 'Save your photos to keep them for good.'}
               </p>
             </div>
             <button
               onClick={onOpenKeepsake}
-              className="h-12 rounded-lg bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] cursor-pointer transition-colors"
+              className={`h-12 rounded-lg font-bold text-[15px] cursor-pointer transition-colors ${
+                isSaved ? 'border border-white/15 text-white hover:bg-white/5' : 'bg-g2-blue hover:bg-g2-blue-hover text-white'
+              }`}
             >
-              Save my photos
+              {isSaved ? 'See my photos' : 'Save my photos'}
             </button>
           </div>
         )}
