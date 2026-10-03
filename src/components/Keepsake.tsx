@@ -5,6 +5,8 @@ import { onSnapshot, query, where } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import { eventPhase, formatDay, paths } from '../events';
 import { Photo } from '../types';
+import CloseButton from './CloseButton';
+import { useBackToClose } from '../useBackToClose';
 
 interface KeepsakeProps {
   key?: string; // no @types/react here, so JSX needs this spelled out
@@ -43,6 +45,7 @@ export default function Keepsake({
   const albumUntil = event.expireAt?.toMillis?.() ?? null;
   const day = event.endsAt ? formatDay(event.endsAt.toMillis()) : null;
   const shown = mine.slice(0, 9);
+  useBackToClose(true, onClose);
 
   return (
     <motion.div
@@ -74,13 +77,7 @@ export default function Keepsake({
               {mine.length === 0 ? 'Your photos' : `You took ${mine.length} ${mine.length === 1 ? 'photo' : 'photos'}.`}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="w-11 h-11 -mr-2 shrink-0 rounded-full text-g2-secondary hover:text-white flex items-center justify-center cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {mine.length > 0 ? (

@@ -4,6 +4,7 @@ import { formatPairingCode } from '../spotPairing';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import Get2ShareLockup from './Get2ShareLockup';
 import { ALBUM_DAYS, createEvent, defaultEnd, EventWithId, eventPhase, formatDay, paths, toLocalInput } from '../events';
+import CloseButton from './CloseButton';
 
 interface HostHomeProps {
   /** Signed in with Google (not an anonymous guest). */
@@ -201,9 +202,7 @@ export default function HostHome({
                   Screen code <span className="font-mono font-bold tracking-[0.12em]">{formatPairingCode(pendingScreenCode)}</span>. Name it, then pick the event it should show.
                 </p>
               </div>
-              <button onClick={onDismissScreen} aria-label="Not now" className="p-1 rounded-md text-g2-tertiary hover:text-white cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
+              <CloseButton onClick={onDismissScreen} label="Not now" size="sm" />
             </div>
             <label htmlFor="pending-screen-name" className="sr-only">Screen name</label>
             <input

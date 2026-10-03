@@ -5,6 +5,8 @@ import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebas
 import { paths } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo } from '../types';
+import CloseButton from './CloseButton';
+import { useBackToClose } from '../useBackToClose';
 
 interface PhotoLightboxProps {
   photo: Photo;
@@ -126,18 +128,13 @@ export default function PhotoLightbox({
   };
 
   const isUploader = photo.sessionId === sessionId;
+  useBackToClose(true, onClose);
 
   return (
     <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex flex-col justify-between md:flex-row items-stretch font-sans animate-fade-in">
       {/* Media Box */}
       <div className="flex-1 flex items-center justify-center p-4 relative bg-black min-h-[50vh] md:min-h-0">
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-4 left-4 p-2.5 bg-white/5 border border-white/10 hover:border-white/20 text-g2-secondary hover:text-white rounded-full z-10 cursor-pointer transition-all duration-300"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <CloseButton onClick={onClose} className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80" />
 
         <img
           src={photo.url}

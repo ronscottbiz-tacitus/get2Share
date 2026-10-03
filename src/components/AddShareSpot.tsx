@@ -5,6 +5,7 @@ import { useEvent } from '../EventContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { SpotPairing } from '../types';
 import { PAIRING_TTL_MS, SPOT_SETUP_PATH, formatPairingCode, newPairingCode } from '../spotPairing';
+import CloseButton from './CloseButton';
 
 /**
  * Host-only: name a Share Spot and get a one-time code to enter on the tablet.
@@ -128,14 +129,7 @@ export default function AddShareSpot() {
         <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">
           Add a Share Spot
         </p>
-        <button
-          type="button"
-          onClick={handleCancel}
-          aria-label="Cancel"
-          className="p-1 rounded-md text-g2-tertiary hover:text-white hover:bg-white/5 cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <CloseButton onClick={handleCancel} label="Cancel" size="sm" />
       </div>
 
       {!code && (

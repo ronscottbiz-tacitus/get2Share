@@ -23,6 +23,8 @@ import {
   findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf,
 } from './events';
 import { EventContext } from './EventContext';
+import CloseButton from './components/CloseButton';
+import { useBackToClose } from './useBackToClose';
 
 // ---------- Routes ----------
 //   /              landing: join by code, or host your own
@@ -585,6 +587,10 @@ export default function App() {
   }, [sessionId, inGallery, galleryEventId, lensState.status]);
 
   // Wait for the silent sign-in before showing anything that reads the database.
+  // Swiping back on these closes them, the same as their buttons.
+  useBackToClose(lensState.status === 'invited', handleDeclineLens);
+  useBackToClose(lensState.status === 'connected' || lensState.status === 'flashing', cleanupCameraStream);
+
   if (!authReady || (!authUser && !authError)) {
     return <Centered>Connecting…</Centered>;
   }
@@ -840,13 +846,7 @@ export default function App() {
               <span className="w-2 h-2 rounded-full bg-g2-live animate-pulse" />
               Live · host can see this
             </div>
-            <button
-              onClick={cleanupCameraStream}
-              aria-label="Stop sharing"
-              className="w-11 h-11 rounded-full border border-white/15 bg-g2-page/60 text-white flex items-center justify-center cursor-pointer"
-            >
-              <X className="w-[18px] h-[18px]" />
-            </button>
+            <CloseButton onClick={cleanupCameraStream} label="Stop sharing" className="bg-black/60 hover:bg-black/80" />
           </header>
 
           {countdown !== null && (

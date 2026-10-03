@@ -4,6 +4,7 @@ import { onSnapshot, updateDoc } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import { normalizePairingCode, formatPairingCode } from '../spotPairing';
 import { claimScreen, LAYOUTS, removeScreen, ScreenConfig, ScreenLayout, screenPaths, TV_PATH } from '../screens';
+import CloseButton from './CloseButton';
 
 const ONLINE_MS = 3 * 60 * 1000;
 
@@ -81,9 +82,7 @@ export default function ScreensPanel({ hostUid }: { hostUid: string }) {
         <form onSubmit={handleAdd} className="bg-g2-panel border border-g2-blue/40 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Add a screen</p>
-            <button type="button" onClick={() => setAdding(false)} aria-label="Cancel" className="p-1 rounded-md text-g2-tertiary hover:text-white hover:bg-white/5 cursor-pointer">
-              <X className="w-4 h-4" />
-            </button>
+            <CloseButton onClick={() => setAdding(false)} label="Cancel" size="sm" />
           </div>
           <p className="text-xs text-g2-secondary">
             On the TV's web browser, open <span className="font-mono text-white">{window.location.host}{TV_PATH}</span>. Enter the code it shows:

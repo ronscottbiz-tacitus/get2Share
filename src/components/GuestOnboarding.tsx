@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, LayoutGrid, ScanFace, Timer } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 
@@ -12,23 +12,6 @@ interface OnboardingProps {
   onGoToHost: () => void;
 }
 
-const PROMISES = [
-  {
-    icon: LayoutGrid,
-    title: 'Every photo, all night',
-    body: "Everyone's shots, in one live gallery.",
-  },
-  {
-    icon: ScanFace,
-    title: 'Step into the shot',
-    body: 'Walk up to a Share Spot, frame it on your phone, tap.',
-  },
-  {
-    icon: Timer,
-    title: 'Group Shot moments',
-    body: 'The countdown hits the big screen. Every camera fires at once.',
-  },
-];
 
 export default function GuestOnboarding({ eventName, defaultNickname = '', joining = false, joinError = '', onJoin, onGoToHost }: OnboardingProps) {
   const [nickname, setNickname] = useState(defaultNickname);
@@ -70,33 +53,21 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
             </div>
           )}
           <h1
-            aria-label="Finally, you get to be in the picture."
-            className="mt-[18px] font-expanded font-black text-[34px] leading-[1.04] tracking-[-0.02em] text-white"
+            aria-label="Finally, you get to be in the picture. And get one too."
+            className="mt-[18px] font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/10.2))] leading-[1.04] tracking-[-0.02em] text-white"
           >
             <span aria-hidden="true" className="block">Finally,</span>
             <span aria-hidden="true" className="block">
               you <span className="text-g2-blue">Get2</span> be
             </span>
             <span aria-hidden="true" className="block">in the picture.</span>
+            <span aria-hidden="true" className="block">And get one too.</span>
           </h1>
           <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
-            Every photo from tonight lands in your gallery, and Share Spots let you take the shots you're actually in.
+            Every photo from tonight, on your phone.
           </p>
         </motion.section>
 
-        <ul className="mt-5 flex flex-col gap-3.5">
-          {PROMISES.map(({ icon: Icon, title, body }) => (
-            <li key={title} className="flex gap-3 items-start">
-              <span className="w-9 h-9 shrink-0 rounded-[10px] bg-g2-panel border border-white/[0.08] flex items-center justify-center text-g2-blue-light">
-                <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="text-sm font-bold text-white">{title}</p>
-                <p className="text-[13px] leading-normal text-g2-tertiary">{body}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
 
         <div className="flex-1 min-h-6" />
 

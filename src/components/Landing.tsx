@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Camera, LayoutGrid, ScanFace, Timer } from 'lucide-react';
+import { ArrowRight, Camera, ScanFace, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { LastEvent, normalizeJoinCode } from '../events';
@@ -12,9 +12,8 @@ interface LandingProps {
 }
 
 const PROMISES = [
-  { icon: LayoutGrid, title: 'Every photo, all night', body: "Everyone's shots, in one live gallery." },
-  { icon: ScanFace, title: 'Step into the shot', body: 'Share Spots take the photos you’re actually in.' },
-  { icon: Timer, title: 'Group Shot moments', body: 'The countdown hits the big screen. Every camera fires at once.' },
+  { icon: ScanFace, title: 'Step into the shot', body: 'Tap the screen. Everyone gets the photo.' },
+  { icon: Timer, title: 'Group Shot moments', body: 'Every camera in the room fires at once.' },
 ];
 
 /** share.get2.one with no event: join one by code, or host your own. */
@@ -54,17 +53,18 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost }:
           className="mt-6"
         >
           <h1
-            aria-label="Finally, you get to be in the picture."
-            className="font-expanded font-black text-[34px] leading-[1.04] tracking-[-0.02em] text-white"
+            aria-label="Finally, you get to be in the picture. And get one too."
+            className="font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/10.2))] leading-[1.04] tracking-[-0.02em] text-white"
           >
             <span aria-hidden="true" className="block">Finally,</span>
             <span aria-hidden="true" className="block">
               you <span className="text-g2-blue">Get2</span> be
             </span>
             <span aria-hidden="true" className="block">in the picture.</span>
+            <span aria-hidden="true" className="block">And get one too.</span>
           </h1>
           <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
-            Every photo from the party lands in one live gallery, and Share Spots let you take the shots you're actually in. No app to download.
+            Every photo from the party, on everyone's phone. No app to download.
           </p>
         </motion.section>
 

@@ -7,6 +7,7 @@ import { BACKGROUND_MS, FOCUS_MS, FRAME, NORMAL_MS, WATCH_TIMEOUT_MS } from '../
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { motion } from 'motion/react';
 import FullscreenButton from './FullscreenButton';
+import CloseButton from './CloseButton';
 
 interface TripodModeProps {
   onExit: () => void;
@@ -626,14 +627,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
             <Battery className="w-4 h-4 text-emerald-400" />
             <span>{batteryLevel !== null ? `${batteryLevel}%${charging ? ' · charging' : ''}` : '—'}</span>
           </div>
-          <button
-            onClick={handleExit}
-            className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-g2-secondary transition-all duration-300 cursor-pointer"
-            title="Stop Share Spot"
-            aria-label="Stop Share Spot"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <CloseButton onClick={handleExit} label="Stop Share Spot" />
         </div>
       </div>
 
