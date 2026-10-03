@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { onSnapshot, query, where } from 'firebase/firestore';
+import { getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import { eventPhase, formatDay, paths } from '../events';
 import { Photo } from '../types';
@@ -41,10 +41,38 @@ export default function Keepsake({
     );
   }, [event.id, sessionId]);
 
+  // Photos taken on a Share Spot that this guest scanned to keep.
+  const [kept, setKept] = useState<Photo[]>([]);
+  const [keptWaiting, setKeptWaiting] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const unsub = onSnapshot(
+      paths.member(event.id, sessionId),
+      async (snap) => {
+        const ids: string[] = ((snap.data() as any)?.kept || []).slice(-300);
+        const results = await Promise.all(
+          ids.map((id) =>
+            getDoc(paths.photo(event.id, id))
+              .then((d) => (d.exists() ? ({ id: d.id, ...(d.data() as any) } as Photo) : null))
+              .catch(() => undefined) // not approved yet, so not visible to guests
+          )
+        );
+        if (cancelled) return;
+        setKept(results.filter((p): p is Photo => !!p && p.status === 'approved'));
+        setKeptWaiting(results.filter((p) => p === undefined || (p && p.status === 'pending')).length);
+      },
+      () => { setKept([]); setKeptWaiting(0); }
+    );
+    return () => { cancelled = true; unsub(); };
+  }, [event.id, sessionId]);
+
   const phase = eventPhase(event);
   const albumUntil = event.expireAt?.toMillis?.() ?? null;
   const day = event.endsAt ? formatDay(event.endsAt.toMillis()) : null;
-  const shown = mine.slice(0, 9);
+  const all = [...mine, ...kept.filter((k) => !mine.some((m) => m.id === k.id))].sort(
+    (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  );
+  const shown = all.slice(0, 9);
   useBackToClose(true, onClose);
 
   return (
@@ -74,20 +102,24 @@ export default function Keepsake({
               {event.name}{day ? ` · ${day}` : ''}
             </p>
             <h2 id="keepsake-title" className="mt-1 font-expanded font-black text-[26px] leading-tight text-white">
-              {mine.length === 0 ? 'Your photos' : `You took ${mine.length} ${mine.length === 1 ? 'photo' : 'photos'}.`}
+              {all.length === 0
+                ? 'Your photos'
+                : kept.length === 0
+                  ? `You took ${mine.length} ${mine.length === 1 ? 'photo' : 'photos'}.`
+                  : `${all.length} ${all.length === 1 ? 'photo' : 'photos'} from tonight.`}
             </h2>
           </div>
           <CloseButton onClick={onClose} />
         </div>
 
-        {mine.length > 0 ? (
+        {all.length > 0 ? (
           <div className="grid grid-cols-3 gap-1.5">
             {shown.map((p, i) => (
               <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden bg-black/40">
                 <img src={p.url} alt="" loading="lazy" className="w-full h-full object-cover" />
-                {i === shown.length - 1 && mine.length > shown.length && (
+                {i === shown.length - 1 && all.length > shown.length && (
                   <span className="absolute inset-0 bg-g2-page/70 flex items-center justify-center font-expanded font-black text-lg text-white">
-                    +{mine.length - shown.length}
+                    +{all.length - shown.length}
                   </span>
                 )}
               </div>
@@ -96,6 +128,12 @@ export default function Keepsake({
         ) : (
           <p className="text-sm text-g2-tertiary leading-relaxed">
             Photos you take show up here. Saving keeps everything you've added to {event.name} with you.
+          </p>
+        )}
+
+        {keptWaiting > 0 && (
+          <p className="text-xs text-g2-tertiary">
+            {keptWaiting === 1 ? '1 Share Spot photo is' : `${keptWaiting} Share Spot photos are`} waiting for the host to approve {keptWaiting === 1 ? 'it' : 'them'}.
           </p>
         )}
 

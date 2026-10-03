@@ -1,6 +1,7 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-10-03: guests can keep Share Spot photos ("kept").
 //
 // Who is who:
 //   * Every device signs in with Firebase Auth. Guests and Share Spots get a
@@ -285,10 +286,12 @@ service cloud.firestore {
                       || (incoming().role == 'screen' && screenPairedTo(eid, incoming().joinCode, mid))
                     );
 
+      // Guests can rename themselves and keep Share Spot photos ("Scan to keep this one").
       allow update: if isOwner(mid)
-                    && changed().hasOnly(['nickname'])
+                    && changed().hasOnly(['nickname', 'kept'])
                     && incoming().nickname is string
-                    && incoming().nickname.size() > 0 && incoming().nickname.size() <= 40;
+                    && incoming().nickname.size() > 0 && incoming().nickname.size() <= 40
+                    && (!('kept' in incoming()) || (incoming().kept is list && incoming().kept.size() <= 300));
 
       allow delete: if isOwner(mid) || isEventHost(eid);
     }

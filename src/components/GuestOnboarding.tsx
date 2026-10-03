@@ -8,12 +8,14 @@ interface OnboardingProps {
   defaultNickname?: string;
   joining?: boolean;
   joinError?: string;
+  /** They scanned "keep this one" on a Share Spot. */
+  keeping?: boolean;
   onJoin: (nickname: string) => void;
   onGoToHost: () => void;
 }
 
 
-export default function GuestOnboarding({ eventName, defaultNickname = '', joining = false, joinError = '', onJoin, onGoToHost }: OnboardingProps) {
+export default function GuestOnboarding({ eventName, defaultNickname = '', joining = false, joinError = '', keeping = false, onJoin, onGoToHost }: OnboardingProps) {
   const [nickname, setNickname] = useState(defaultNickname);
   const [error, setError] = useState('');
   const eventTitle = eventName;
@@ -101,9 +103,11 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
             className="h-[52px] bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-60 text-white font-bold text-[15px] rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer"
           >
             <Camera className="w-[18px] h-[18px]" aria-hidden="true" />
-            {joining ? 'Joining…' : 'Join the event'}
+            {joining ? 'Joining…' : keeping ? 'Join and keep my photo' : 'Join the event'}
           </button>
-          <p className="text-center text-xs text-g2-tertiary">No app. No sign-up. Just a nickname.</p>
+          <p className="text-center text-xs text-g2-tertiary">
+            {keeping ? 'Your Share Spot photo will be waiting in your photos.' : 'No app. No sign-up. Just a nickname.'}
+          </p>
         </form>
 
 

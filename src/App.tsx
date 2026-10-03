@@ -13,7 +13,7 @@ import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import { Photo } from './types';
 import { X, Check, Users } from 'lucide-react';
-import { updateDoc, onSnapshot, addDoc, getDoc } from 'firebase/firestore';
+import { updateDoc, onSnapshot, addDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { linkWithPopup, onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
 import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
 import { isAdminEmail } from './hosts';
@@ -40,6 +40,8 @@ type Route =
   | { kind: 'hostEvent'; eventId: string }
   | { kind: 'spot' }
   | { kind: 'tv' };
+
+const PENDING_KEEP_KEY = 'get2share-pending-keep';
 
 function parseRoute(pathname: string): Route {
   const p = pathname.replace(/\/+$/, '') || '/';
@@ -361,6 +363,31 @@ export default function App() {
     window.history.replaceState(null, '', `${EVENT_PATH_PREFIX}${event.joinCode}`);
   }, [inGallery, event?.joinCode]);
   const galleryEventId = inGallery ? event!.id : null;
+
+  // "Scan to keep this one" on a Share Spot opens /e/CODE?keep=PHOTO. Remember
+  // the photo through joining, then add it to this guest's photos.
+  const [pendingKeep, setPendingKeep] = useState<string | null>(() => {
+    try {
+      const k = new URLSearchParams(window.location.search).get('keep');
+      if (k && /^[A-Za-z0-9_-]{1,128}$/.test(k)) {
+        localStorage.setItem(PENDING_KEEP_KEY, k);
+        return k;
+      }
+      return localStorage.getItem(PENDING_KEEP_KEY);
+    } catch { return null; }
+  });
+  useEffect(() => {
+    if (!galleryEventId || !pendingKeep || !sessionId) return;
+    const done = () => {
+      try { localStorage.removeItem(PENDING_KEEP_KEY); } catch { /* ignore */ }
+      setPendingKeep(null);
+      if (window.location.search) window.history.replaceState(window.history.state, '', window.location.pathname);
+    };
+    updateDoc(paths.member(galleryEventId, sessionId), { kept: arrayUnion(pendingKeep) })
+      .then(() => { setSaveError(''); setShowKeepsake(true); })
+      .catch((err) => console.error('Keeping that photo failed:', err))
+      .finally(done);
+  }, [galleryEventId, pendingKeep, sessionId]);
 
   // Callback ref to bind the stream as soon as the video element mounts in the DOM
   const setVideoElementRef = (node: HTMLVideoElement | null) => {
@@ -722,6 +749,7 @@ export default function App() {
         defaultNickname={nickname}
         joining={joining}
         joinError={joinError}
+        keeping={!!pendingKeep}
         onJoin={handleJoinEvent}
         onGoToHost={() => navigate(HOST_PATH)}
       />

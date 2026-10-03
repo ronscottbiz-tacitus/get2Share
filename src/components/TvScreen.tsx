@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteDoc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
-import QRCode from 'qrcode';
+import { useQr } from '../useQr';
 import { AnimatePresence, motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import FullscreenButton from './FullscreenButton';
@@ -38,17 +38,6 @@ function credit(p: Photo): { who: string; where: string } {
   if (/\((Tripod|Photo Spot|Share Spot)\)$/.test(p.nickname || '')) return { who: '', where: name };
   if (/\(Group Shot\)$/.test(p.nickname || '')) return { who: `@${name}`, where: 'Group Shot' };
   return { who: `@${name}`, where: '' };
-}
-
-function useQr(text: string | null, size = 360) {
-  const [url, setUrl] = useState('');
-  useEffect(() => {
-    if (!text) return;
-    QRCode.toDataURL(text, { margin: 1, width: size, color: { dark: '#000000', light: '#ffffff' } })
-      .then(setUrl)
-      .catch(() => setUrl(''));
-  }, [text, size]);
-  return url;
 }
 
 export default function TvScreen({ uid }: { uid: string }) {
