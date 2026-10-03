@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, Lock, LogOut, Plus } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lock, LogOut, Plus, X } from 'lucide-react';
+import { formatPairingCode } from '../spotPairing';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import Get2ShareLockup from './Get2ShareLockup';
 import { ALBUM_DAYS, createEvent, defaultEnd, EventWithId, eventPhase, formatDay, paths, toLocalInput } from '../events';
@@ -16,6 +17,10 @@ interface HostHomeProps {
   onSignIn: () => void;
   onSignOut: () => void;
   onOpenEvent: (eventId: string) => void;
+  /** A TV's code from its QR (share.get2.one/host?screen=CODE), waiting to be connected. */
+  pendingScreenCode?: string | null;
+  onConnectScreen?: (eventId: string, name: string) => Promise<void>;
+  onDismissScreen?: () => void;
   /** Open an event this account joined as a guest. */
   onOpenJoined: (e: { eventId: string; code: string; name: string }) => void;
   onBack: () => void;
@@ -26,7 +31,26 @@ interface JoinedRow { eventId: string; name: string; code: string; joinedMs: num
 /** share.get2.one/host: sign in, see the events you host, create a new one. */
 export default function HostHome({
   hasAccount, uid, email, isAdmin, signInError, notice, onSignIn, onSignOut, onOpenEvent, onOpenJoined, onBack,
+  pendingScreenCode = null, onConnectScreen, onDismissScreen,
 }: HostHomeProps) {
+  const [screenName, setScreenName] = useState('');
+  const [screenBusy, setScreenBusy] = useState<string | null>(null);
+  const [screenError, setScreenError] = useState('');
+  const connectScreen = async (eventId: string) => {
+    if (!onConnectScreen) return;
+    setScreenBusy(eventId);
+    setScreenError('');
+    try {
+      await onConnectScreen(eventId, screenName.trim() || 'Main screen');
+    } catch (e: any) {
+      console.error('Connect screen failed:', e);
+      setScreenError(e?.message === 'already-claimed'
+        ? 'That screen is already connected to an event.'
+        : "Couldn't connect. The code on the TV may have changed; scan it again.");
+    } finally {
+      setScreenBusy(null);
+    }
+  };
   const [joined, setJoined] = useState<JoinedRow[]>([]);
   const [events, setEvents] = useState<EventWithId[] | null>(null);
   const [listError, setListError] = useState('');
@@ -168,6 +192,46 @@ export default function HostHome({
           <p className="mt-5 font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">Hosting</p>
         )}
         {notice && <p className="mt-2 text-sm text-amber-300">{notice}</p>}
+        {pendingScreenCode && (
+          <div className="mt-5 rounded-xl bg-g2-panel border border-g2-blue/50 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Connect a screen</p>
+                <p className="mt-1 text-sm text-white">
+                  Screen code <span className="font-mono font-bold tracking-[0.12em]">{formatPairingCode(pendingScreenCode)}</span>. Name it, then pick the event it should show.
+                </p>
+              </div>
+              <button onClick={onDismissScreen} aria-label="Not now" className="p-1 rounded-md text-g2-tertiary hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <label htmlFor="pending-screen-name" className="sr-only">Screen name</label>
+            <input
+              id="pending-screen-name"
+              type="text"
+              maxLength={40}
+              value={screenName}
+              onChange={(e) => setScreenName(e.target.value)}
+              placeholder="e.g. Main Hall TV"
+              className="w-full h-11 px-3 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-white text-sm focus:outline-none"
+            />
+            {events && events.length === 0 && <p className="text-xs text-g2-tertiary">Create an event first, then scan the TV's code again.</p>}
+            <div className="flex flex-col gap-2">
+              {events?.map((ev) => (
+                <button
+                  key={ev.id}
+                  onClick={() => connectScreen(ev.id)}
+                  disabled={!!screenBusy}
+                  className="h-11 px-4 rounded-lg bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-60 text-white text-sm font-bold text-left flex items-center justify-between cursor-pointer disabled:cursor-default"
+                >
+                  <span className="truncate">Show on: {ev.name}</span>
+                  {screenBusy === ev.id ? <span className="text-xs">Connecting…</span> : <ArrowRight className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+            {screenError && <p className="text-xs text-red-400" role="alert">{screenError}</p>}
+          </div>
+        )}
         {listError && <p className="mt-2 text-sm text-red-400" role="alert">{listError}</p>}
 
         <div className="mt-5 flex flex-col gap-2.5">

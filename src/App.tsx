@@ -6,6 +6,8 @@ import HostDashboard from './components/HostDashboard';
 import HostHome from './components/HostHome';
 import Landing from './components/Landing';
 import Keepsake from './components/Keepsake';
+import TvScreen from './components/TvScreen';
+import { claimScreen, TV_PATH } from './screens';
 import TripodMode from './components/TripodMode';
 import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
@@ -34,11 +36,13 @@ type Route =
   | { kind: 'event'; code: string }
   | { kind: 'host' }
   | { kind: 'hostEvent'; eventId: string }
-  | { kind: 'spot' };
+  | { kind: 'spot' }
+  | { kind: 'tv' };
 
 function parseRoute(pathname: string): Route {
   const p = pathname.replace(/\/+$/, '') || '/';
   if (p === SPOT_SETUP_PATH) return { kind: 'spot' };
+  if (p === TV_PATH) return { kind: 'tv' };
   if (p === HOST_PATH) return { kind: 'host' };
   if (p.startsWith(HOST_PATH + '/')) {
     const id = p.slice(HOST_PATH.length + 1);
@@ -101,6 +105,12 @@ export default function App() {
   const eventStateRef = useRef<EventWithId | null>(null);
 
   const [hostView, setHostView] = useState<'console' | 'slideshow'>('console');
+
+  // A TV's QR code opens /host?screen=CODE so the host can connect it in one step.
+  const [pendingScreenCode, setPendingScreenCode] = useState<string | null>(() => {
+    const c = normalizeJoinCode(new URLSearchParams(window.location.search).get('screen') || '');
+    return c.length === 6 ? c : null;
+  });
 
   // "Save my photos": link this phone's guest identity to a Google account.
   const [showKeepsake, setShowKeepsake] = useState(false);
@@ -601,6 +611,11 @@ export default function App() {
     </div>
   );
 
+  // ---------- /tv ----------
+  if (route.kind === 'tv') {
+    return <TvScreen uid={sessionId} />;
+  }
+
   // ---------- /spot ----------
   if (route.kind === 'spot') {
     return shell(<TripodMode sessionId={sessionId} onExit={() => navigate('/')} />);
@@ -637,6 +652,15 @@ export default function App() {
         onSignIn={handleHostSignIn}
         onSignOut={handleHostSignOut}
         onOpenEvent={(id) => { setHostView('console'); navigate(`${HOST_PATH}/${id}`); }}
+        pendingScreenCode={route.kind === 'host' ? pendingScreenCode : null}
+        onConnectScreen={async (eventId, name) => {
+          if (!pendingScreenCode) return;
+          await claimScreen(pendingScreenCode, eventId, sessionId, name);
+          setPendingScreenCode(null);
+          setHostView('console');
+          navigate(`${HOST_PATH}/${eventId}`);
+        }}
+        onDismissScreen={() => { setPendingScreenCode(null); window.history.replaceState(null, '', HOST_PATH); }}
         onOpenJoined={(j) => {
           // Seed this device's memory so an old code still finds the event.
           rememberEvent({ code: j.code, name: j.name, eventId: j.eventId });

@@ -17,6 +17,7 @@ import { useRemoteShutter } from './useRemoteShutter';
 import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
+import ScreensPanel from './ScreensPanel';
 import { useConsolePresence } from './useConsolePresence';
 import { useSpotLiveness } from './useSpotLiveness';
 
@@ -906,6 +907,9 @@ export default function HostDashboard({
                 </div>
               )}
             </div>
+
+            {/* TV screens paired to this event */}
+            <ScreensPanel hostUid={sessionId} />
 
             {/* Tap-to-Acquire Guest Handshakes ( Sara's Active Lens ) */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">

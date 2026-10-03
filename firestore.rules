@@ -17,6 +17,8 @@ rules_version = '2';
 //     live/console                    "the Host Console is watching"
 //   joinCodes/{CODE}                  CODE → eventId, so a link or code finds its event
 //   spotPairings/{CODE}               one-time Share Spot codes, tied to one event
+//   screenPairings/{CODE}             codes a TV shows; a host claims one to add that TV
+//   events/{eventId}/screens/{tvUid}  per-TV settings (layout, QR, pause) the hosts control
 //
 // What this enforces:
 //   * You only see an event's photos if you joined it (with its current join
@@ -246,6 +248,18 @@ service cloud.firestore {
         && get(pairingPath(code)).data.eventId == eid;
     }
 
+    // A TV joins after a host of this event claimed the code it showed.
+    function screenPairedTo(eid, code, uid) {
+      return isCode(code)
+        && exists(screenPairingPath(code))
+        && get(screenPairingPath(code)).data.screenUid == uid
+        && get(screenPairingPath(code)).data.eventId == eid;
+    }
+
+    function screenPairingPath(code) {
+      return /databases/$(database)/documents/screenPairings/$(code);
+    }
+
     match /events/{eid}/members/{mid} {
       allow get: if isOwner(mid) || isEventHost(eid);
       allow list: if isEventHost(eid);
@@ -267,6 +281,8 @@ service cloud.firestore {
                         && incoming().joinCode == eventData(eid).joinCode)
                       // Share Spots: they claimed a pairing code the host made for this event.
                       || (incoming().role == 'spot' && spotPairedTo(eid, incoming().joinCode, mid))
+                      // TV screens: a host claimed the code this TV showed.
+                      || (incoming().role == 'screen' && screenPairedTo(eid, incoming().joinCode, mid))
                     );
 
       allow update: if isOwner(mid)
@@ -481,6 +497,62 @@ service cloud.firestore {
       // Deleting a code (cancel, or removing the Share Spot) stops that device
       // from registering as a Share Spot again.
       allow delete: if isEventHost(existing().eventId);
+    }
+
+    // ---------- TV screens ----------
+
+    match /screenPairings/{code} {
+      // Codes are random and short-lived; reading one only says which TV and event.
+      allow get: if signedIn();
+      allow list: if false;
+
+      // The TV makes its own code.
+      allow create: if signedIn()
+                    && isCode(code)
+                    && incoming().keys().hasOnly(['screenUid', 'createdAt', 'eventId', 'screenName', 'claimedBy'])
+                    && incoming().screenUid == myUid()
+                    && incoming().createdAt == request.time
+                    && incoming().eventId == null
+                    && incoming().screenName == null
+                    && incoming().claimedBy == null;
+
+      // A host claims it for one of their events, once, within 15 minutes.
+      allow update: if signedIn()
+                    && existing().claimedBy == null
+                    && request.time < existing().createdAt + duration.value(15, 'm')
+                    && changed().hasOnly(['eventId', 'claimedBy', 'screenName', 'claimedAt'])
+                    && incoming().claimedBy == myUid()
+                    && incoming().claimedAt == request.time
+                    && incoming().eventId is string
+                    && isEventHost(incoming().eventId)
+                    && incoming().screenName is string
+                    && incoming().screenName.size() > 0 && incoming().screenName.size() <= 40;
+
+      allow delete: if signedIn()
+                    && (existing().screenUid == myUid()
+                        || (existing().eventId is string && isEventHost(existing().eventId)));
+    }
+
+    function isValidScreen(d) {
+      return d.keys().hasOnly(['name', 'layout', 'showQr', 'showNames', 'paused', 'pairingCode', 'lastSeen'])
+        && d.keys().hasAll(['name', 'layout', 'showQr', 'showNames', 'paused', 'pairingCode'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 40
+        && d.layout in ['wall', 'justin', 'slideshow']
+        && d.showQr is bool && d.showNames is bool && d.paused is bool
+        && isCode(d.pairingCode)
+        && isOptionalTime(d, 'lastSeen');
+    }
+
+    match /events/{eid}/screens/{sid} {
+      allow get, list: if isEventHost(eid) || isOwner(sid);
+      allow create: if isEventHost(eid) && isValidScreen(incoming());
+      allow update: if isValidScreen(incoming())
+                    && (
+                      isEventHost(eid)
+                      // The TV only checks in ("still on").
+                      || (isOwner(sid) && changed().hasOnly(['lastSeen']) && incoming().lastSeen == request.time)
+                    );
+      allow delete: if isEventHost(eid) || isOwner(sid);
     }
 
     // ---------- Events a device joined ----------
