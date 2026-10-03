@@ -3,6 +3,7 @@ import { deleteDoc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDo
 import QRCode from 'qrcode';
 import { AnimatePresence, motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
+import FullscreenButton from './FullscreenButton';
 import { EventWithId, eventPhase, formatDay, joinUrl, paths } from '../events';
 import { formatPairingCode } from '../spotPairing';
 import {
@@ -222,6 +223,7 @@ function TvFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 bg-g2-page text-g2-text font-sans overflow-hidden cursor-none select-none p-[5vmin] flex flex-col">
       {children}
+      <FullscreenButton autoFocus label="Press OK for full screen" className="absolute top-[1.2vmin] left-1/2 -translate-x-1/2 text-[1.9vmin] px-[2vmin] py-[0.9vmin] z-50" />
     </div>
   );
 }

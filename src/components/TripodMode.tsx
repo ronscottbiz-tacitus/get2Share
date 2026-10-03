@@ -6,6 +6,7 @@ import { normalizePairingCode, formatPairingCode, STORED_SPOT_CODE_KEY } from '.
 import { BACKGROUND_MS, FOCUS_MS, FRAME, NORMAL_MS, WATCH_TIMEOUT_MS } from '../liveConsole';
 import { db, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { motion } from 'motion/react';
+import FullscreenButton from './FullscreenButton';
 
 interface TripodModeProps {
   onExit: () => void;
@@ -620,6 +621,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
           </span>
         </div>
         <div className="flex items-center gap-4">
+          <FullscreenButton className="text-xs px-3 py-1.5" />
           <div className="flex items-center gap-1.5 text-g2-tertiary text-xs bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 backdrop-blur-md">
             <Battery className="w-4 h-4 text-emerald-400" />
             <span>{batteryLevel !== null ? `${batteryLevel}%${charging ? ' · charging' : ''}` : '—'}</span>
