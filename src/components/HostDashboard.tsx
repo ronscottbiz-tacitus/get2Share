@@ -8,7 +8,7 @@ import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
-import { ALBUM_DAYS, eventPhase, formatDay, formatWhen, joinUrl, paths, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput } from '../events';
+import { ALBUM_DAYS, deleteEvent, eventPhase, formatDay, formatWhen, joinUrl, paths, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -66,7 +66,10 @@ export default function HostDashboard({
   const [eventTitle, setEventTitle] = useState(event.name);
   const [eventSubtitle, setEventSubtitle] = useState(event.subtitle || '');
   const [resettingLink, setResettingLink] = useState(false);
-  const [importState, setImportState] = useState('');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState('');
   const [galleryLimit, setGalleryLimit] = useState(24);
   const [endInput, setEndInput] = useState(() => (event.endsAt ? toLocalInput(new Date(event.endsAt.toMillis())) : ''));
   const [timingBusy, setTimingBusy] = useState(false);
@@ -427,33 +430,19 @@ export default function HostDashboard({
     }
   };
 
-  // Admin only: copy photos from before events existed into this event.
-  const handleImportLegacyPhotos = async () => {
-    if (!window.confirm(`Copy every photo from before events existed into "${event.name}"? The originals stay where they are.`)) return;
+  // Delete the whole event: photos and their files, guests, devices, the join link.
+  const canDelete = isAdmin || event.ownerUid === sessionId;
+  const handleDeleteEvent = async () => {
+    if (deleteText.trim() !== event.name.trim()) return;
     try {
-      setImportState('Copying…');
-      const snap = await getDocs(collection(db, 'photos'));
-      let n = 0;
-      let skipped = 0;
-      for (const d of snap.docs) {
-        const p = d.data() as any;
-        if (photos.some((x) => x.id === d.id)) { skipped++; continue; } // already copied
-        await setDoc(paths.photo(eventId, d.id), {
-          url: p.url,
-          nickname: p.nickname || 'Guest',
-          sessionId: p.sessionId || 'legacy',
-          createdAt: typeof p.createdAt === 'number' ? Math.round(p.createdAt) : Date.now(),
-          status: ['pending', 'approved', 'rejected'].includes(p.status) ? p.status : 'pending',
-          reactions: { likes: Math.max(0, p.reactions?.likes | 0), dislikes: Math.max(0, p.reactions?.dislikes | 0) },
-          flagged: p.flagged === true,
-        });
-        n++;
-        setImportState(`Copied ${n} of ${snap.size}…`);
-      }
-      setImportState(`Done: ${n} photos copied${skipped ? `, ${skipped} were already here` : ''}.`);
+      setDeleting(true);
+      setDeleteMsg('Deleting…');
+      await deleteEvent(event, (msg) => setDeleteMsg(msg));
+      onExit();
     } catch (e) {
-      console.error('Import failed:', e);
-      setImportState("Couldn't finish copying. Try again; photos already copied won't duplicate.");
+      console.error('Delete event failed:', e);
+      setDeleteMsg("Couldn't finish deleting. Try again; anything already removed stays removed.");
+      setDeleting(false);
     }
   };
 
@@ -767,20 +756,56 @@ export default function HostDashboard({
               </p>
             </div>
 
-            {isAdmin && (
-              <div className="glass-card border border-amber-400/20 rounded-2xl p-5 shadow-lg space-y-3">
-                <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300">Admin</h3>
+
+            {canDelete && (
+              <div className="glass-card border border-red-500/20 rounded-2xl p-5 shadow-lg space-y-3">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-red-300">Delete event</h3>
                 <p className="text-xs text-g2-tertiary leading-relaxed">
-                  Copy the photos taken before events existed into this event.
+                  Removes the event for everyone: every photo, the guest list, Share Spots and the join link. This can't be undone.
                 </p>
-                <button
-                  type="button"
-                  onClick={handleImportLegacyPhotos}
-                  className="w-full h-10 rounded-xl bg-amber-400/10 border border-amber-400/30 text-amber-200 hover:bg-amber-400/20 text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Bring over earlier photos
-                </button>
-                {importState && <p className="text-[11px] text-g2-secondary" aria-live="polite">{importState}</p>}
+                {!deleteOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteOpen(true); setDeleteText(''); setDeleteMsg(''); }}
+                    className="w-full h-10 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Delete this event…
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <label htmlFor="delete-confirm" className="block text-[11px] text-g2-secondary">
+                      Type <span className="font-bold text-white">{event.name}</span> to confirm.
+                    </label>
+                    <input
+                      id="delete-confirm"
+                      type="text"
+                      value={deleteText}
+                      onChange={(e) => setDeleteText(e.target.value)}
+                      autoComplete="off"
+                      disabled={deleting}
+                      className="w-full bg-black/40 border border-red-500/30 focus:border-red-400 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteOpen(false)}
+                        disabled={deleting}
+                        className="flex-1 h-10 rounded-xl border border-white/10 text-g2-secondary hover:text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                      >
+                        Keep it
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteEvent}
+                        disabled={deleting || deleteText.trim() !== event.name.trim()}
+                        className="flex-1 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                      >
+                        {deleting ? 'Deleting…' : 'Delete forever'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {deleteMsg && <p className="text-[11px] text-g2-secondary" aria-live="polite">{deleteMsg}</p>}
               </div>
             )}
 

@@ -1,7 +1,7 @@
 import {
-  collection, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch, Timestamp,
+  collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc, writeBatch, Timestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, deletePhotoFile } from './firebase';
 import { newCode, normalizePairingCode } from './spotPairing';
 
 // Everything for one event lives under events/{eventId}. These helpers are the
@@ -266,4 +266,27 @@ export async function saveEventDetails(eid: string, code: string, name: string, 
 /** Fields every photo/session in an event carries so the cleanup removes it with the album. */
 export function expiryOf(ev: { expireAt?: Timestamp | null } | null | undefined) {
   return ev?.expireAt ? { expireAt: ev.expireAt } : {};
+}
+
+/** Delete an event and everything in it. Order matters: the rules check the
+ *  event to confirm you host it, so the event itself goes last. */
+export async function deleteEvent(ev: EventWithId, progress: (msg: string) => void = () => {}) {
+  const eid = ev.id;
+  const photos = await getDocs(paths.photos(eid));
+  let n = 0;
+  for (const d of photos.docs) {
+    const url = (d.data() as any).url as string;
+    await deleteDoc(d.ref);
+    await deletePhotoFile(url); // before the event goes: Storage checks the event to allow it
+    n++;
+    if (n % 5 === 0 || n === photos.size) progress(`Deleting photos… ${n} of ${photos.size}`);
+  }
+  progress('Removing guests and devices…');
+  const sessions = await getDocs(paths.sessions(eid));
+  await Promise.all(sessions.docs.map((d) => deleteDoc(d.ref)));
+  const members = await getDocs(collection(db, 'events', eid, 'members'));
+  await Promise.all(members.docs.map((d) => deleteDoc(d.ref)));
+  if (ev.joinCode) await deleteDoc(paths.joinCode(ev.joinCode)).catch(() => {});
+  progress('Removing the event…');
+  await deleteDoc(paths.event(eid));
 }

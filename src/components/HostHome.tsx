@@ -181,7 +181,7 @@ export default function HostHome({
               <span className="min-w-0">
                 <span className="block text-[15px] font-bold text-white truncate">{ev.name}</span>
                 <span className="block mt-0.5 font-mono text-[11px] text-g2-tertiary">
-                  Code {ev.joinCode} · {phaseLabel(ev)}
+                  Code {ev.joinCode} · {phaseLabel(ev)}{ev.createdAt?.toMillis ? ` · made ${formatDay(ev.createdAt.toMillis())}` : ''}
                   {ev.ownerUid !== uid ? ' · co-host' : ''}
                 </span>
               </span>
