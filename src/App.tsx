@@ -11,6 +11,8 @@ import { claimScreen, TV_PATH } from './screens';
 import TripodMode from './components/TripodMode';
 import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
+import SampleParty from './components/SampleParty';
+import { SAMPLE_PATH } from './sample';
 import { Photo } from './types';
 import { X, Check, Users } from 'lucide-react';
 import { updateDoc, onSnapshot, addDoc, getDoc, arrayUnion } from 'firebase/firestore';
@@ -39,7 +41,8 @@ type Route =
   | { kind: 'host' }
   | { kind: 'hostEvent'; eventId: string }
   | { kind: 'spot' }
-  | { kind: 'tv' };
+  | { kind: 'tv' }
+  | { kind: 'sample' };
 
 const PENDING_KEEP_KEY = 'get2share-pending-keep';
 
@@ -47,6 +50,7 @@ function parseRoute(pathname: string): Route {
   const p = pathname.replace(/\/+$/, '') || '/';
   if (p === SPOT_SETUP_PATH) return { kind: 'spot' };
   if (p === TV_PATH) return { kind: 'tv' };
+  if (p === SAMPLE_PATH) return { kind: 'sample' };
   if (p === HOST_PATH) return { kind: 'host' };
   if (p.startsWith(HOST_PATH + '/')) {
     const id = p.slice(HOST_PATH.length + 1);
@@ -618,6 +622,11 @@ export default function App() {
   useBackToClose(lensState.status === 'invited', handleDeclineLens);
   useBackToClose(lensState.status === 'connected' || lensState.status === 'flashing', cleanupCameraStream);
 
+  // The sample party is all local files, so it needs no sign-in.
+  if (route.kind === 'sample') {
+    return <SampleParty onHost={() => navigate(HOST_PATH)} onBack={() => navigate('/')} />;
+  }
+
   if (!authReady || (!authUser && !authError)) {
     return <Centered>Connecting…</Centered>;
   }
@@ -662,6 +671,7 @@ export default function App() {
         notFoundCode={route.notFound}
         onJoinCode={(code) => navigate(`${EVENT_PATH_PREFIX}${code}`)}
         onHost={() => navigate(HOST_PATH)}
+        onSample={() => navigate(SAMPLE_PATH)}
       />
     );
   }

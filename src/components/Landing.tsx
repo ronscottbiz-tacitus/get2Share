@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Camera, ScanFace, Timer } from 'lucide-react';
+import { ArrowRight, Camera, Play, ScanFace, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { LastEvent, normalizeJoinCode } from '../events';
@@ -9,6 +9,7 @@ interface LandingProps {
   notFoundCode?: string;
   onJoinCode: (code: string) => void;
   onHost: () => void;
+  onSample?: () => void;
 }
 
 const PROMISES = [
@@ -17,7 +18,11 @@ const PROMISES = [
 ];
 
 /** share.get2.one with no event: join one by code, or host your own. */
-export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost }: LandingProps) {
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, onSample }: LandingProps) {
+  const [stillOnly] = useState(prefersReducedMotion);
   const [code, setCode] = useState('');
   const [error, setError] = useState(
     notFoundCode ? `No event uses the code ${notFoundCode}. Check it with the host; it may have been changed.` : ''
@@ -81,6 +86,37 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost }:
             </li>
           ))}
         </ul>
+
+        {onSample && (
+          <button
+            onClick={onSample}
+            className="mt-5 p-2.5 pr-4 rounded-xl bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 text-left flex items-center gap-3.5 cursor-pointer transition-colors"
+          >
+            <span className="relative w-[60px] h-[84px] shrink-0 rounded-lg overflow-hidden bg-black">
+              {stillOnly ? (
+                <img src="/media/g2-cwalk-loop-poster.jpg" alt="" className="w-full h-full object-cover" />
+              ) : (
+                <video
+                  src="/media/g2-cwalk-loop.mp4"
+                  poster="/media/g2-cwalk-loop-poster.jpg"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-hidden="true"
+                  className="w-full h-full object-cover"
+                />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase text-g2-tertiary">AI-generated sample</span>
+              <span className="block mt-0.5 text-[15px] font-bold text-white">See a sample party</span>
+              <span className="block text-[13px] leading-snug text-g2-tertiary">Mina's 30th: 25 photos, 3 Share Spots and a Group Shot.</span>
+            </span>
+            <Play className="w-5 h-5 text-g2-blue-light shrink-0" aria-hidden="true" />
+          </button>
+        )}
 
         <div className="flex-1 min-h-6" />
 
