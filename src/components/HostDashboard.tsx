@@ -18,6 +18,7 @@ import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
+import HostCameraButton from './HostCameraButton';
 import { useConsolePresence } from './useConsolePresence';
 import { useSpotLiveness } from './useSpotLiveness';
 
@@ -508,8 +509,9 @@ export default function HostDashboard({
 
   return (
     <div className="min-h-screen bg-g2-page text-g2-text font-sans p-4 md:p-8">
+      <HostCameraButton hostUid={sessionId} variant="floating" />
       {/* Container */}
-      <div className="max-w-6xl mx-auto space-y-8 pb-12">
+      <div className="max-w-6xl mx-auto space-y-8 pb-24 md:pb-12">
         {/* Header Console */}
         <header className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 glass-card neon-border p-6 rounded-2xl shadow-xl">
           <div className="flex items-center gap-3">
@@ -528,6 +530,7 @@ export default function HostDashboard({
             >
               <Lock className="w-4 h-4" /> Sign Out Host
             </button>
+            <HostCameraButton hostUid={sessionId} />
             <button
               onClick={onLaunchSlideshow}
               className="bg-g2-blue hover:bg-g2-blue-hover text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-g2-blue/10 transition-all duration-300"
