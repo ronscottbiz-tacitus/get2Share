@@ -10,6 +10,8 @@ export interface GroupShot {
   id: string;
   firesAt: Timestamp;
   by: string;
+  /** Share Spots fire too (they already have their cameras up). */
+  spots?: boolean;
 }
 
 export const GROUP_SHOT_SUFFIX = ' (Group Shot)';
@@ -24,11 +26,12 @@ export function groupShotClock(gs: GroupShot | null | undefined, now = Date.now(
 }
 
 /** Host: start a Group Shot. Every guest who taps "I'm in" fires at the same moment. */
-export async function startGroupShot(eventId: string, hostUid: string) {
+export async function startGroupShot(eventId: string, hostUid: string, spots: boolean) {
   const gs: GroupShot = {
     id: `gs_${Date.now().toString(36)}`,
     firesAt: Timestamp.fromMillis(Date.now() + GROUP_SHOT_LEAD_MS),
     by: hostUid,
+    spots,
   };
   await updateDoc(paths.event(eventId), { groupShot: gs });
   return gs;

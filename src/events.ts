@@ -23,7 +23,7 @@ export interface EventDoc {
   /** When the album closes and everything for this event is cleaned up. */
   expireAt?: Timestamp | null;
   /** The latest Group Shot the host fired (see groupShot.ts). */
-  groupShot?: { id: string; firesAt: Timestamp; by: string } | null;
+  groupShot?: { id: string; firesAt: Timestamp; by: string; spots?: boolean } | null;
 }
 
 export interface EventWithId extends EventDoc {

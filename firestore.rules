@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
-// Version 2026-10-05: Group Shot (the host fires every opted-in guest camera at once).
+// Version 2026-10-05b: Group Shot can include Share Spots.
 //
 // Who is who:
 //   * Every device signs in with Firebase Auth. Guests and Share Spots get a
@@ -190,7 +190,8 @@ service cloud.firestore {
     // A Group Shot: every guest camera that opted in fires at firesAt.
     function isValidGroupShot(g) {
       return g is map
-        && g.keys().hasOnly(['id', 'firesAt', 'by'])
+        && g.keys().hasOnly(['id', 'firesAt', 'by', 'spots'])
+        && (!('spots' in g) || g.spots is bool)
         && g.id is string && g.id.size() > 0 && g.id.size() <= 40
         && g.firesAt is timestamp
         && g.by is string && g.by.size() <= 128;

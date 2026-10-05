@@ -13,6 +13,14 @@ export default function GroupShotButton({ hostUid }: { hostUid: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [landed, setLanded] = useState(0);
+  // Include Share Spots? Remembered on this device.
+  const [spots, setSpots] = useState(() => {
+    try { return localStorage.getItem('get2share-gs-spots') !== '0'; } catch { return true; }
+  });
+  const toggleSpots = (v: boolean) => {
+    setSpots(v);
+    try { localStorage.setItem('get2share-gs-spots', v ? '1' : '0'); } catch { /* ignore */ }
+  };
   const phase = eventPhase(event, now);
   const clock = groupShotClock(gs, now);
 
@@ -42,7 +50,7 @@ export default function GroupShotButton({ hostUid }: { hostUid: string }) {
     setBusy(true);
     setError('');
     try {
-      await startGroupShot(event.id, hostUid);
+      await startGroupShot(event.id, hostUid, spots);
     } catch (err) {
       console.error('Group Shot failed to start:', err);
       setError("Couldn't start it. Publish the latest database rules, then try again.");
@@ -61,6 +69,16 @@ export default function GroupShotButton({ hostUid }: { hostUid: string }) {
         <Users className="w-4 h-4" aria-hidden="true" />
         {counting ? `Group Shot in ${Math.ceil(-clock! / 1000)}…` : 'Group Shot'}
       </button>
+      <label className="flex items-center gap-1.5 text-[11px] text-g2-secondary cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={spots}
+          disabled={counting}
+          onChange={(e) => toggleSpots(e.target.checked)}
+          className="w-3.5 h-3.5 accent-[#0052FF] cursor-pointer"
+        />
+        Include Share Spots
+      </label>
       {(counting || justFired) && (
         <span className="text-[11px] text-g2-tertiary" role="status">
           {counting ? 'Guests are getting their cameras up.' : `${landed} ${landed === 1 ? 'photo' : 'photos'} from the Group Shot`}

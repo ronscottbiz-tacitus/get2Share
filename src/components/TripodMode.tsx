@@ -45,6 +45,8 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   const [spotPhase, setSpotPhase] = useState<SpotPhase>('idle');
   const spotPhaseRef = useRef<SpotPhase>('idle');
   const [count, setCount] = useState(COUNTDOWN_FROM);
+  const groupShotSeenRef = useRef<string | null>(null);
+  const joinGroupShotRef = useRef<(waitMs: number) => void>(() => {});
   const [lastPhoto, setLastPhoto] = useState<{ id: string; url: string } | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(SHOW_PHOTO_SECONDS);
   const flowTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -135,6 +137,12 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
     if (!isRegistered || !eventIdRef.current) return;
     const check = (data: any) => {
       eventTimesRef.current = data ? { endsAt: data.endsAt, expireAt: data.expireAt } : null;
+      const gs = data?.groupShot;
+      if (gs?.spots && gs.id !== groupShotSeenRef.current && gs.firesAt?.toMillis) {
+        groupShotSeenRef.current = gs.id;
+        const wait = gs.firesAt.toMillis() - Date.now();
+        if (wait > 0) joinGroupShotRef.current(wait);
+      }
       if (data?.joinCode) setJoinCode(data.joinCode);
       if (data && eventPhase(data) !== 'live' && registeredRef.current) {
         cleanupStream();
@@ -402,7 +410,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   // fromHost = the host fired the remote shutter (publishes immediately).
   // A guest's tap follows the event's normal approval setting.
   // Resolves with the new photo, or null if it couldn't be saved.
-  const triggerShutterCapture = async (fromHost: boolean = false): Promise<{ id: string; url: string } | null> => {
+  const triggerShutterCapture = async (fromHost: boolean = false, group: boolean = false): Promise<{ id: string; url: string } | null> => {
     const video = videoRef.current;
     if (!video || capturingRef.current) return null;
     capturingRef.current = true;
@@ -427,7 +435,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       // host fired the shutter in the last 2 minutes). Guest taps follow the
       // event's approval setting.
       let status: 'approved' | 'pending' = 'pending';
-      if (fromHost) {
+      if (fromHost || group) {
         status = 'approved';
       } else {
         try {
@@ -439,7 +447,7 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       }
       const ref = await addDoc(paths.photos(eventIdRef.current as string), {
         url: downloadUrl,
-        nickname: `${tripodName} (Share Spot)`,
+        nickname: `${tripodName} ${group ? '(Group Shot)' : '(Share Spot)'}`,
         sessionId: sessionId,
         createdAt: Date.now(),
         status,
@@ -471,11 +479,11 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   };
 
   // Take the photo, then show it with a code to keep it.
-  const runCapture = async (fromHost: boolean) => {
+  const runCapture = async (fromHost: boolean, group: boolean = false) => {
     if (capturingRef.current) return;
     clearFlowTimers();
     setPhase('saving');
-    const photo = await triggerShutterCapture(fromHost);
+    const photo = await triggerShutterCapture(fromHost, group);
     if (!photo) {
       setPhase('failed');
       later(() => setPhase('idle'), 4000);
@@ -490,6 +498,24 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
       }, i * 1000);
     }
   };
+
+  // The host started a Group Shot with Share Spots included: count down with
+  // everyone else (the last 10 seconds show on screen), then fire.
+  const joinGroupShot = (waitMs: number) => {
+    clearFlowTimers();
+    const tick = (msLeft: number) => {
+      const secs = Math.ceil(msLeft / 1000);
+      if (secs <= 10) {
+        setCount(secs);
+        if (spotPhaseRef.current !== 'countdown') setPhase('countdown');
+      }
+    };
+    tick(waitMs);
+    const first = waitMs % 1000 || 1000;
+    for (let t = first; t < waitMs; t += 1000) later(() => tick(waitMs - t), t);
+    later(() => runCapture(false, true), waitMs);
+  };
+  joinGroupShotRef.current = joinGroupShot;
 
   // A guest tapped the screen: count down from 5, then shoot.
   const handleTap = () => {

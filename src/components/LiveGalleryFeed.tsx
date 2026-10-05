@@ -61,6 +61,7 @@ export default function LiveGalleryFeed({
   const albumUntil = event.expireAt?.toMillis?.() ?? null;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const libraryInputRef = useRef<HTMLInputElement | null>(null);
 
   // 1. Listen in real time to approved photos + this device's own uploads.
   //    (The database rules only let guests read those two sets, so the
@@ -456,22 +457,44 @@ export default function LiveGalleryFeed({
               New photos are closed for this event.
             </p>
           ) : (
-          <button
-            onClick={handleUploadClick}
-            disabled={uploading}
-            aria-label="Add a photo: take one or choose from your photos"
-            className="w-[76px] h-[76px] rounded-full border-[3px] border-white p-[5px] active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
-          >
-            <span className="flex w-full h-full rounded-full bg-white items-center justify-center text-g2-page">
-              <Camera className="w-[26px] h-[26px]" aria-hidden="true" />
-            </span>
-          </button>
+          <div className="w-full max-w-xs grid grid-cols-[1fr_auto_1fr] items-center">
+            <span />
+            <button
+              onClick={handleUploadClick}
+              disabled={uploading}
+              aria-label="Take a photo"
+              className="w-[76px] h-[76px] rounded-full border-[3px] border-white p-[5px] active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
+            >
+              <span className="flex w-full h-full rounded-full bg-white items-center justify-center text-g2-page">
+                <Camera className="w-[26px] h-[26px]" aria-hidden="true" />
+              </span>
+            </button>
+            {/* Camera roll: a separate button, because some phones drop the camera from a combined picker */}
+            <button
+              onClick={() => libraryInputRef.current?.click()}
+              disabled={uploading}
+              className="justify-self-start ml-5 flex flex-col items-center gap-1 text-g2-secondary hover:text-white disabled:opacity-50 cursor-pointer"
+            >
+              <span className="w-12 h-12 rounded-xl border border-white/20 bg-white/5 flex items-center justify-center">
+                <ImageIcon className="w-5 h-5" aria-hidden="true" />
+              </span>
+              <span className="text-[11px] font-semibold">Upload</span>
+            </button>
+          </div>
           )}
         </div>
 
         {/* Hidden native input */}
         <input
           ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        <input
+          ref={libraryInputRef}
           type="file"
           accept="image/*"
           onChange={handleFileChange}
