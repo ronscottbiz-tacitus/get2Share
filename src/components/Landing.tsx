@@ -14,7 +14,7 @@ interface LandingProps {
 
 const PROMISES = [
   { icon: ScanFace, title: 'Step into the shot', body: 'Tap the screen. Everyone gets the photo.' },
-  { icon: Timer, title: 'Group Shot moments', body: 'Every camera in the room fires at once.' },
+  { icon: Timer, title: 'Group Shot moments', body: 'The host counts down. Every phone fires together.' },
 ];
 
 /** share.get2.one with no event: join one by code, or host your own. */

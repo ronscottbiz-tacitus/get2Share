@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
-// Version 2026-10-03: guests can keep Share Spot photos ("kept").
+// Version 2026-10-05: Group Shot (the host fires every opted-in guest camera at once).
 //
 // Who is who:
 //   * Every device signs in with Firebase Auth. Guests and Share Spots get a
@@ -132,7 +132,8 @@ service cloud.firestore {
 
     function eventKeys() {
       return ['name', 'subtitle', 'ownerUid', 'hostUids', 'joinCode', 'access',
-              'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt', 'expireAt'];
+              'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt', 'expireAt',
+              'groupShot'];
     }
 
     function albumDays() {
@@ -182,7 +183,17 @@ service cloud.firestore {
         && isOptionalTime(d, 'startsAt')
         && isOptionalTime(d, 'endsAt')
         && isOptionalTime(d, 'expireAt')
-        && endsLineUp(d);
+        && endsLineUp(d)
+        && (!('groupShot' in d) || d.groupShot == null || isValidGroupShot(d.groupShot));
+    }
+
+    // A Group Shot: every guest camera that opted in fires at firesAt.
+    function isValidGroupShot(g) {
+      return g is map
+        && g.keys().hasOnly(['id', 'firesAt', 'by'])
+        && g.id is string && g.id.size() > 0 && g.id.size() <= 40
+        && g.firesAt is timestamp
+        && g.by is string && g.by.size() <= 128;
     }
 
     match /events/{eid} {
@@ -204,7 +215,8 @@ service cloud.firestore {
       allow update: if isEventHost(eid)
                     && isValidEvent(incoming())
                     && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
-                                          'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids'])
+                                          'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
+                                          'groupShot'])
                     && incoming().ownerUid == existing().ownerUid
                     // Only the owner (or an admin) changes who the hosts are.
                     && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())
@@ -350,6 +362,15 @@ service cloud.firestore {
       return t is timestamp && request.time < t + duration.value(2, 'm');
     }
 
+    // A Group Shot photo: from a minute before the cameras fire to two minutes after.
+    function groupShotRecently(eid) {
+      let g = eventData(eid).get('groupShot', null);
+      return g is map && g.firesAt is timestamp
+        && request.time > g.firesAt - duration.value(1, 'm')
+        && request.time < g.firesAt + duration.value(2, 'm')
+        && incoming().nickname.matches('.* [(]Group Shot[)]$');
+    }
+
     match /events/{eid}/photos/{photoId} {
       // Members see approved photos. Pending/rejected ones only the hosts and the uploader.
       allow get, list: if canSee(eid)
@@ -372,7 +393,8 @@ service cloud.firestore {
                               || (incoming().status == 'approved'
                                   && (isEventHost(eid)
                                       || eventData(eid).autoApproval == true
-                                      || hostTriggeredRecently(eid)))))
+                                      || hostTriggeredRecently(eid)
+                                      || groupShotRecently(eid)))))
                     );
 
       allow update: if isValidPhoto(incoming())

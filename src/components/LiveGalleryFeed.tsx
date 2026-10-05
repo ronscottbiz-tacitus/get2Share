@@ -13,6 +13,8 @@ interface LiveGalleryFeedProps {
   nickname: string;
   onOpenLightbox: (photo: Photo) => void;
   onExitSession: () => void;
+  /** Sign this device out and join again as a new guest (shared or test devices). */
+  onJoinAsNew?: () => void;
   favorites: string[];
   hiddenIds: string[];
   onGoToHost: () => void;
@@ -29,6 +31,7 @@ export default function LiveGalleryFeed({
   nickname,
   onOpenLightbox,
   onExitSession,
+  onJoinAsNew,
   favorites,
   hiddenIds,
   onGoToHost,
@@ -265,6 +268,15 @@ export default function LiveGalleryFeed({
           <h1 className="mt-1.5 font-expanded font-black text-2xl leading-tight text-white">{title}</h1>
         )}
         {subtitle && <p className="mt-1 text-[13px] leading-relaxed text-g2-secondary">{subtitle}</p>}
+        {onJoinAsNew && !isHost && (
+          <button
+            type="button"
+            onClick={onJoinAsNew}
+            className="mt-1.5 -ml-1 px-1 h-8 text-[12px] text-g2-tertiary hover:text-white underline underline-offset-2 cursor-pointer"
+          >
+            Not {nickname || 'you'}? Join as someone new
+          </button>
+        )}
 
         {phase === 'wrapup' && endMs && (
           <p className="mt-3 px-3.5 py-2.5 rounded-lg bg-amber-400/10 border border-amber-400/25 text-[13px] text-amber-100">
@@ -447,7 +459,7 @@ export default function LiveGalleryFeed({
           <button
             onClick={handleUploadClick}
             disabled={uploading}
-            aria-label="Take a photo"
+            aria-label="Add a photo: take one or choose from your photos"
             className="w-[76px] h-[76px] rounded-full border-[3px] border-white p-[5px] active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
           >
             <span className="flex w-full h-full rounded-full bg-white items-center justify-center text-g2-page">
@@ -462,7 +474,6 @@ export default function LiveGalleryFeed({
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
           onChange={handleFileChange}
           className="hidden"
         />

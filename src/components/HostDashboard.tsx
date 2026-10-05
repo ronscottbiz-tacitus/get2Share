@@ -19,6 +19,7 @@ import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
 import HostCameraButton from './HostCameraButton';
+import GroupShotButton from './GroupShotButton';
 import { useConsolePresence } from './useConsolePresence';
 import { useSpotLiveness } from './useSpotLiveness';
 
@@ -531,6 +532,7 @@ export default function HostDashboard({
               <Lock className="w-4 h-4" /> Sign Out Host
             </button>
             <HostCameraButton hostUid={sessionId} />
+            <GroupShotButton hostUid={sessionId} />
             <button
               onClick={onLaunchSlideshow}
               className="bg-g2-blue hover:bg-g2-blue-hover text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-g2-blue/10 transition-all duration-300"

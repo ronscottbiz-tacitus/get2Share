@@ -12,6 +12,7 @@ import TripodMode from './components/TripodMode';
 import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import SampleParty from './components/SampleParty';
+import GroupShotGuest from './components/GroupShotGuest';
 import { SAMPLE_PATH } from './sample';
 import { Photo } from './types';
 import { X, Check, Users } from 'lucide-react';
@@ -285,6 +286,22 @@ export default function App() {
     if (window.confirm('Leave this event? Your photos stay in the gallery. You can come back with the same link.')) {
       navigate('/');
     }
+  };
+
+  // A shared or test device: forget this guest and join again as someone new.
+  const handleJoinAsNew = async () => {
+    const linked = !!authUser && !authUser.isAnonymous;
+    const msg = linked
+      ? `Join as someone new? This signs ${authUser?.email || 'this account'} out on this device. Your photos stay saved; sign in again any time to see them.`
+      : 'Join as someone new? This device forgets who you are here. Photos you posted stay in the gallery.';
+    if (!window.confirm(msg)) return;
+    try {
+      ['get2share-nickname', 'get2share-favorites', 'get2share-hidden-ids', PENDING_KEEP_KEY].forEach((k) => localStorage.removeItem(k));
+    } catch { /* ignore */ }
+    setNickname('');
+    setShowKeepsake(false);
+    await signOut(auth).catch((err) => console.error('Sign-out failed:', err));
+    // The auth listener signs in a fresh anonymous guest, and the join screen shows again.
   };
 
   // Host sign-in with Google. Anyone can sign in and create an event; the
@@ -777,6 +794,7 @@ export default function App() {
         nickname={nickname}
         onOpenLightbox={(photo) => setSelectedPhoto(photo)}
         onExitSession={handleExitSession}
+        onJoinAsNew={handleJoinAsNew}
         favorites={favorites}
         hiddenIds={hiddenIds}
         onGoToHost={() => navigate(`${HOST_PATH}/${event.id}`)}
@@ -784,6 +802,9 @@ export default function App() {
         isSaved={hasAccount}
         isHost={isEventHost}
       />
+
+      {/* "Group Shot in 15": every guest who opts in fires at the same moment */}
+      <GroupShotGuest sessionId={sessionId} nickname={nickname} />
 
       <AnimatePresence>
         {showKeepsake && (

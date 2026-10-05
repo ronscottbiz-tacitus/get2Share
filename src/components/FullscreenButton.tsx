@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Maximize2 } from 'lucide-react';
 
-/** One press (remote OK or a tap) hides the browser's bars. Browsers only allow
+/** One press (only the page's own full screen counts: a Mac window in full screen
+ *  still shows Chrome's tabs, so the button stays until the page goes full screen).
+ *  One press (remote OK or a tap) hides the browser's bars. Browsers only allow
  *  full screen after a press, so this sits in a corner until it's used. */
 export default function FullscreenButton({ className = '', autoFocus = false, label = 'Full screen' }: { className?: string; autoFocus?: boolean; label?: string }) {
-  const [isFull, setIsFull] = useState(() => !!document.fullscreenElement || window.matchMedia?.('(display-mode: fullscreen)').matches);
+  const [isFull, setIsFull] = useState(() => !!document.fullscreenElement);
   const [supported] = useState(() => !!(document.documentElement.requestFullscreen || (document.documentElement as any).webkitRequestFullscreen));
   const ref = useRef<HTMLButtonElement | null>(null);
 

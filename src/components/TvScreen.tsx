@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteDoc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import { useQr } from '../useQr';
+import { groupShotClock } from '../groupShot';
 import { AnimatePresence, motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import FullscreenButton from './FullscreenButton';
@@ -209,8 +210,16 @@ export default function TvScreen({ uid }: { uid: string }) {
 }
 
 function TvFrame({ children }: { children: React.ReactNode }) {
+  // The pointer hides on a TV, but shows again while a mouse is moving (a laptop casting to the TV).
+  const [pointer, setPointer] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const wake = () => { setPointer(true); clearTimeout(t); t = setTimeout(() => setPointer(false), 3000); };
+    window.addEventListener('mousemove', wake);
+    return () => { window.removeEventListener('mousemove', wake); clearTimeout(t); };
+  }, []);
   return (
-    <div className="fixed inset-0 bg-g2-page text-g2-text font-sans overflow-hidden cursor-none select-none p-[5vmin] flex flex-col">
+    <div className={`fixed inset-0 bg-g2-page text-g2-text font-sans overflow-hidden select-none p-[5vmin] flex flex-col ${pointer ? '' : 'cursor-none'}`}>
       {children}
       <FullscreenButton autoFocus label="Press OK for full screen" className="absolute top-[1.2vmin] left-1/2 -translate-x-1/2 text-[1.9vmin] px-[2vmin] py-[0.9vmin] z-50" />
     </div>
@@ -365,6 +374,8 @@ function EventView({ event, config, photos, now }: { event: EventWithId; config:
           </AnimatePresence>
         </div>
 
+        <GroupShotTv event={event} />
+
         {(config.showQr || phase === 'album' || phase === 'expired') && photos.length > 0 && (
           <aside className="w-[30vmin] shrink-0 flex flex-col gap-[2vmin]">
             {(phase === 'album' || phase === 'expired') && (
@@ -427,6 +438,16 @@ function Caption({ photo, showNames, size = 'md' }: { photo: Photo; showNames: b
   );
 }
 
+/** The whole photo, never cropped: a blurred copy of it fills any spare edges. */
+function FitPhoto({ url }: { url: string }) {
+  return (
+    <>
+      <img src={url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60" />
+      <img src={url} alt="" className="absolute inset-0 w-full h-full object-contain" />
+    </>
+  );
+}
+
 // Newest photo gets the biggest tile.
 const WALL_SPANS = [
   'col-span-2 row-span-2', 'col-span-1 row-span-1', 'col-span-2 row-span-1', 'col-span-1 row-span-2',
@@ -441,7 +462,7 @@ function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
       <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-[1.2vmin]">
         {tiles.map((p, i) => (
           <div key={p.id} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${i === 0 ? 'col-span-2 row-span-2' : ''}`}>
-            <img src={p.url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <FitPhoto url={p.url} />
             <Caption photo={p} showNames={showNames} size={i === 0 ? 'md' : 'sm'} />
           </div>
         ))}
@@ -449,11 +470,13 @@ function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
     );
   }
   if (tiles.length < 5) {
+    // 1: full · 2: side by side · 3: newest big with two stacked beside it · 4: 2×2
+    const grid = tiles.length === 1 ? 'grid-cols-1 grid-rows-1' : tiles.length === 2 ? 'grid-cols-2 grid-rows-1' : tiles.length === 3 ? 'grid-cols-3 grid-rows-2' : 'grid-cols-2 grid-rows-2';
     return (
-      <div className={`absolute inset-0 grid gap-[1.4vmin] ${tiles.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} ${tiles.length > 2 ? 'grid-rows-2' : 'grid-rows-1'}`}>
-        {tiles.map((p) => (
-          <div key={p.id} className="relative rounded-[1.4vmin] overflow-hidden bg-black/40">
-            <img src={p.url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      <div className={`absolute inset-0 grid gap-[1.4vmin] ${grid}`}>
+        {tiles.map((p, i) => (
+          <div key={p.id} className={`relative rounded-[1.4vmin] overflow-hidden bg-black/40 ${tiles.length === 3 && i === 0 ? 'col-span-2 row-span-2' : ''}`}>
+            <FitPhoto url={p.url} />
             <Caption photo={p} showNames={showNames} />
           </div>
         ))}
@@ -464,7 +487,7 @@ function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
     <div className="absolute inset-0 grid grid-cols-6 grid-rows-3 gap-[1.2vmin] grid-flow-dense">
       {tiles.map((p, i) => (
         <div key={p.id} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${WALL_SPANS[i]}`}>
-          <img src={p.url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <FitPhoto url={p.url} />
           <Caption photo={p} showNames={showNames} size={i === 0 ? 'md' : 'sm'} />
         </div>
       ))}
@@ -496,7 +519,7 @@ function Spotlight({ photos, showNames }: { photos: Photo[]; showNames: boolean 
           <p className="font-condensed font-extrabold text-[2vmin] tracking-[0.14em] uppercase text-g2-tertiary">Earlier</p>
           {rest.slice(0, 4).map((p) => (
             <div key={p.id} className="relative flex-1 min-h-0 rounded-[1.2vmin] overflow-hidden bg-black/40">
-              <img src={p.url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <FitPhoto url={p.url} />
               <Caption photo={p} showNames={showNames} size="sm" />
             </div>
           ))}
@@ -536,6 +559,51 @@ function Slideshow({ photos, showNames, jumpTo }: { photos: Photo[]; showNames: 
       <Caption photo={p} showNames={showNames} />
       <span className="absolute right-[1.6vmin] bottom-[1.6vmin] font-mono text-[1.8vmin] text-white/70">{(index % photos.length) + 1} / {photos.length}</span>
     </div>
+  );
+}
+
+/** Every TV counts the room down to a Group Shot: "Phones up!" then the flash. */
+function GroupShotTv({ event }: { event: EventWithId }) {
+  const gs = event.groupShot ?? null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!gs) return;
+    const t = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(t);
+  }, [gs?.id]);
+  const clock = groupShotClock(gs, now);
+  if (clock === null) return null;
+  const seconds = Math.max(0, Math.ceil(-clock / 1000));
+  return (
+    <AnimatePresence>
+      <motion.div
+        key={gs!.id}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className={`absolute inset-0 z-40 flex flex-col items-center justify-center gap-[3vmin] ${clock >= 0 && clock < 900 ? 'bg-white' : 'bg-g2-page/90'}`}
+      >
+        {clock < 0 ? (
+          <>
+            <p className="font-mono text-[3vmin] font-bold tracking-[0.2em] uppercase text-g2-blue-light">Group Shot</p>
+            <p className="font-expanded font-black text-[9vmin] leading-none text-white">Phones up!</p>
+            <motion.div
+              key={seconds}
+              initial={{ scale: 1.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-[30vmin] h-[30vmin] rounded-full border-[1vmin] border-white bg-g2-blue flex items-center justify-center"
+            >
+              <span className="font-expanded font-black text-[19vmin] leading-none text-white">{seconds}</span>
+            </motion.div>
+            <p className="text-[3vmin] text-g2-secondary">Tap “I'm in” on your phone. Every camera fires together.</p>
+          </>
+        ) : clock < 900 ? (
+          <p className="font-expanded font-black text-[12vmin] text-g2-page">Smile!</p>
+        ) : (
+          <p className="font-expanded font-black text-[8vmin] text-white">Watch the photos roll in.</p>
+        )}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
