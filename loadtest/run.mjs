@@ -62,7 +62,7 @@ const jitter = (ms) => ms * (0.5 + Math.random());
 // ---------- measurements ----------
 const m = {
   joinMs: [], uploadMs: [], writeMs: [], deliveryMs: [], loveMs: [],
-  joined: 0, posted: 0, loves: 0, docsDelivered: 0,
+  joined: 0, posted: 0, loves: 0, docsDelivered: 0, loveUpdates: 0,
   errors: {}, // kind -> { count, sample }
   startedAt: Date.now(),
 };
@@ -84,7 +84,7 @@ async function guest(i, event) {
   const auth = getAuth(app);
   const db = getFirestore(app);
   const storage = getStorage(app);
-  const g = { i, app, auth, db, storage, uid: null, photos: [], seen: [], unsub: null, alive: true };
+  const g = { i, app, auth, db, storage, uid: null, photos: [], seen: [], unsub: null, alive: true, loaded: false };
 
   // Join, like a phone scanning the QR.
   const t0 = Date.now();
@@ -114,9 +114,17 @@ async function guest(i, event) {
     query(collection(db, 'events', event.id, 'photos'), where('status', '==', 'approved')),
     (snap) => {
       const now = Date.now();
+      // The first snapshot is the gallery as it was when this guest joined: photos
+      // already there aren't "new arrivals", so they don't count toward delivery time.
+      const first = !g.loaded;
+      g.loaded = true;
       snap.docChanges().forEach((ch) => {
         m.docsDelivered++;
-        if (ch.type !== 'added') return;
+        if (ch.type === 'modified') m.loveUpdates++;
+        if (ch.type !== 'added' || first) {
+          if (ch.type === 'added') g.seen.push(ch.doc.id);
+          return;
+        }
         const id = ch.doc.id;
         g.seen.push(id);
         const d = ch.doc.data();
@@ -213,7 +221,7 @@ function report(final = false) {
     `Photo save:         ${fmt(m.writeMs)}`,
     `Shows up for others:${' '}${fmt(m.deliveryMs)}`,
     `Love:               ${fmt(m.loveMs)}`,
-    `Gallery updates delivered (≈ database reads): ${m.docsDelivered}`,
+    `Gallery updates delivered (≈ database reads): ${m.docsDelivered} (from loves: ${m.loveUpdates})`,
   ];
   const errs = Object.entries(m.errors);
   lines.push(errs.length ? `Errors: ${errs.map(([k, v]) => `${k} ×${v.count} (${v.sample})`).join(' | ')}` : 'Errors: none');
@@ -257,7 +265,7 @@ function report(final = false) {
 
   const summary = {
     code: CODE, guests: GUESTS, minutes: MINUTES, rate: RATE, at: new Date().toISOString(),
-    joined: m.joined, posted: m.posted, loves: m.loves, docsDelivered: m.docsDelivered,
+    joined: m.joined, posted: m.posted, loves: m.loves, docsDelivered: m.docsDelivered, loveUpdates: m.loveUpdates,
     joinMs: { p50: pct(m.joinMs, 50), p95: pct(m.joinMs, 95) },
     uploadMs: { p50: pct(m.uploadMs, 50), p95: pct(m.uploadMs, 95) },
     saveMs: { p50: pct(m.writeMs, 50), p95: pct(m.writeMs, 95) },
