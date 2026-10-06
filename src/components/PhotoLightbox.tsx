@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ThumbsUp, ThumbsDown, Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye } from 'lucide-react';
+import { useState } from 'react';
+import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye } from 'lucide-react';
 import { updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
 import { paths } from '../events';
@@ -31,66 +31,11 @@ export default function PhotoLightbox({
 }: PhotoLightboxProps) {
   const { event } = useEvent();
   const eventId = event.id;
-  const [likes, setLikes] = useState(photo.reactions?.likes || 0);
-  const [dislikes, setDislikes] = useState(photo.reactions?.dislikes || 0);
-  const [vote, setVote] = useState<'like' | 'dislike' | null>(null);
+  // The love count shown here: what it was when opened, plus this guest's change since.
+  const [openedLoved] = useState(isFavorite);
+  const loves = Math.max(0, (photo.reactions?.likes || 0) + (isFavorite ? 1 : 0) - (openedLoved ? 1 : 0));
   const [flagged, setFlagged] = useState(photo.flagged || false);
   const [deleting, setDeleting] = useState(false);
-
-  // Load guest's vote from local storage for this photo to avoid double-voting
-  useEffect(() => {
-    const votesKey = 'get2share-votes';
-    const storedVotes = JSON.parse(localStorage.getItem(votesKey) || '{}');
-    if (storedVotes[photo.id]) {
-      setVote(storedVotes[photo.id]);
-    }
-  }, [photo.id]);
-
-  const handleVote = async (type: 'like' | 'dislike') => {
-    const votesKey = 'get2share-votes';
-    const storedVotes = JSON.parse(localStorage.getItem(votesKey) || '{}');
-    const existingVote = storedVotes[photo.id];
-
-    let newLikes = likes;
-    let newDislikes = dislikes;
-
-    if (existingVote === type) {
-      // Undo same vote
-      if (type === 'like') newLikes = Math.max(0, newLikes - 1);
-      if (type === 'dislike') newDislikes = Math.max(0, newDislikes - 1);
-      delete storedVotes[photo.id];
-      setVote(null);
-    } else {
-      // Apply new vote, remove old vote if present
-      if (type === 'like') {
-        newLikes += 1;
-        if (existingVote === 'dislike') newDislikes = Math.max(0, newDislikes - 1);
-      } else {
-        newDislikes += 1;
-        if (existingVote === 'like') newLikes = Math.max(0, newLikes - 1);
-      }
-      storedVotes[photo.id] = type;
-      setVote(type);
-    }
-
-    localStorage.setItem(votesKey, JSON.stringify(storedVotes));
-    setLikes(newLikes);
-    setDislikes(newDislikes);
-
-    // Sync back to Firestore
-    try {
-      const docRef = paths.photo(eventId, photo.id);
-      await updateDoc(docRef, {
-        reactions: {
-          likes: newLikes,
-          dislikes: newDislikes,
-        },
-      });
-    } catch (e) {
-      console.error('Failed to sync reaction votes:', e);
-      handleFirestoreError(e, OperationType.UPDATE, `photos/${photo.id}`);
-    }
-  };
 
   const handleFlag = async () => {
     if (flagged) return;
@@ -165,51 +110,24 @@ export default function PhotoLightbox({
               </p>
             </div>
 
-            <button
-              onClick={() => onToggleFavorite(photo.id)}
-              aria-label={isFavorite ? 'Remove from Loved' : 'Add to Loved'}
-              aria-pressed={isFavorite}
-              className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                isFavorite
-                  ? 'bg-white/10 border-white text-white'
-                  : 'bg-white/5 border-white/10 text-g2-tertiary hover:text-g2-text hover:border-white/25'
-              }`}
-            >
-              <Heart className={`w-5 h-5 ${isFavorite ? 'fill-white' : ''}`} />
-            </button>
           </div>
 
           {/* Core Interactive Actions */}
           <div className="py-6 space-y-5">
-            <div>
-              <h4 className="text-xs font-semibold text-g2-tertiary uppercase tracking-wider mb-2">
-                React
-              </h4>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleVote('like')}
-                  className={`flex-1 py-3 px-4 rounded-xl border flex items-center justify-center gap-2 font-bold text-sm cursor-pointer transition-all ${
-                    vote === 'like'
-                      ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 shadow-md shadow-emerald-500/5'
-                      : 'bg-white/5 border-white/10 text-g2-tertiary hover:text-g2-text hover:border-white/20'
-                  }`}
-                >
-                  <ThumbsUp className="w-4 h-4" />
-                  <span>{likes}</span>
-                </button>
-                <button
-                  onClick={() => handleVote('dislike')}
-                  className={`flex-1 py-3 px-4 rounded-xl border flex items-center justify-center gap-2 font-bold text-sm cursor-pointer transition-all ${
-                    vote === 'dislike'
-                      ? 'bg-red-500/10 border-red-500/40 text-red-400 shadow-md shadow-red-500/5'
-                      : 'bg-white/5 border-white/10 text-g2-tertiary hover:text-g2-text hover:border-white/20'
-                  }`}
-                >
-                  <ThumbsDown className="w-4 h-4" />
-                  <span>{dislikes}</span>
-                </button>
-              </div>
-            </div>
+            <button
+              onClick={() => onToggleFavorite(photo.id)}
+              aria-pressed={isFavorite}
+              className={`w-full h-14 rounded-xl border flex items-center justify-center gap-2.5 font-bold text-[15px] cursor-pointer transition-all active:scale-[0.98] ${
+                isFavorite
+                  ? 'bg-rose-500/15 border-rose-400/60 text-rose-200'
+                  : 'bg-white/5 border-white/15 text-white hover:border-white/30'
+              }`}
+            >
+              <Heart className={`w-5 h-5 ${isFavorite ? 'fill-rose-400 text-rose-400' : ''}`} aria-hidden="true" />
+              {isFavorite ? 'Loved' : 'Love it'}
+              {loves > 0 && <span className="font-mono text-[13px] opacity-80">· {loves}</span>}
+            </button>
+            <p className="-mt-3 text-[11px] text-g2-muted">Saves it to your Loved photos. The most-loved photos get featured.</p>
 
             <div className="space-y-2 pt-2">
               <h4 className="text-xs font-semibold text-g2-tertiary uppercase tracking-wider mb-1">

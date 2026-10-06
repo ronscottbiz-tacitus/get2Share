@@ -16,7 +16,7 @@ import GroupShotGuest from './components/GroupShotGuest';
 import { SAMPLE_PATH } from './sample';
 import { Photo } from './types';
 import { X, Check, Users } from 'lucide-react';
-import { updateDoc, onSnapshot, addDoc, getDoc, arrayUnion } from 'firebase/firestore';
+import { updateDoc, onSnapshot, addDoc, getDoc, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
 import { linkWithPopup, onAuthStateChanged, signInAnonymously, signInWithPopup, signOut, User } from 'firebase/auth';
 import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebase';
 import { isAdminEmail } from './hosts';
@@ -221,6 +221,15 @@ export default function App() {
             const m = await getDoc(paths.member(found.eventId, sessionId));
             const n = (m.data() as any)?.nickname;
             if (n) setNickname(n);
+            // Loved photos saved with this guest (another device, or before a reset).
+            const loved: string[] = (m.data() as any)?.loved || [];
+            if (loved.length) {
+              setFavorites((prev) => {
+                const merged = Array.from(new Set([...prev, ...loved]));
+                try { localStorage.setItem('get2share-favorites', JSON.stringify(merged)); } catch { /* ignore */ }
+                return merged;
+              });
+            }
           } catch { /* keep local nickname */ }
           rememberEvent({ code: routeCode, name: found.name, eventId: found.eventId });
           recordJoined(sessionId, found.eventId, { name: found.name, code: routeCode, expireAt: found.expireAt });
@@ -362,10 +371,28 @@ export default function App() {
     navigate('/host');
   };
 
+  // One Love: it saves the photo to this guest's Loved list (on this device and with
+  // their account) and counts toward the photo's public love count.
   const handleToggleFavorite = (id: string) => {
-    const updated = favorites.includes(id) ? favorites.filter((f) => f !== id) : [...favorites, id];
+    const on = !favorites.includes(id);
+    const updated = on ? [...favorites, id] : favorites.filter((f) => f !== id);
     setFavorites(updated);
     try { localStorage.setItem('get2share-favorites', JSON.stringify(updated)); } catch { /* ignore */ }
+    const eid = galleryEventId;
+    if (!eid) return;
+    // Older builds had a separate thumbs-up. Don't count the same person twice.
+    let hadThumbsUp = false;
+    try {
+      const votes = JSON.parse(localStorage.getItem('get2share-votes') || '{}');
+      hadThumbsUp = votes[id] === 'like';
+      if (votes[id]) { delete votes[id]; localStorage.setItem('get2share-votes', JSON.stringify(votes)); }
+    } catch { /* ignore */ }
+    if (on && !hadThumbsUp) {
+      updateDoc(paths.photo(eid, id), { 'reactions.likes': increment(1) }).catch((e) => console.error('Love failed:', e));
+    } else if (!on) {
+      updateDoc(paths.photo(eid, id), { 'reactions.likes': increment(-1) }).catch((e) => console.error('Unlove failed:', e));
+    }
+    updateDoc(paths.member(eid, sessionId), { loved: on ? arrayUnion(id) : arrayRemove(id) }).catch(() => { /* hosts may not have a member doc */ });
   };
 
   const handleToggleHideLocally = (id: string) => {

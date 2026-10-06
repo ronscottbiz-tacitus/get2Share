@@ -7,6 +7,7 @@ import { useEvent } from '../EventContext';
 import { deletePhotoFile, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import HostBar from './HostBar';
 
 interface LiveGalleryFeedProps {
   sessionId: string;
@@ -41,11 +42,13 @@ export default function LiveGalleryFeed({
   eventSubtitle,
   isHost,
 }: LiveGalleryFeedProps) {
+  const { event } = useEvent();
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const [activeTab, setActiveTab] = useState<'all' | 'my' | 'favorites'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'top' | 'my' | 'favorites'>(() =>
+    eventPhase(event) === 'album' ? 'top' : 'all'
+  );
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
-  const { event } = useEvent();
   const eventId = event.id;
   const autoApproval = event.autoApproval;
 
@@ -200,7 +203,7 @@ export default function LiveGalleryFeed({
     // Hide locally flagged or hidden IDs
     if (hiddenIds.includes(p.id)) return false;
 
-    if (activeTab === 'all') {
+    if (activeTab === 'all' || activeTab === 'top') {
       return p.status === 'approved';
     }
     if (activeTab === 'my') {
@@ -212,19 +215,25 @@ export default function LiveGalleryFeed({
     return true;
   });
 
+  // Top: most loved first, newest breaks ties.
+  if (activeTab === 'top') {
+    filteredPhotos.sort((a, b) => (b.reactions?.likes || 0) - (a.reactions?.likes || 0) || (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
   const title = event.name || eventTitle || '';
   const subtitle = event.subtitle || eventSubtitle || '';
   const approvedCount = photos.filter((p) => p.status === 'approved').length;
   const hasPending = photos.some((p) => p.sessionId === sessionId && p.status === 'pending');
 
-  const tabs: { id: 'all' | 'my' | 'favorites'; label: string }[] = [
+  const tabs: { id: 'all' | 'top' | 'my' | 'favorites'; label: string }[] = [
     { id: 'all', label: 'All' },
+    { id: 'top', label: phase === 'album' ? 'Best of the night' : 'Most loved' },
     { id: 'my', label: 'Mine' },
     { id: 'favorites', label: `Loved${favorites.length ? ` (${favorites.length})` : ''}` },
   ];
 
   return (
-    <div className="min-h-dvh bg-g2-page text-g2-text font-sans relative pb-36">
+    <div className={`min-h-dvh bg-g2-page text-g2-text font-sans relative ${isHost ? 'pb-52' : 'pb-36'}`}>
       {/* Header */}
       <header className="sticky top-0 bg-g2-page/90 backdrop-blur-md border-b border-white/[0.08] pl-5 pr-3 py-2.5 flex justify-between items-center z-30">
         <Get2ShareLockup className="text-[21px]" />
@@ -232,14 +241,6 @@ export default function LiveGalleryFeed({
           <span className="h-[30px] max-w-[120px] px-3 inline-flex items-center rounded-full border border-white/10 font-mono text-[10.5px] font-bold text-g2-secondary truncate">
             @{nickname}
           </span>
-          {isHost && (
-            <button
-              onClick={onGoToHost}
-              className="h-11 px-2.5 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary hover:text-white transition-colors cursor-pointer"
-            >
-              Host Console
-            </button>
-          )}
           <button
             onClick={onOpenKeepsake}
             aria-label="Save my photos"
@@ -337,7 +338,7 @@ export default function LiveGalleryFeed({
               <ImageIcon className="w-9 h-9 text-g2-muted mx-auto mb-3" aria-hidden="true" />
               <p className="text-sm font-bold text-white">Nothing here yet</p>
               <p className="text-[13px] text-g2-tertiary mt-1 leading-relaxed">
-                {activeTab === 'all'
+                {activeTab === 'all' || activeTab === 'top'
                   ? 'Tap the shutter below to post the first photo of the night.'
                   : activeTab === 'my'
                   ? 'Photos you take tonight show up here.'
@@ -372,8 +373,8 @@ export default function LiveGalleryFeed({
                   <div className="absolute inset-x-0 bottom-0 h-8 px-2.5 flex items-center justify-between bg-g2-page/80 font-mono text-[10px] text-g2-secondary">
                     <span className="truncate">{fromSpot ? `Spot · ${shownName}` : `@${shownName}`}</span>
                     {(photo.reactions?.likes ?? 0) > 0 && (
-                      <span className="flex items-center gap-1 shrink-0">
-                        <Heart className="w-3 h-3" aria-hidden="true" /> {photo.reactions.likes}
+                      <span className={`flex items-center gap-1 shrink-0 ${favorites.includes(photo.id) ? 'text-rose-300' : ''}`}>
+                        <Heart className={`w-3 h-3 ${favorites.includes(photo.id) ? 'fill-rose-400 text-rose-400' : ''}`} aria-hidden="true" /> {photo.reactions.likes}
                       </span>
                     )}
                   </div>
@@ -420,8 +421,8 @@ export default function LiveGalleryFeed({
                       </span>
                     )}
                     {favorites.includes(photo.id) && (
-                      <span className="w-[22px] h-[22px] inline-flex items-center justify-center rounded-full bg-g2-page/80 border border-white/20" aria-label="Loved">
-                        <Heart className="w-3 h-3 fill-white text-white" />
+                      <span className="w-[22px] h-[22px] inline-flex items-center justify-center rounded-full bg-g2-page/80 border border-rose-400/50" aria-label="Loved">
+                        <Heart className="w-3 h-3 fill-rose-400 text-rose-400" />
                       </span>
                     )}
                   </div>
@@ -434,6 +435,7 @@ export default function LiveGalleryFeed({
 
       {/* Shutter bar */}
       <div className="fixed bottom-0 inset-x-0 z-40 bg-g2-page border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
+        {isHost && <HostBar hostUid={sessionId} onOpenConsole={onGoToHost} />}
         <AnimatePresence>
           {uploading && (
             <motion.div

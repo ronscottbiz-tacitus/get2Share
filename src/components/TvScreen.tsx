@@ -331,6 +331,10 @@ function EventView({ event, config, photos, now }: { event: EventWithId; config:
   }
 
   const justIn = config.layout !== 'justin' && current;
+  // After the party, the TV leads with the crowd favorites.
+  const shown = phase === 'album' || phase === 'expired'
+    ? [...photos].sort((a, b) => (b.reactions?.likes || 0) - (a.reactions?.likes || 0) || (b.createdAt || 0) - (a.createdAt || 0))
+    : photos;
 
   return (
     <TvFrame>
@@ -350,11 +354,11 @@ function EventView({ event, config, photos, now }: { event: EventWithId; config:
           {photos.length === 0 ? (
             <EmptyState qr={qr} link={link} />
           ) : config.layout === 'justin' ? (
-            <Spotlight photos={photos} showNames={config.showNames} />
+            <Spotlight photos={shown} showNames={config.showNames} />
           ) : config.layout === 'slideshow' ? (
-            <Slideshow photos={photos} showNames={config.showNames} jumpTo={current?.id ?? null} />
+            <Slideshow photos={shown} showNames={config.showNames} jumpTo={current?.id ?? null} />
           ) : (
-            <Wall photos={photos} showNames={config.showNames} />
+            <Wall photos={shown} showNames={config.showNames} />
           )}
 
           <AnimatePresence>
@@ -434,6 +438,7 @@ function Caption({ photo, showNames, size = 'md' }: { photo: Photo; showNames: b
   return (
     <span className={`absolute left-[1.2vmin] bottom-[1.2vmin] max-w-[90%] truncate rounded-full bg-g2-page/75 font-mono font-bold text-white ${size === 'sm' ? 'text-[1.7vmin] px-[1.4vmin] py-[0.5vmin]' : 'text-[2.2vmin] px-[1.8vmin] py-[0.7vmin]'}`}>
       {shownWho}{shownWho && where ? ' · ' : ''}{where}
+      {(photo.reactions?.likes ?? 0) > 0 && <span className="text-rose-300">{shownWho || where ? '  ' : ''}♥ {photo.reactions.likes}</span>}
     </span>
   );
 }
