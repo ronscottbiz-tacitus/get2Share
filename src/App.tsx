@@ -152,6 +152,42 @@ export default function App() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const countdownTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  // Sign a guest in quietly. Firebase allows about 100 new sign-ins an hour from one
+  // internet connection, so on a packed venue Wi-Fi the newest arrivals can be turned
+  // away for a while: retry a few times, then tell them what to do.
+  const [authRetrying, setAuthRetrying] = useState(false);
+  const signInGuest = useCallback(async () => {
+    setAuthError('');
+    const waits = [2000, 5000, 10000];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await signInAnonymously(auth);
+        setAuthRetrying(false);
+        return;
+      } catch (err: any) {
+        const code: string = err?.code || '';
+        const busy = code === 'auth/too-many-requests' || code === 'auth/quota-exceeded';
+        const offline = code === 'auth/network-request-failed';
+        console.error('Anonymous sign-in failed:', code || err);
+        if ((busy || offline) && attempt < waits.length) {
+          setAuthRetrying(true);
+          await new Promise((r) => setTimeout(r, waits[attempt]));
+          continue;
+        }
+        setAuthRetrying(false);
+        setAuthError(
+          busy
+            ? "Lots of people are joining on this Wi-Fi right now. Turn off Wi-Fi for a moment to join on cellular, or try again in a minute. You can switch back after you're in."
+            : offline
+              ? "Couldn't reach the event. Check your connection, then try again."
+              : 'Could not connect to the event. Try again, or reload the page. (If you are the organizer: enable Anonymous sign-in in Firebase Authentication.)'
+        );
+        setAuthReady(true);
+        return;
+      }
+    }
+  }, []);
+
   // Keep a signed-in Firebase user at all times. Guests get a silent anonymous
   // account; the database rules use its uid to decide what each device may do.
   useEffect(() => {
@@ -162,13 +198,7 @@ export default function App() {
         setAuthError('');
       } else {
         setAuthUser(null);
-        signInAnonymously(auth).catch((err) => {
-          console.error('Anonymous sign-in failed:', err);
-          setAuthError(
-            'Could not connect to the event. Check your connection and reload. (If you are the organizer: enable Anonymous sign-in in Firebase Authentication.)'
-          );
-          setAuthReady(true);
-        });
+        signInGuest();
       }
     });
     return () => unsubscribe();
@@ -672,19 +702,19 @@ export default function App() {
   }
 
   if (!authReady || (!authUser && !authError)) {
-    return <Centered>Connecting…</Centered>;
+    return <Centered>{authRetrying ? 'Lots of people joining at once. Getting you in…' : 'Connecting…'}</Centered>;
   }
 
   if (!authUser) {
     return (
       <div className="bg-g2-page text-g2-text min-h-screen flex items-center justify-center p-6 font-sans">
         <div className="max-w-sm text-center space-y-4">
-          <p className="text-sm text-red-300">{authError}</p>
+          <p className="text-[15px] leading-relaxed text-white">{authError}</p>
           <button
-            onClick={() => window.location.reload()}
-            className="bg-g2-blue text-white font-bold px-4 py-2 rounded-xl text-sm cursor-pointer"
+            onClick={() => signInGuest()}
+            className="h-12 px-6 bg-g2-blue hover:bg-g2-blue-hover text-white font-bold rounded-xl text-[15px] cursor-pointer"
           >
-            Reload
+            Try again
           </button>
         </div>
       </div>
