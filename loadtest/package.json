@@ -1,0 +1,9 @@
+{
+  "name": "get2share-loadtest",
+  "private": true,
+  "type": "module",
+  "description": "Pretend guests for testing Get2Share under load",
+  "dependencies": {
+    "firebase": "^12.15.0"
+  }
+}
