@@ -203,8 +203,12 @@ export default function LiveGalleryFeed({
     // Hide locally flagged or hidden IDs
     if (hiddenIds.includes(p.id)) return false;
 
-    if (activeTab === 'all' || activeTab === 'top') {
+    if (activeTab === 'all') {
       return p.status === 'approved';
+    }
+    if (activeTab === 'top') {
+      // Every photo anyone at the party loved, most loved first.
+      return p.status === 'approved' && (p.reactions?.likes || 0) > 0;
     }
     if (activeTab === 'my') {
       return p.sessionId === sessionId;
@@ -338,8 +342,10 @@ export default function LiveGalleryFeed({
               <ImageIcon className="w-9 h-9 text-g2-muted mx-auto mb-3" aria-hidden="true" />
               <p className="text-sm font-bold text-white">Nothing here yet</p>
               <p className="text-[13px] text-g2-tertiary mt-1 leading-relaxed">
-                {activeTab === 'all' || activeTab === 'top'
+                {activeTab === 'all'
                   ? 'Tap the shutter below to post the first photo of the night.'
+                  : activeTab === 'top'
+                  ? 'Photos people love show up here, most loved first. Open a photo and tap Love it.'
                   : activeTab === 'my'
                   ? 'Photos you take tonight show up here.'
                   : 'Open any photo and tap the heart to keep it here.'}
