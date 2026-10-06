@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, Camera, Play, ScanFace, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
+import ProConcepts from './ProConcepts';
 import { LastEvent, normalizeJoinCode } from '../events';
 
 interface LandingProps {
@@ -117,6 +118,8 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
             <Play className="w-5 h-5 text-g2-blue-light shrink-0" aria-hidden="true" />
           </button>
         )}
+
+        <ProConcepts />
 
         <div className="flex-1 min-h-6" />
 
