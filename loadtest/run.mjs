@@ -102,6 +102,7 @@ async function guest(i, event) {
       ...(event.expireAt ? { expireAt: event.expireAt } : {}),
     });
     m.joinMs.push(Date.now() - t0);
+    g.joinedAt = Date.now();
     m.joined++;
   } catch (err) {
     fail('join', err);
@@ -129,7 +130,7 @@ async function guest(i, event) {
         g.seen.push(id);
         const d = ch.doc.data();
         // Time only photos this test posted (same computer clock), and not the guest's own.
-        if (String(d.nickname || '').startsWith('loadbot-') && d.sessionId !== g.uid && typeof d.createdAt === 'number') {
+        if (String(d.nickname || '').startsWith('loadbot-') && d.sessionId !== g.uid && typeof d.createdAt === 'number' && d.createdAt > g.joinedAt) {
           m.deliveryMs.push(now - d.createdAt);
         }
       });
