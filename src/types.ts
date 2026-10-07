@@ -10,6 +10,8 @@ export interface Photo {
     dislikes: number;
   };
   flagged: boolean;
+  /** Taken on someone else's phone: the guest who asked for it (see guestLens.ts). */
+  takenBy?: { uid: string; nickname: string };
 }
 
 export interface GuestSession {

@@ -13,6 +13,7 @@ import { SPOT_SETUP_PATH } from './spotPairing';
 import ProjectionSlideshow from './components/ProjectionSlideshow';
 import SampleParty from './components/SampleParty';
 import GroupShotGuest from './components/GroupShotGuest';
+import GuestLens from './components/GuestLens';
 import { SAMPLE_PATH } from './sample';
 import { Photo } from './types';
 import { X, Check, Users } from 'lucide-react';
@@ -22,7 +23,7 @@ import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebas
 import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  EVENT_PATH_PREFIX, EventWithId, HOST_PATH, isMemberOf, joinEvent, normalizeJoinCode, paths,
+  EVENT_PATH_PREFIX, EventWithId, HOST_PATH, eventPhase, isMemberOf, joinEvent, normalizeJoinCode, paths,
   findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf,
 } from './events';
 import { EventContext } from './EventContext';
@@ -135,6 +136,8 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('get2share-hidden-ids') || '[]'); } catch { return []; }
   });
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  // "Borrow": the sheet for asking another guest to lend their camera (GuestLens).
+  const [borrowOpen, setBorrowOpen] = useState(false);
 
   // Camera sharing ("Take one of us")
   const [lensState, setLensState] = useState<LensState>({
@@ -828,10 +831,20 @@ export default function App() {
         onOpenKeepsake={() => { setSaveError(''); setShowKeepsake(true); }}
         isSaved={hasAccount}
         isHost={isEventHost}
+        onBorrowCamera={event.lensSharing && eventPhase(event) === 'live' ? () => setBorrowOpen(true) : undefined}
       />
 
       {/* "Group Shot in 15": every guest who opts in fires at the same moment */}
       <GroupShotGuest sessionId={sessionId} nickname={nickname} />
+
+      {/* Guests borrowing each other's cameras (only when the host turned it on) */}
+      <GuestLens
+        sessionId={sessionId}
+        nickname={nickname}
+        pickerOpen={borrowOpen}
+        onClosePicker={() => setBorrowOpen(false)}
+        busyElsewhere={lensState.status !== 'idle'}
+      />
 
       <AnimatePresence>
         {showKeepsake && (

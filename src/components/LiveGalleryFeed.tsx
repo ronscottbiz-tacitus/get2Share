@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Heart, Image as ImageIcon, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
+import { Camera, Heart, Image as ImageIcon, Users, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { query, where, onSnapshot, addDoc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { eventPhase, expiryOf, formatDay, paths } from '../events';
@@ -25,6 +25,8 @@ interface LiveGalleryFeedProps {
   eventTitle?: string;
   eventSubtitle?: string;
   isHost?: boolean;
+  /** Borrow another guest's camera (only when the host turned it on; see GuestLens). */
+  onBorrowCamera?: () => void;
 }
 
 export default function LiveGalleryFeed({
@@ -41,6 +43,7 @@ export default function LiveGalleryFeed({
   eventTitle,
   eventSubtitle,
   isHost,
+  onBorrowCamera,
 }: LiveGalleryFeedProps) {
   const { event } = useEvent();
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -71,6 +74,7 @@ export default function LiveGalleryFeed({
   //    queries must ask for exactly them.)
   const [approvedPhotos, setApprovedPhotos] = useState<Photo[]>([]);
   const [myPhotos, setMyPhotos] = useState<Photo[]>([]);
+  const [takenForMe, setTakenForMe] = useState<Photo[]>([]);
 
   useEffect(() => {
     const toPhotos = (snap: any): Photo[] => {
@@ -93,17 +97,27 @@ export default function LiveGalleryFeed({
         )
       : () => {};
 
+    // Photos taken for me on someone else's phone (including ones still waiting for review).
+    const unsubTakenForMe = sessionId
+      ? onSnapshot(
+          query(paths.photos(eventId), where('takenBy.uid', '==', sessionId)),
+          (snap) => setTakenForMe(toPhotos(snap)),
+          () => setTakenForMe([])
+        )
+      : () => {};
+
     return () => {
       unsubApproved();
       unsubMine();
+      unsubTakenForMe();
     };
   }, [sessionId, eventId]);
 
   useEffect(() => {
     const byId = new Map<string, Photo>();
-    [...approvedPhotos, ...myPhotos].forEach((p) => byId.set(p.id, p));
+    [...approvedPhotos, ...myPhotos, ...takenForMe].forEach((p) => byId.set(p.id, p));
     setPhotos(Array.from(byId.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
-  }, [approvedPhotos, myPhotos]);
+  }, [approvedPhotos, myPhotos, takenForMe]);
 
   // 3. Keep guest session "active" heartbeat updated
   useEffect(() => {
@@ -211,7 +225,7 @@ export default function LiveGalleryFeed({
       return p.status === 'approved' && (p.reactions?.likes || 0) > 0;
     }
     if (activeTab === 'my') {
-      return p.sessionId === sessionId;
+      return p.sessionId === sessionId || p.takenBy?.uid === sessionId;
     }
     if (activeTab === 'favorites') {
       return favorites.includes(p.id) && p.status === 'approved';
@@ -466,7 +480,20 @@ export default function LiveGalleryFeed({
             </p>
           ) : (
           <div className="w-full max-w-xs grid grid-cols-[1fr_auto_1fr] items-center">
-            <span />
+            {onBorrowCamera ? (
+              <button
+                onClick={onBorrowCamera}
+                disabled={uploading}
+                className="justify-self-end mr-5 flex flex-col items-center gap-1 text-g2-secondary hover:text-white disabled:opacity-50 cursor-pointer"
+              >
+                <span className="w-12 h-12 rounded-xl border border-white/20 bg-white/5 flex items-center justify-center">
+                  <Users className="w-5 h-5" aria-hidden="true" />
+                </span>
+                <span className="text-[11px] font-semibold">Borrow</span>
+              </button>
+            ) : (
+              <span />
+            )}
             <button
               onClick={handleUploadClick}
               disabled={uploading}

@@ -24,6 +24,13 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-ended=1` | the event ended 3 hours ago (album phase) |
 | `h-lens=1` | the host invited this guest's camera |
 | `h-auth-fail=1` | anonymous sign-in fails with "too many requests" |
+| `h-photos=sample` | stub photos use G2-free AI sample-party images instead of gradients |
+| `h-ended=wrap` | the event ended 20 minutes ago (wrap-up hour) |
+| `h-kept=<photoId>` | the guest kept that Share Spot photo (Your photos) |
+| `h-borrow=on` | the host turned on "Let guests borrow cameras" |
+| `h-ask=<status>` | a request maya sent to jordan: `asking`, `live`, `declined`, `ended:<reason>`, or `busy` (the ask is refused) |
+| `h-lend=<status>` | a request dee sent to maya: `asking`, `live`, `firing` (a shot fires in 3s), `shot` |
 
 Share Spot: open /spot and enter pairing code SPT234 (pair it, then tap anywhere).
-Stub photos are colored gradients; /sample uses the real sample-party images.
+Stub photos are colored gradients (unless `h-photos=sample`); /sample uses the real sample-party images.
+The stub's storage hands back the photo a device actually took, so capture flows show real frames.

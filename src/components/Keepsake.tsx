@@ -41,6 +41,18 @@ export default function Keepsake({
     );
   }, [event.id, sessionId]);
 
+  // Photos taken for this guest on someone else's phone ("Borrow").
+  const [takenForMe, setTakenForMe] = useState<Photo[]>([]);
+  useEffect(() => {
+    return onSnapshot(
+      query(paths.photos(event.id), where('takenBy.uid', '==', sessionId)),
+      (snap) => setTakenForMe(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Photo).filter((p) => p.status !== 'rejected')
+      ),
+      () => setTakenForMe([])
+    );
+  }, [event.id, sessionId]);
+
   // Photos taken on a Share Spot that this guest scanned to keep.
   const [kept, setKept] = useState<Photo[]>([]);
   const [keptWaiting, setKeptWaiting] = useState(0);
@@ -69,7 +81,8 @@ export default function Keepsake({
   const phase = eventPhase(event);
   const albumUntil = event.expireAt?.toMillis?.() ?? null;
   const day = event.endsAt ? formatDay(event.endsAt.toMillis()) : null;
-  const all = [...mine, ...kept.filter((k) => !mine.some((m) => m.id === k.id))].sort(
+  const extra = [...kept, ...takenForMe];
+  const all = [...mine, ...extra.filter((k, i) => !mine.some((m) => m.id === k.id) && extra.findIndex((x) => x.id === k.id) === i)].sort(
     (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
   );
   const shown = all.slice(0, 9);
@@ -104,7 +117,7 @@ export default function Keepsake({
             <h2 id="keepsake-title" className="mt-1 font-expanded font-black text-[26px] leading-tight text-white">
               {all.length === 0
                 ? 'Your photos'
-                : kept.length === 0
+                : kept.length + takenForMe.length === 0
                   ? `You took ${mine.length} ${mine.length === 1 ? 'photo' : 'photos'}.`
                   : `${all.length} ${all.length === 1 ? 'photo' : 'photos'} from tonight.`}
             </h2>

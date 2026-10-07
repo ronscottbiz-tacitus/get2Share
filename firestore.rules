@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
-// Version 2026-10-06: guests' Loved photos follow them ("loved").
+// Version 2026-10-07: guests can borrow each other's cameras ("lensSharing",
+//   people/, lensRequests/). Additive: everything older works unchanged.
 //
 // Who is who:
 //   * Every device signs in with Firebase Auth. Guests and Share Spots get a
@@ -16,6 +17,9 @@ rules_version = '2';
 //     photos/{photoId}
 //     sessions/{uid}                  live device state (camera sharing, Share Spots)
 //     live/console                    "the Host Console is watching"
+//     people/{uid}                    who is here right now (only while lensSharing is on)
+//     lensRequests/{ownerUid}         one guest borrowing another guest's camera;
+//                                     the doc ID is the camera owner, so one at a time
 //   joinCodes/{CODE}                  CODE → eventId, so a link or code finds its event
 //   spotPairings/{CODE}               one-time Share Spot codes, tied to one event
 //   screenPairings/{CODE}             codes a TV shows; a host claims one to add that TV
@@ -133,7 +137,7 @@ service cloud.firestore {
     function eventKeys() {
       return ['name', 'subtitle', 'ownerUid', 'hostUids', 'joinCode', 'access',
               'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt', 'expireAt',
-              'groupShot'];
+              'groupShot', 'lensSharing'];
     }
 
     function albumDays() {
@@ -184,7 +188,8 @@ service cloud.firestore {
         && isOptionalTime(d, 'endsAt')
         && isOptionalTime(d, 'expireAt')
         && endsLineUp(d)
-        && (!('groupShot' in d) || d.groupShot == null || isValidGroupShot(d.groupShot));
+        && (!('groupShot' in d) || d.groupShot == null || isValidGroupShot(d.groupShot))
+        && (!('lensSharing' in d) || d.lensSharing is bool);
     }
 
     // A Group Shot: every guest camera that opted in fires at firesAt.
@@ -217,7 +222,7 @@ service cloud.firestore {
                     && isValidEvent(incoming())
                     && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
                                           'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
-                                          'groupShot'])
+                                          'groupShot', 'lensSharing'])
                     && incoming().ownerUid == existing().ownerUid
                     // Only the owner (or an admin) changes who the hosts are.
                     && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())
@@ -339,9 +344,18 @@ service cloud.firestore {
         && r.dislikes is int && r.dislikes >= 0;
     }
 
+    // A photo taken on someone else's phone: who asked for it.
+    function isValidTakenBy(t) {
+      return t is map
+        && t.keys().hasOnly(['uid', 'nickname'])
+        && t.uid is string && t.uid.size() <= 128
+        && t.nickname is string && t.nickname.size() > 0 && t.nickname.size() <= 40;
+    }
+
     function isValidPhoto(data) {
       return data.keys().hasAll(photoKeys())
-        && data.keys().hasOnly(photoKeys().concat(['expireAt']))
+        && data.keys().hasOnly(photoKeys().concat(['expireAt', 'takenBy']))
+        && (!('takenBy' in data) || isValidTakenBy(data.takenBy))
         && isOptionalTime(data, 'expireAt')
         && data.url is string && data.url.size() > 0 && data.url.size() <= 1000000
         && data.nickname is string && data.nickname.size() > 0 && data.nickname.size() <= 64
@@ -374,12 +388,25 @@ service cloud.firestore {
         && incoming().nickname.matches('.* [(]Group Shot[)]$');
     }
 
+    // The camera owner is uploading for the guest whose live request is on this camera.
+    function takenByIsLive(eid) {
+      let path = /databases/$(database)/documents/events/$(eid)/lensRequests/$(myUid());
+      // Still live, or ended in the last two minutes (the upload can finish after they close it).
+      return !('takenBy' in incoming())
+        || (exists(path)
+            && get(path).data.from == incoming().takenBy.uid
+            && (get(path).data.status == 'live'
+                || (get(path).data.status == 'ended' && fresh(get(path).data.updatedAt, 120))));
+    }
+
     match /events/{eid}/photos/{photoId} {
-      // Members see approved photos. Pending/rejected ones only the hosts and the uploader.
+      // Members see approved photos. Pending/rejected ones only the hosts, the uploader,
+      // and the guest who asked for it on someone else's camera.
       allow get, list: if canSee(eid)
                        && (existing().status == 'approved'
                            || isEventHost(eid)
-                           || isOwner(existing().sessionId));
+                           || isOwner(existing().sessionId)
+                           || existing().takenBy.uid == myUid());
 
       allow create: if isValidId(photoId)
                     && isValidPhoto(incoming())
@@ -389,6 +416,7 @@ service cloud.firestore {
                       || (canSee(eid)
                           && uploadsOpen(eid)
                           && incoming().sessionId == myUid()
+                          && takenByIsLive(eid)
                           && incoming().reactions.likes == 0
                           && incoming().reactions.dislikes == 0
                           && incoming().flagged == false
@@ -494,6 +522,144 @@ service cloud.firestore {
                     );
 
       allow delete: if isEventHost(eid) || isOwner(sid);
+    }
+
+    // ---------- Guests borrowing each other's cameras ----------
+    //
+    // Only while the host has turned on lensSharing. A guest asks; the camera owner
+    // says yes or no; while it's live the owner's phone sends small preview frames
+    // and the asker can fire the shutter. The owner's phone takes and uploads the
+    // photo (credited to both). The doc ID is the owner's uid, so a camera serves
+    // one person at a time.
+
+    function lensOn(eid) {
+      return exists(eventPath(eid)) && eventData(eid).get('lensSharing', false) == true;
+    }
+
+    function peoplePath(eid, uid) {
+      return /databases/$(database)/documents/events/$(eid)/people/$(uid);
+    }
+
+    function fresh(t, secs) {
+      return t is timestamp && request.time < t + duration.value(secs, 's');
+    }
+
+    // Someone is waiting on an answer, or using the camera right now.
+    function lensBusy(d) {
+      return d.status in ['asking', 'live'] && fresh(d.updatedAt, 30);
+    }
+
+    // After a no, the same person waits a minute before asking again.
+    function coolingDown(d) {
+      return d.status == 'declined' && d.from == myUid() && fresh(d.updatedAt, 60);
+    }
+
+    function lensKeys() {
+      return ['from', 'fromName', 'to', 'toName', 'status', 'endReason', 'createdAt', 'updatedAt',
+              'frame', 'frameAt', 'shot', 'lastShotId', 'expireAt'];
+    }
+
+    function isValidShot(s) {
+      return s == null
+        || (s is map && s.keys().hasOnly(['id', 'firesAt'])
+            && s.id is string && s.id.size() > 0 && s.id.size() <= 40
+            && s.firesAt is timestamp);
+    }
+
+    function isValidLens(d, rid) {
+      return d.keys().hasOnly(lensKeys())
+        && d.keys().hasAll(['from', 'fromName', 'to', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && d.to == rid
+        && d.from is string && d.from != rid
+        && d.fromName is string && d.fromName.size() > 0 && d.fromName.size() <= 40
+        && d.toName is string && d.toName.size() > 0 && d.toName.size() <= 40
+        && d.status in ['asking', 'live', 'declined', 'ended']
+        && (!('endReason' in d) || d.endReason == null || (d.endReason is string && d.endReason.size() <= 20))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp
+        && (!('frame' in d) || d.frame == null || (d.frame is string && d.frame.size() <= 200000))
+        && isOptionalTime(d, 'frameAt')
+        && (!('shot' in d) || isValidShot(d.shot))
+        && (!('lastShotId' in d) || d.lastShotId == null || (d.lastShotId is string && d.lastShotId.size() <= 40))
+        && isOptionalTime(d, 'expireAt');
+    }
+
+    // A fresh request from me to camera rid.
+    function isNewAsk(eid, rid) {
+      return isValidLens(incoming(), rid)
+        && incoming().from == myUid()
+        && incoming().status == 'asking'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().get('frame', null) == null
+        && incoming().get('shot', null) == null
+        && incoming().get('lastShotId', null) == null
+        && incoming().get('endReason', null) == null;
+    }
+
+    match /events/{eid}/people/{uid} {
+      allow get, list: if canSee(eid);
+      allow create, update: if isOwner(uid)
+                            && canSee(eid)
+                            && lensOn(eid)
+                            && incoming().keys().hasOnly(['nickname', 'lastSeen', 'expireAt'])
+                            && incoming().nickname is string
+                            && incoming().nickname.size() > 0 && incoming().nickname.size() <= 40
+                            && incoming().lastSeen == request.time
+                            && isOptionalTime(incoming(), 'expireAt');
+      allow delete: if isOwner(uid) || isEventHost(eid);
+    }
+
+    match /events/{eid}/lensRequests/{rid} {
+      // The camera owner (the doc is theirs by ID), the asker, and the hosts.
+      allow get: if isOwner(rid) || isEventHost(eid) || (signedIn() && existing().from == myUid());
+      allow list: if isEventHost(eid);
+
+      // Ask: the feature is on, both people are at the event, and nobody else has the camera.
+      allow create: if lensOn(eid)
+                    && canSee(eid)
+                    && isValidId(rid)
+                    && exists(peoplePath(eid, rid))
+                    && isNewAsk(eid, rid);
+
+      allow update: if (
+                        // Ask again on a camera that's free (and not right after a no).
+                        (lensOn(eid) && canSee(eid) && exists(peoplePath(eid, rid))
+                          && isNewAsk(eid, rid)
+                          && !lensBusy(existing())
+                          && !coolingDown(existing()))
+                        // The asker: fire the shutter while live, or stop.
+                        || (signedIn() && existing().from == myUid()
+                          && isValidLens(incoming(), rid)
+                          && incoming().updatedAt == request.time
+                          && (
+                            (existing().status == 'live' && incoming().status == 'live'
+                              && changed().hasOnly(['shot', 'updatedAt'])
+                              && incoming().shot != null
+                              && incoming().shot.firesAt > request.time - duration.value(5, 's')
+                              && incoming().shot.firesAt < request.time + duration.value(15, 's'))
+                            || (existing().status in ['asking', 'live'] && incoming().status == 'ended'
+                              && changed().hasOnly(['status', 'endReason', 'updatedAt', 'shot', 'frame'])
+                              && incoming().get('frame', null) == null)
+                          ))
+                        // The camera owner: say yes or no, send previews, confirm a shot, or stop.
+                        || (isOwner(rid)
+                          && isValidLens(incoming(), rid)
+                          && incoming().updatedAt == request.time
+                          && changed().hasOnly(['status', 'endReason', 'updatedAt', 'frame', 'frameAt', 'lastShotId'])
+                          && (incoming().status == existing().status
+                              || (existing().status == 'asking' && incoming().status in ['live', 'declined'])
+                              || (existing().status in ['asking', 'live'] && incoming().status == 'ended'))
+                          && (incoming().status == 'live' || incoming().get('frame', null) == null))
+                        // A host can end any of them.
+                        || (isEventHost(eid)
+                          && isValidLens(incoming(), rid)
+                          && changed().hasOnly(['status', 'endReason', 'updatedAt', 'frame'])
+                          && incoming().status == 'ended'
+                          && incoming().get('frame', null) == null)
+                      );
+
+      allow delete: if isOwner(rid) || isEventHost(eid) || (signedIn() && existing().from == myUid());
     }
 
     // ---------- Share Spot pairing codes ----------

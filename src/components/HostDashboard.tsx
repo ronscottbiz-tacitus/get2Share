@@ -66,6 +66,7 @@ export default function HostDashboard({
   const eventId = event.id;
   const [autoApproval, setAutoApproval] = useState(event.autoApproval);
   const [guestLensEnabled, setGuestLensEnabled] = useState(event.guestLensEnabled);
+  const [lensSharing, setLensSharing] = useState(!!event.lensSharing);
   const [eventTitle, setEventTitle] = useState(event.name);
   const [eventSubtitle, setEventSubtitle] = useState(event.subtitle || '');
   const [resettingLink, setResettingLink] = useState(false);
@@ -98,7 +99,8 @@ export default function HostDashboard({
   useEffect(() => {
     setAutoApproval(event.autoApproval);
     setGuestLensEnabled(event.guestLensEnabled);
-  }, [event.autoApproval, event.guestLensEnabled]);
+    setLensSharing(!!event.lensSharing);
+  }, [event.autoApproval, event.guestLensEnabled, event.lensSharing]);
 
   // Remote "Take photo": tracks each shot from tap → device heard it → photo landed.
   const { shots, fire: fireShutter } = useRemoteShutter(eventId, sessions, photos);
@@ -219,6 +221,19 @@ export default function HostDashboard({
       await updateDoc(paths.event(eventId), { guestLensEnabled: nextVal });
     } catch (e) {
       console.error('Failed to update guest lens setting:', e);
+      handleFirestoreError(e, OperationType.UPDATE, `events/${eventId}`);
+    }
+  };
+
+  // Let guests borrow each other's cameras (GuestLens). Off unless turned on here.
+  const handleToggleLensSharing = async () => {
+    const nextVal = !lensSharing;
+    setLensSharing(nextVal);
+    try {
+      await updateDoc(paths.event(eventId), { lensSharing: nextVal });
+    } catch (e) {
+      setLensSharing(!nextVal);
+      console.error('Failed to update camera borrowing:', e);
       handleFirestoreError(e, OperationType.UPDATE, `events/${eventId}`);
     }
   };
@@ -713,6 +728,29 @@ export default function HostDashboard({
                     <div
                       className={`w-5.5 h-5.5 bg-white rounded-full shadow-md transform transition-transform ${
                         guestLensEnabled ? 'translate-x-5.5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Guests borrowing each other's cameras */}
+                <div className="flex items-center justify-between p-3.5 bg-black/40 border border-white/5 rounded-xl">
+                  <div>
+                    <p className="text-xs font-bold text-white">Let guests borrow cameras</p>
+                    <p className="text-[10px] text-g2-muted mt-0.5">A guest can ask another to lend their camera, so they can be in the shot</p>
+                  </div>
+                  <button
+                    onClick={handleToggleLensSharing}
+                    role="switch"
+                    aria-checked={lensSharing}
+                    aria-label="Let guests borrow cameras"
+                    className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer relative shrink-0 ${
+                      lensSharing ? 'bg-g2-blue' : 'bg-white/10'
+                    }`}
+                  >
+                    <div
+                      className={`w-5.5 h-5.5 bg-white rounded-full shadow-md transform transition-transform ${
+                        lensSharing ? 'translate-x-5.5' : 'translate-x-0'
                       }`}
                     />
                   </button>

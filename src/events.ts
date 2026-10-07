@@ -24,6 +24,8 @@ export interface EventDoc {
   expireAt?: Timestamp | null;
   /** The latest Group Shot the host fired (see groupShot.ts). */
   groupShot?: { id: string; firesAt: Timestamp; by: string; spots?: boolean } | null;
+  /** Guests can borrow each other's cameras (see guestLens.ts). Off unless the host turns it on. */
+  lensSharing?: boolean;
 }
 
 export interface EventWithId extends EventDoc {
@@ -99,6 +101,9 @@ export const paths = {
   session: (eid: string, uid: string) => doc(db, 'events', eid, 'sessions', uid),
   console: (eid: string) => doc(db, 'events', eid, 'live', 'console'),
   joined: (uid: string) => collection(db, 'users', uid, 'joined'),
+  people: (eid: string) => collection(db, 'events', eid, 'people'),
+  person: (eid: string, uid: string) => doc(db, 'events', eid, 'people', uid),
+  lensRequest: (eid: string, ownerUid: string) => doc(db, 'events', eid, 'lensRequests', ownerUid),
   joinedEvent: (uid: string, eid: string) => doc(db, 'users', uid, 'joined', eid),
 };
 
