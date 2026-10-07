@@ -27,6 +27,7 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-photos=sample` | stub photos use G2-free AI sample-party images instead of gradients |
 | `h-ended=wrap` | the event ended 20 minutes ago (wrap-up hour) |
 | `h-kept=<photoId>` | the guest kept that Share Spot photo (Your photos) |
+| `h-saving=<mode>` | when guests can save the album: `party` (default), `after`, `host` |
 | `h-borrow=on` | the host turned on "Let guests borrow cameras" |
 | `h-ask=<status>` | a request maya sent to jordan: `asking`, `live`, `declined`, `ended:<reason>`, or `busy` (the ask is refused) |
 | `h-lend=<status>` | a request dee sent to maya: `asking`, `live`, `firing` (a shot fires in 3s), `shot` |

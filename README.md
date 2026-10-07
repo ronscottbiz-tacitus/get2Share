@@ -34,6 +34,10 @@ In the [Firebase console](https://console.firebase.google.com/) for the app's pr
 1. **Authentication → Sign-in method**: enable **Anonymous** and **Google**.
 2. **Authentication → Settings → Authorized domains**: add the site's domain (and any preview domain you test on).
 3. **Firestore → Rules**: paste in `firestore.rules` and click **Publish** whenever that file changes.
+4. **Storage → CORS** (once): lets the app read photo files so guests can save them to their devices
+   ("Save to this device", "Save all"). In Google Cloud Shell, upload `cors.json` and run:
+   `gcloud storage buckets update gs://get2share.firebasestorage.app --cors-file=cors.json`.
+   Without it, saving falls back to opening the photo so the guest can press and hold it.
 
 ## Changing hosts
 

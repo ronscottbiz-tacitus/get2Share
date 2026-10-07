@@ -102,6 +102,13 @@ await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'events
 await check('a guest still cannot turn on a host camera request', assertFails(updateDoc(doc(as('maya'), 'events', EID, 'sessions', 'jordan'), { invited_to_lens: true })));
 await check('guests still cannot see sessions', assertFails(getDoc(doc(as('maya'), 'events', EID, 'sessions', 'jordan'))));
 
+// --- Album saving setting (savePhotos.ts) ---
+await seed();
+const host = env.authenticatedContext('host', { email: 'h@example.com', email_verified: true, firebase: { sign_in_provider: 'google.com' } }).firestore();
+await check('the host can choose when guests save the album', assertSucceeds(updateDoc(doc(host, 'events', EID), { albumSaving: 'after' })));
+await check('only known choices are allowed', assertFails(updateDoc(doc(host, 'events', EID), { albumSaving: 'whenever' })));
+await check('guests cannot change it', assertFails(updateDoc(doc(as('maya'), 'events', EID), { albumSaving: 'party' })));
+
 await env.cleanup();
 console.log(failed ? `${failed} FAILED` : 'All passed');
 process.exit(failed ? 1 : 0);

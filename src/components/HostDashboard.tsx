@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ALBUM_SAVING_OPTIONS, AlbumSaving, albumSavingOf } from '../savePhotos';
 import {
   Shield, Check, X, Camera, Info, QrCode, Sliders, Smartphone, Laptop,
   Battery, AlertCircle, Trash2, HelpCircle, ExternalLink, RefreshCw, ChevronDown, ChevronUp, Radio,
@@ -222,6 +223,20 @@ export default function HostDashboard({
     } catch (e) {
       console.error('Failed to update guest lens setting:', e);
       handleFirestoreError(e, OperationType.UPDATE, `events/${eventId}`);
+    }
+  };
+
+  // When guests can save other people's photos to their devices (savePhotos.ts).
+  const albumSaving = albumSavingOf(event);
+  const [savingMsg, setSavingMsg] = useState('');
+  const handleAlbumSaving = async (next: AlbumSaving) => {
+    if (next === albumSaving) return;
+    setSavingMsg('');
+    try {
+      await updateDoc(paths.event(eventId), { albumSaving: next });
+    } catch (e) {
+      console.error('Failed to update album saving:', e);
+      setSavingMsg("Couldn't change that. Try again.");
     }
   };
 
@@ -754,6 +769,32 @@ export default function HostDashboard({
                       }`}
                     />
                   </button>
+                </div>
+
+                {/* When guests can save the album */}
+                <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl flex flex-col gap-2.5">
+                  <div>
+                    <p className="text-xs font-bold text-white">Guests can save the album</p>
+                    <p className="text-[10px] text-g2-muted mt-0.5">
+                      {ALBUM_SAVING_OPTIONS.find((o) => o.id === albumSaving)?.hint}. Their own photos are always theirs to save.
+                    </p>
+                  </div>
+                  <div role="radiogroup" aria-label="Guests can save the album" className="grid grid-cols-3 gap-1.5">
+                    {ALBUM_SAVING_OPTIONS.map((o) => (
+                      <button
+                        key={o.id}
+                        role="radio"
+                        aria-checked={albumSaving === o.id}
+                        onClick={() => handleAlbumSaving(o.id)}
+                        className={`h-9 px-2 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+                          albumSaving === o.id ? 'bg-g2-blue text-white' : 'bg-white/5 border border-white/10 text-g2-secondary hover:text-white'
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                  {savingMsg && <p className="text-[10px] text-red-400">{savingMsg}</p>}
                 </div>
               </div>
             </div>

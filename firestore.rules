@@ -1,6 +1,7 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-10-07b: hosts choose when guests can save the album ("albumSaving").
 // Version 2026-10-07: guests can borrow each other's cameras ("lensSharing",
 //   people/, lensRequests/). Additive: everything older works unchanged.
 //
@@ -137,7 +138,7 @@ service cloud.firestore {
     function eventKeys() {
       return ['name', 'subtitle', 'ownerUid', 'hostUids', 'joinCode', 'access',
               'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt', 'expireAt',
-              'groupShot', 'lensSharing'];
+              'groupShot', 'lensSharing', 'albumSaving'];
     }
 
     function albumDays() {
@@ -189,7 +190,8 @@ service cloud.firestore {
         && isOptionalTime(d, 'expireAt')
         && endsLineUp(d)
         && (!('groupShot' in d) || d.groupShot == null || isValidGroupShot(d.groupShot))
-        && (!('lensSharing' in d) || d.lensSharing is bool);
+        && (!('lensSharing' in d) || d.lensSharing is bool)
+        && (!('albumSaving' in d) || d.albumSaving in ['party', 'after', 'host']);
     }
 
     // A Group Shot: every guest camera that opted in fires at firesAt.
@@ -222,7 +224,7 @@ service cloud.firestore {
                     && isValidEvent(incoming())
                     && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
                                           'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
-                                          'groupShot', 'lensSharing'])
+                                          'groupShot', 'lensSharing', 'albumSaving'])
                     && incoming().ownerUid == existing().ownerUid
                     // Only the owner (or an admin) changes who the hosts are.
                     && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())

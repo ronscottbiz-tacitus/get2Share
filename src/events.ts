@@ -26,6 +26,8 @@ export interface EventDoc {
   groupShot?: { id: string; firesAt: Timestamp; by: string; spots?: boolean } | null;
   /** Guests can borrow each other's cameras (see guestLens.ts). Off unless the host turns it on. */
   lensSharing?: boolean;
+  /** When guests can save other people's photos to their devices (see savePhotos.ts). Unset = any time. */
+  albumSaving?: 'party' | 'after' | 'host';
 }
 
 export interface EventWithId extends EventDoc {

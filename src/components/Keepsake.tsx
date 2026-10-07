@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Check, X } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Check, Download, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import SavePhotosSheet from './SavePhotosSheet';
 import { getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import { eventPhase, formatDay, paths } from '../events';
@@ -86,6 +87,7 @@ export default function Keepsake({
     (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
   );
   const shown = all.slice(0, 9);
+  const [savingAll, setSavingAll] = useState(false);
   useBackToClose(true, onClose);
 
   return (
@@ -144,6 +146,16 @@ export default function Keepsake({
           </p>
         )}
 
+        {all.length > 0 && (
+          <button
+            onClick={() => setSavingAll(true)}
+            className="h-[52px] rounded-lg bg-g2-blue hover:bg-g2-blue-hover text-white font-bold text-[15px] flex items-center justify-center gap-2 cursor-pointer transition-colors"
+          >
+            <Download className="w-5 h-5" aria-hidden="true" />
+            Save {all.length === 1 ? 'it' : `all ${all.length}`} to this device
+          </button>
+        )}
+
         {keptWaiting > 0 && (
           <p className="text-xs text-g2-tertiary">
             {keptWaiting === 1 ? '1 Share Spot photo is' : `${keptWaiting} Share Spot photos are`} waiting for the host to approve {keptWaiting === 1 ? 'it' : 'them'}.
@@ -155,7 +167,7 @@ export default function Keepsake({
             <p className="flex items-start gap-2.5 text-sm text-white">
               <Check className="w-5 h-5 text-emerald-400 shrink-0" aria-hidden="true" />
               <span>
-                Saved to <span className="font-bold">{email}</span>. Sign in with that account on any device to see your events and photos.
+                Linked to <span className="font-bold">{email}</span>. Sign in with that account on any device to see your events and photos{albumUntil ? ` until the album closes ${formatDay(albumUntil)}` : ''}.
               </span>
             </p>
             <button
@@ -168,14 +180,9 @@ export default function Keepsake({
         ) : (
           <div className="p-4 rounded-xl bg-g2-page border border-white/10 flex flex-col gap-3">
             <div>
-              <p className="text-[15px] font-bold text-white">Keep them for good</p>
+              <p className="text-[15px] font-bold text-white">See them on any device</p>
               <p className="mt-1 text-[13px] leading-relaxed text-g2-tertiary">
-                {phase === 'album' && albumUntil
-                  ? `This album closes ${formatDay(albumUntil)}. `
-                  : albumUntil
-                    ? `The album stays open until ${formatDay(albumUntil)}. `
-                    : ''}
-                Save your photos to keep them on any device. No new password, no app.
+                Sign in with Google to see your photos on any device{albumUntil ? ` until the album closes ${formatDay(albumUntil)}` : ''}. No new password, no app. To keep them after that, save them to this device.
               </p>
             </div>
             <button
@@ -192,6 +199,9 @@ export default function Keepsake({
           </div>
         )}
       </motion.section>
+      <AnimatePresence>
+        {savingAll && <SavePhotosSheet key="save" photos={all} what="your photos" onClose={() => setSavingAll(false)} />}
+      </AnimatePresence>
     </motion.div>
   );
 }

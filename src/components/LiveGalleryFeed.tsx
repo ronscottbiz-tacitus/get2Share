@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Heart, Image as ImageIcon, Users, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
+import { Camera, Download, Heart, Image as ImageIcon, Users, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { query, where, onSnapshot, addDoc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { eventPhase, expiryOf, formatDay, paths } from '../events';
@@ -8,6 +8,8 @@ import { deletePhotoFile, compressPhoto, uploadPhotoAsset, handleFirestoreError,
 import { Photo } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import HostBar from './HostBar';
+import SavePhotosSheet from './SavePhotosSheet';
+import { canSaveAlbum, daysLeft, isOwnPhoto } from '../savePhotos';
 
 interface LiveGalleryFeedProps {
   sessionId: string;
@@ -241,6 +243,14 @@ export default function LiveGalleryFeed({
   const title = event.name || eventTitle || '';
   const subtitle = event.subtitle || eventSubtitle || '';
   const approvedCount = photos.filter((p) => p.status === 'approved').length;
+
+  // "Save to this device" for the tab you're on: your own photos always, the
+  // rest when the host's setting allows it.
+  const albumOk = canSaveAlbum(event, !!isHost, now);
+  const savable = filteredPhotos.filter((p) => isOwnPhoto(p, sessionId) || (albumOk && p.status === 'approved'));
+  const saveLabel = activeTab === 'my' ? 'Save mine' : activeTab === 'favorites' ? 'Save loved' : activeTab === 'all' ? 'Save all' : 'Save these';
+  const [saving, setSaving] = useState<Photo[] | null>(null);
+  const closesIn = phase === 'album' ? daysLeft(albumUntil, now) : null;
   const hasPending = photos.some((p) => p.sessionId === sessionId && p.status === 'pending');
 
   const tabs: { id: 'all' | 'top' | 'my' | 'favorites'; label: string }[] = [
@@ -308,17 +318,16 @@ export default function LiveGalleryFeed({
             <div>
               <p className="text-[15px] font-bold text-white">That's a wrap.</p>
               <p className="mt-0.5 text-[13px] leading-relaxed text-g2-secondary">
-                {albumUntil ? `This album is open until ${formatDay(albumUntil)}. ` : ''}
-                {isSaved ? 'Your photos are saved to your account.' : 'Save your photos to keep them for good.'}
+                {closesIn !== null && closesIn <= 3
+                  ? `This album closes in ${closesIn <= 1 ? 'a day' : `${closesIn} days`} (${formatDay(albumUntil!)}). Save your photos to your phone before then.`
+                  : `${albumUntil ? `This album is open until ${formatDay(albumUntil)}. ` : ''}Save your photos to your phone to keep them after that.`}
               </p>
             </div>
             <button
               onClick={onOpenKeepsake}
-              className={`h-12 rounded-lg font-bold text-[15px] cursor-pointer transition-colors ${
-                isSaved ? 'border border-white/15 text-white hover:bg-white/5' : 'bg-g2-blue hover:bg-g2-blue-hover text-white'
-              }`}
+              className="h-12 rounded-lg font-bold text-[15px] cursor-pointer transition-colors bg-g2-blue hover:bg-g2-blue-hover text-white"
             >
-              {isSaved ? 'See my photos' : 'Save my photos'}
+              Save my photos
             </button>
           </div>
         )}
@@ -347,6 +356,28 @@ export default function LiveGalleryFeed({
           );
         })}
       </nav>
+
+      {savable.length > 0 && (
+        <div className="px-5 pb-3 max-w-3xl mx-auto flex justify-end">
+          <button
+            onClick={() => setSaving(savable)}
+            className="h-9 px-3.5 rounded-full border border-white/15 text-[12.5px] font-semibold text-g2-secondary hover:text-white hover:border-white/30 inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <Download className="w-4 h-4" aria-hidden="true" />
+            {saveLabel} ({savable.length})
+          </button>
+        </div>
+      )}
+      <AnimatePresence>
+        {saving && (
+          <SavePhotosSheet
+            key="save"
+            photos={saving}
+            what={activeTab === 'my' ? 'your photos' : activeTab === 'favorites' ? 'your loved photos' : activeTab === 'all' ? 'the whole gallery' : 'the most loved'}
+            onClose={() => setSaving(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Grid */}
       <main className="px-5 max-w-3xl mx-auto">

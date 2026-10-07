@@ -386,7 +386,7 @@ function EventView({ event, config, photos, now }: { event: EventWithId; config:
               <div className="rounded-[1.6vmin] bg-g2-panel border border-g2-blue/40 p-[2.4vmin]">
                 <p className="font-expanded font-black text-[3vmin] text-white">That's a wrap.</p>
                 <p className="mt-[0.8vmin] text-[2vmin] leading-snug text-g2-secondary">
-                  {event.expireAt ? `The album is open until ${formatDay(event.expireAt.toMillis())}.` : 'Thanks for coming.'}
+                  {event.expireAt ? `The album is open until ${formatDay(event.expireAt.toMillis())}. Save your photos before then.` : 'Thanks for coming.'}
                 </p>
               </div>
             )}

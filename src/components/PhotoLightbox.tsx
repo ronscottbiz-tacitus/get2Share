@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download } from 'lucide-react';
+import { canSavePhoto, canShareFiles, downloadBlob, photoFile, shareFiles } from '../savePhotos';
 import { updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
 import { paths } from '../events';
@@ -75,6 +76,39 @@ export default function PhotoLightbox({
   const isUploader = photo.sessionId === sessionId;
   useBackToClose(true, onClose);
 
+  // Save to this device. The file is fetched as soon as the photo opens, so the
+  // tap can go straight to the share sheet (phones refuse it after a wait).
+  const canSave = canSavePhoto(photo, sessionId, event, !!isHost);
+  const [file, setFile] = useState<File | null>(null);
+  const [saveNote, setSaveNote] = useState('');
+  useEffect(() => {
+    setFile(null);
+    setSaveNote('');
+    if (!canSave) return;
+    let cancelled = false;
+    photoFile(event.name, photo).then((f) => { if (!cancelled) setFile(f); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [photo.id, canSave]);
+  const handleSave = async () => {
+    setSaveNote('');
+    if (file && canShareFiles([file])) {
+      try {
+        if (await shareFiles([file])) setSaveNote('Saved.');
+      } catch {
+        downloadBlob(file, file.name);
+      }
+      return;
+    }
+    if (file) {
+      downloadBlob(file, file.name);
+      setSaveNote('Downloaded.');
+      return;
+    }
+    // Couldn't fetch it here: open the photo itself, where press-and-hold saves it.
+    window.open(photo.url, '_blank', 'noopener');
+    setSaveNote('Opened the photo. Press and hold it to save.');
+  };
+
   return (
     <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex flex-col justify-between md:flex-row items-stretch font-sans animate-fade-in">
       {/* Media Box */}
@@ -128,6 +162,19 @@ export default function PhotoLightbox({
               {loves > 0 && <span className="font-mono text-[13px] opacity-80">· {loves}</span>}
             </button>
             <p className="-mt-3 text-[11px] text-g2-muted">Saves it to your Loved photos. The most-loved photos get featured.</p>
+
+            {canSave && (
+              <div className="-mt-1">
+                <button
+                  onClick={handleSave}
+                  className="w-full h-12 rounded-xl border border-white/15 bg-white/5 hover:border-white/30 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                >
+                  <Download className="w-[18px] h-[18px]" aria-hidden="true" />
+                  Save to this device
+                </button>
+                {saveNote && <p className="mt-1.5 text-[11px] text-emerald-300" aria-live="polite">{saveNote}</p>}
+              </div>
+            )}
 
             <div className="space-y-2 pt-2">
               <h4 className="text-xs font-semibold text-g2-tertiary uppercase tracking-wider mb-1">

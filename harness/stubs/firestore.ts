@@ -26,6 +26,7 @@ const wrap = () => localStorage.getItem('h-ended') === 'wrap';
 const EV: any = { name: 'Get2 Grand Opening', subtitle: "Let's Get2 gettin' it!", ownerUid: 'host1', hostUids: ['host1'], joinCode: 'GALA26', access: 'link', autoApproval: false, guestLensEnabled: true, status: 'live', createdAt: { toMillis: () => now } };
 Object.defineProperty(EV, 'endsAt', { get: () => ts(ended() ? now - 3 * 3600000 : wrap() ? now - 20 * 60000 : now + 4 * 3600000), enumerable: true });
 Object.defineProperty(EV, 'groupShot', { get: () => { const at = Number(localStorage.getItem('h-gs') || 0); return at ? { id: 'gs' + at, firesAt: ts(at), by: 'host1', spots: localStorage.getItem('h-gs-spots') === '1' } : null; }, enumerable: true });
+Object.defineProperty(EV, 'albumSaving', { get: () => localStorage.getItem('h-saving') || undefined, enumerable: true });
 Object.defineProperty(EV, 'lensSharing', { get: () => localStorage.getItem('h-borrow') === 'on', enumerable: true });
 Object.defineProperty(EV, 'expireAt', { get: () => ts((ended() ? now - 3 * 3600000 : now + 4 * 3600000) + 30 * 86400000), enumerable: true });
 const DOCS: Record<string, any> = {
