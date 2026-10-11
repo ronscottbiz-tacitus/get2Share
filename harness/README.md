@@ -26,6 +26,9 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-auth-fail=1` | anonymous sign-in fails with "too many requests" |
 | `h-photos=sample` | stub photos use G2-free AI sample-party images instead of gradients |
 | `h-ended=wrap` | the event ended 20 minutes ago (wrap-up hour) |
+| `h-ended=old` | the event ended 2 days ago (a TV reopened later should let it go) |
+| `h-new=1` | a phone with no saved sign-in (first scan) |
+| `h-slow=<ms>` | delay each sign-in and database read by that much (a slow event network) |
 | `h-kept=<photoId>` | the guest kept that Share Spot photo (Your photos) |
 | `h-saving=<mode>` | when guests can save the album: `party` (default), `after`, `host` |
 | `h-borrow=on` | the host turned on "Let guests borrow cameras" |

@@ -1,4 +1,3 @@
-import { zipSync } from 'fflate';
 import { EventDoc, eventPhase } from './events';
 import { Photo } from './types';
 
@@ -109,6 +108,7 @@ export async function zipFiles(files: File[]): Promise<Blob> {
     for (let i = 2; entries[name]; i++) name = f.name.replace(/\.jpg$/, `-${i}.jpg`);
     entries[name] = [new Uint8Array(await f.arrayBuffer()), { level: 0 }];
   }
+  const { zipSync } = await import('fflate'); // only loaded when someone saves a whole album on a laptop
   return new Blob([zipSync(entries)], { type: 'application/zip' });
 }
 

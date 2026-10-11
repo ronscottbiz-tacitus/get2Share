@@ -1,17 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import GuestOnboarding from './components/GuestOnboarding';
 import LiveGalleryFeed from './components/LiveGalleryFeed';
-import PhotoLightbox from './components/PhotoLightbox';
-import HostDashboard from './components/HostDashboard';
-import HostHome from './components/HostHome';
-import Landing from './components/Landing';
-import Keepsake from './components/Keepsake';
-import TvScreen from './components/TvScreen';
 import { claimScreen, TV_PATH } from './screens';
-import TripodMode from './components/TripodMode';
 import { SPOT_SETUP_PATH } from './spotPairing';
-import ProjectionSlideshow from './components/ProjectionSlideshow';
-import SampleParty from './components/SampleParty';
 import GroupShotGuest from './components/GroupShotGuest';
 import GuestLens from './components/GuestLens';
 import { SAMPLE_PATH } from './sample';
@@ -29,6 +20,18 @@ import {
 import { EventContext } from './EventContext';
 import CloseButton from './components/CloseButton';
 import { useBackToClose } from './useBackToClose';
+// Screens a guest who scans a code never needs load on demand, so the join screen arrives fast.
+const loadLightbox = () => import('./components/PhotoLightbox');
+const loadKeepsake = () => import('./components/Keepsake');
+const PhotoLightbox = lazy(loadLightbox);
+const Keepsake = lazy(loadKeepsake);
+const HostDashboard = lazy(() => import('./components/HostDashboard'));
+const HostHome = lazy(() => import('./components/HostHome'));
+const Landing = lazy(() => import('./components/Landing'));
+const TvScreen = lazy(() => import('./components/TvScreen'));
+const TripodMode = lazy(() => import('./components/TripodMode'));
+const ProjectionSlideshow = lazy(() => import('./components/ProjectionSlideshow'));
+const SampleParty = lazy(() => import('./components/SampleParty'));
 
 // ---------- Routes ----------
 //   /              landing: join by code, or host your own
@@ -99,6 +102,8 @@ export default function App() {
   const [membership, setMembership] = useState<'checking' | 'member' | 'not'>('checking');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState('');
+  // A nickname typed before sign-in and the event lookup finished; joined as soon as both are ready.
+  const [pendingJoin, setPendingJoin] = useState<string | null>(null);
   const [nickname, setNickname] = useState<string>(() => {
     try { return localStorage.getItem('get2share-nickname') || ''; } catch { return ''; }
   });
@@ -217,7 +222,11 @@ export default function App() {
           return;
         }
         setJoinInfo({ code: routeCode, ...found });
-        const member = await isMemberOf(found.eventId, sessionId);
+        // A device that signed in for the first time just now, and never joined this code,
+        // can't already be a member: skip that lookup so the guest can join sooner.
+        const created = Date.parse(authUser?.metadata?.creationTime || '') || 0;
+        const brandNew = !!authUser?.isAnonymous && Date.now() - created < 5 * 60_000 && !findJoinedByCode(routeCode);
+        const member = brandNew ? false : await isMemberOf(found.eventId, sessionId);
         if (cancelled) return;
         if (member) {
           try {
@@ -276,8 +285,16 @@ export default function App() {
   const isEventHost =
     !!event && hasAccount && (isAdmin || (event.hostUids || []).includes(sessionId));
 
+  const inGalleryNow = route.kind === 'event' && membership === 'member' && !!event;
+
   const handleJoinEvent = async (enteredNickname: string) => {
-    if (!joinInfo) return;
+    if (!joinInfo || !sessionId || membership === 'checking') {
+      // Still signing in or finding the event: hold the nickname and join the moment it's ready.
+      setPendingJoin(enteredNickname);
+      setJoining(true);
+      return;
+    }
+    setPendingJoin(null);
     setJoining(true);
     setJoinError('');
     try {
@@ -293,6 +310,20 @@ export default function App() {
       setJoining(false);
     }
   };
+
+  useEffect(() => {
+    if (pendingJoin === null) return;
+    if (membership === 'member') { setPendingJoin(null); setJoining(false); return; }
+    if (joinInfo && sessionId && membership === 'not') handleJoinEvent(pendingJoin);
+    if (joinError || authError) { setPendingJoin(null); setJoining(false); }
+  }, [pendingJoin, joinInfo, sessionId, membership, joinError, authError]);
+
+  // Once the gallery is up, fetch the photo viewer in the background so the first tap opens instantly.
+  useEffect(() => {
+    if (!inGalleryNow) return;
+    const t = setTimeout(() => { loadLightbox(); loadKeepsake(); }, 1500);
+    return () => clearTimeout(t);
+  }, [inGalleryNow]);
 
   const handleExitSession = () => {
     if (window.confirm('Leave this event? Your photos stay in the gallery. You can come back with the same link.')) {
@@ -674,6 +705,24 @@ export default function App() {
     return <SampleParty onHost={() => navigate(HOST_PATH)} onBack={() => navigate('/')} />;
   }
 
+  // First scan of an event on this device: show the join form at once. Sign-in and the
+  // event lookup finish behind it (the event name fills in when it's found).
+  if (route.kind === 'event' && membership !== 'member' && !findJoinedByCode(route.code)) {
+    return (
+      <div className="bg-g2-page text-g2-text min-h-screen selection:bg-g2-blue selection:text-white antialiased">
+        <GuestOnboarding
+          eventName={joinInfo?.code === route.code ? joinInfo.name : null}
+          defaultNickname={nickname}
+          joining={joining}
+          joinError={joinError || authError}
+          keeping={!!pendingKeep}
+          onJoin={handleJoinEvent}
+          onGoToHost={() => navigate(HOST_PATH)}
+        />
+      </div>
+    );
+  }
+
   if (!authReady || (!authUser && !authError)) {
     return <Centered>Connecting…</Centered>;
   }
@@ -848,6 +897,7 @@ export default function App() {
 
       <AnimatePresence>
         {showKeepsake && (
+          <Suspense key="keepsake-s" fallback={null}>
           <Keepsake
             key="keepsake"
             sessionId={sessionId}
@@ -860,6 +910,7 @@ export default function App() {
             onOpenAccount={() => { setShowKeepsake(false); navigate(HOST_PATH); }}
             onClose={() => setShowKeepsake(false)}
           />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -979,6 +1030,7 @@ export default function App() {
         </div>
       )}
       {selectedPhoto && (
+        <Suspense fallback={null}>
         <PhotoLightbox
           photo={selectedPhoto}
           onClose={() => setSelectedPhoto(null)}
@@ -989,6 +1041,7 @@ export default function App() {
           onToggleHideLocally={handleToggleHideLocally}
           isHost={isEventHost}
         />
+        </Suspense>
       )}
     </EventContext.Provider>
   );

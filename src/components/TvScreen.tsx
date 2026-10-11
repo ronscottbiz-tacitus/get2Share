@@ -17,6 +17,9 @@ import { Photo } from '../types';
 // (vmin), nothing near the edges (TVs crop them), no remote needed once paired.
 
 const JUST_IN_MS = 7000;
+// A TV reopened this long after its event ended starts fresh with a new pairing code,
+// instead of going back to the old event. (Same night, it still reconnects.)
+const RELEASE_AFTER_END_MS = 6 * 60 * 60 * 1000;
 const SLIDE_MS = 8000;
 const HEARTBEAT_MS = 60000;
 
@@ -63,6 +66,16 @@ export default function TvScreen({ uid }: { uid: string }) {
     setCode(null);
   };
 
+  // Leave the current event and show a new pairing code (the TV's own pairing is deleted).
+  const release = () => {
+    if (code) deleteDoc(screenPaths.pairing(code)).catch(() => {});
+    reset();
+  };
+
+  // An event whose album has closed while this TV is on: start fresh.
+  const expiredNow = !!event && eventPhase(event, now) === 'expired';
+  useEffect(() => { if (expiredNow) release(); }, [expiredNow]);
+
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -93,8 +106,13 @@ export default function TvScreen({ uid }: { uid: string }) {
           const p = snap?.exists() ? (snap.data() as ScreenPairing) : null;
           const fresh = p && (p.claimedBy || Date.now() - (p.createdAt?.toMillis?.() ?? 0) < SCREEN_CODE_TTL_MS);
           if (p && p.screenUid === uid && fresh) {
-            if (!cancelled) setCode(stored);
-            return;
+            if (!(p.claimedBy && p.eventId) || !(await eventIsOver(p.eventId))) {
+              if (!cancelled) setCode(stored);
+              return;
+            }
+            // That event is long over (or gone): let it go and pair fresh.
+            await deleteDoc(screenPaths.pairing(stored)).catch(() => {});
+            storeCode(null);
           }
         }
         const c = await createScreenCode(uid);
@@ -192,7 +210,7 @@ export default function TvScreen({ uid }: { uid: string }) {
   // ---------- Render ----------
   if (!joined || !event || !config) {
     return (
-      <TvFrame>
+      <TvFrame onSwitch={pairing?.claimedBy ? release : undefined}>
         {pairing?.claimedBy ? (
           <Centered>
             <p className="text-[3vmin] text-g2-secondary">Connecting to</p>
@@ -206,10 +224,55 @@ export default function TvScreen({ uid }: { uid: string }) {
     );
   }
 
-  return <EventView event={event} config={config} photos={photos} now={now} />;
+  return <EventView event={event} config={config} photos={photos} now={now} onSwitch={release} />;
 }
 
-function TvFrame({ children }: { children: React.ReactNode }) {
+/** Did this event end long ago, or is it gone? Network trouble counts as "no" so a live TV keeps reconnecting. */
+async function eventIsOver(eventId: string): Promise<boolean> {
+  try {
+    const snap = await getDoc(paths.event(eventId));
+    if (!snap.exists()) return true;
+    const ev = snap.data() as EventWithId;
+    const end = (ev as any).endsAt?.toMillis?.();
+    return eventPhase(ev) === 'expired' || (!!end && Date.now() > end + RELEASE_AFTER_END_MS);
+  } catch (e: any) {
+    return e?.code === 'permission-denied'; // removed from the event
+  }
+}
+
+/**
+ * "Pair with a different event": hidden until someone moves a mouse or presses a remote
+ * key, then a small button bottom-right. Press once to arm, again within 5 s to switch.
+ */
+function SwitchEventButton({ onSwitch }: { onSwitch: () => void }) {
+  const [shown, setShown] = useState(false);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const wake = () => { setShown(true); clearTimeout(t); t = setTimeout(() => { setShown(false); setArmed(false); }, 6000); };
+    window.addEventListener('mousemove', wake);
+    window.addEventListener('keydown', wake);
+    return () => { window.removeEventListener('mousemove', wake); window.removeEventListener('keydown', wake); clearTimeout(t); };
+  }, []);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 5000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      onFocus={() => setShown(true)}
+      onClick={() => (armed ? onSwitch() : setArmed(true))}
+      className={`absolute bottom-[2.4vmin] right-[3vmin] z-50 rounded-full border px-[2.2vmin] py-[1vmin] font-mono text-[1.8vmin] font-bold tracking-[0.08em] uppercase transition-opacity duration-300 cursor-pointer focus:outline-none focus-visible:ring-4 focus-visible:ring-g2-blue ${
+        shown ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100'
+      } ${armed ? 'bg-g2-blue border-g2-blue text-white' : 'bg-g2-page/80 border-white/20 text-g2-secondary'}`}
+    >
+      {armed ? 'Press again to switch events' : 'Pair with a different event'}
+    </button>
+  );
+}
+
+function TvFrame({ children, onSwitch }: { children: React.ReactNode; onSwitch?: () => void }) {
   // The pointer hides on a TV, but shows again while a mouse is moving (a laptop casting to the TV).
   const [pointer, setPointer] = useState(false);
   useEffect(() => {
@@ -222,6 +285,7 @@ function TvFrame({ children }: { children: React.ReactNode }) {
     <div className={`fixed inset-0 bg-g2-page text-g2-text font-sans overflow-hidden select-none p-[5vmin] flex flex-col ${pointer ? '' : 'cursor-none'}`}>
       {children}
       <FullscreenButton autoFocus label="Press OK for full screen" className="absolute top-[1.2vmin] left-1/2 -translate-x-1/2 text-[1.9vmin] px-[2vmin] py-[0.9vmin] z-50" />
+      {onSwitch && <SwitchEventButton onSwitch={onSwitch} />}
     </div>
   );
 }
@@ -289,7 +353,7 @@ function Tagline() {
   );
 }
 
-function EventView({ event, config, photos, now }: { event: EventWithId; config: ScreenConfig; photos: Photo[]; now: number }) {
+function EventView({ event, config, photos, now, onSwitch }: { event: EventWithId; config: ScreenConfig; photos: Photo[]; now: number; onSwitch: () => void }) {
   const link = joinUrl(event.joinCode);
   const qr = useQr(link, 320);
   const phase = eventPhase(event, now);
@@ -317,7 +381,7 @@ function EventView({ event, config, photos, now }: { event: EventWithId; config:
 
   if (config.paused) {
     return (
-      <TvFrame>
+      <TvFrame onSwitch={onSwitch}>
         <header className="flex justify-between items-center">
           <Get2ShareLockup className="text-[4vmin]" />
         </header>
@@ -337,7 +401,7 @@ function EventView({ event, config, photos, now }: { event: EventWithId; config:
     : photos;
 
   return (
-    <TvFrame>
+    <TvFrame onSwitch={onSwitch}>
       <header className="flex justify-between items-center gap-[3vmin]">
         <div className="flex items-baseline gap-[3vmin] min-w-0">
           <Get2ShareLockup className="text-[3.6vmin] shrink-0" />

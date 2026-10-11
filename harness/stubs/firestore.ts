@@ -23,8 +23,9 @@ const SESSIONS = [
 const ts = (ms: number) => ({ toMillis: () => ms });
 const ended = () => localStorage.getItem('h-ended') === '1';
 const wrap = () => localStorage.getItem('h-ended') === 'wrap';
+const old = () => localStorage.getItem('h-ended') === 'old';
 const EV: any = { name: 'Get2 Grand Opening', subtitle: "Let's Get2 gettin' it!", ownerUid: 'host1', hostUids: ['host1'], joinCode: 'GALA26', access: 'link', autoApproval: false, guestLensEnabled: true, status: 'live', createdAt: { toMillis: () => now } };
-Object.defineProperty(EV, 'endsAt', { get: () => ts(ended() ? now - 3 * 3600000 : wrap() ? now - 20 * 60000 : now + 4 * 3600000), enumerable: true });
+Object.defineProperty(EV, 'endsAt', { get: () => ts(old() ? now - 2 * 86400000 : ended() ? now - 3 * 3600000 : wrap() ? now - 20 * 60000 : now + 4 * 3600000), enumerable: true });
 Object.defineProperty(EV, 'groupShot', { get: () => { const at = Number(localStorage.getItem('h-gs') || 0); return at ? { id: 'gs' + at, firesAt: ts(at), by: 'host1', spots: localStorage.getItem('h-gs-spots') === '1' } : null; }, enumerable: true });
 Object.defineProperty(EV, 'albumSaving', { get: () => localStorage.getItem('h-saving') || undefined, enumerable: true });
 Object.defineProperty(EV, 'lensSharing', { get: () => localStorage.getItem('h-borrow') === 'on', enumerable: true });
@@ -83,7 +84,7 @@ export const onSnapshot = (ref: any, cb: any) => {
   }, 20);
   return () => {};
 };
-export const getDoc = async (ref: any) => docSnap(ref.path);
+export const getDoc = async (ref: any) => { await new Promise((r) => setTimeout(r, Number(localStorage.getItem('h-slow') || 0))); return docSnap(ref.path); };
 export const setDoc = async (ref: any, data: any) => { if (ref.path.includes('/lensRequests/') && localStorage.getItem('h-ask') === 'busy') { const e: any = new Error('denied'); e.code = 'permission-denied'; throw e; } console.log('SET', ref.path, Object.keys(data || {}).join(','), data && data.status ? data.status : ''); };
 export const updateDoc = async (ref: any, data: any) => { if (data.groupShot) localStorage.setItem('h-gs', String(data.groupShot.firesAt.toMillis())); console.log('UPDATE', ref.path, Object.keys(data).join(','), JSON.stringify(data).slice(0, 80), data.stream_frame ? 'frame:' + data.stream_frame.length : ''); };
 export const addDoc = async (ref: any, data: any) => { console.log('ADD', ref.path, data && data.nickname, data && data.status); return { id: 'new' }; };

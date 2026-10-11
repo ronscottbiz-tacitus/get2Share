@@ -4,7 +4,8 @@ import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 
 interface OnboardingProps {
-  eventName: string;
+  /** null while the event is still being looked up (the form is usable already). */
+  eventName: string | null;
   defaultNickname?: string;
   joining?: boolean;
   joinError?: string;
@@ -48,12 +49,22 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
           transition={{ duration: 0.4 }}
           className="mt-5 flex flex-col items-start"
         >
-          {eventTitle && (
-            <div className="inline-flex items-center gap-2 h-[30px] px-3 rounded-full border border-white/10 bg-g2-panel font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary">
-              <span className="w-[7px] h-[7px] rounded-full bg-emerald-400" />
-              Live now · {eventTitle}
-            </div>
-          )}
+          <div
+            aria-live="polite"
+            className="inline-flex items-center gap-2 h-[30px] px-3 rounded-full border border-white/10 bg-g2-panel font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary"
+          >
+            {eventTitle ? (
+              <>
+                <span className="w-[7px] h-[7px] rounded-full bg-emerald-400" />
+                Live now · {eventTitle}
+              </>
+            ) : (
+              <>
+                <span className="w-[7px] h-[7px] rounded-full bg-white/30 animate-pulse" />
+                Finding the event…
+              </>
+            )}
+          </div>
           <h1
             aria-label="Finally, you get to be in the picture. And get one too."
             className="mt-[18px] font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/10.2))] leading-[1.04] tracking-[-0.02em] text-white"
