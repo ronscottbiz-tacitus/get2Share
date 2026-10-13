@@ -2,18 +2,28 @@
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const PAIRING_TTL_MS = 10 * 60 * 1000;
 
-/** A random 6-character code (Share Spot pairing codes and event join codes). */
+/** A random 6-character event join code. Always has a letter, so it never looks like a pairing code. */
 export function newCode(): string {
-  const bytes = new Uint32Array(6);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join('');
+  for (;;) {
+    const bytes = new Uint32Array(6);
+    crypto.getRandomValues(bytes);
+    const code = Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join('');
+    if (/[A-Z]/.test(code)) return code;
+  }
 }
 
+/**
+ * Share Spot and TV pairing codes: 6 digits, so a tablet or phone can type them on the
+ * number pad. They live 10-15 minutes and are claimed once, so digits are plenty.
+ */
 export function newPairingCode(): string {
   const bytes = new Uint32Array(6);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join('');
+  return Array.from(bytes, (b) => String(b % 10)).join('');
 }
+
+/** Only digits: a Share Spot or TV pairing code (event codes always have a letter). */
+export const isPairingCode = (code: string) => /^\d{6}$/.test(code);
 
 /** "k7p 2q9" / "K7P-2Q9" → "K7P2Q9" */
 export function normalizePairingCode(input: string): string {

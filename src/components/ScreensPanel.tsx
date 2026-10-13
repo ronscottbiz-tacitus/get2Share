@@ -91,12 +91,13 @@ export default function ScreensPanel({ hostUid }: { hostUid: string }) {
             <div className="space-y-1">
               <label htmlFor="screen-code" className="text-[11px] font-bold uppercase tracking-wider text-g2-muted">Screen code</label>
               <input
+                inputMode="numeric"
                 id="screen-code"
                 type="text"
                 autoCapitalize="characters"
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="ABC 123"
+                placeholder="123 456"
                 value={formatPairingCode(normalizePairingCode(code))}
                 onChange={(e) => { setCode(normalizePairingCode(e.target.value)); setError(''); }}
                 className="w-full h-11 px-3 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-white font-mono text-lg tracking-[0.15em] uppercase focus:outline-none"

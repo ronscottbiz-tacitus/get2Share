@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import ProConcepts from './ProConcepts';
 import { LastEvent, normalizeJoinCode } from '../events';
+import { isPairingCode, SPOT_SETUP_PATH } from '../spotPairing';
 
 interface LandingProps {
   lastEvent: LastEvent | null;
@@ -32,6 +33,11 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const c = normalizeJoinCode(code);
+    // All digits = a Share Spot pairing code typed here by mistake: take it to Share Spot setup.
+    if (isPairingCode(c)) {
+      window.location.assign(`${SPOT_SETUP_PATH}?code=${c}`);
+      return;
+    }
     if (c.length !== 6) {
       setError('Event codes are 6 letters and numbers, like GALA26.');
       return;

@@ -1,6 +1,6 @@
 import { collection, deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { newCode } from './spotPairing';
+import { newPairingCode } from './spotPairing';
 import { paths } from './events';
 
 // ---------- TV screens ----------
@@ -51,7 +51,7 @@ export const LAYOUTS: { id: ScreenLayout; label: string; hint: string }[] = [
 export async function createScreenCode(uid: string): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const code = newCode();
+    const code = newPairingCode();
     try {
       await setDoc(screenPaths.pairing(code), {
         screenUid: uid,

@@ -27,7 +27,10 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
   // The event's end and cleanup dates, so photos and this spot expire with the album.
   const eventTimesRef = useRef<{ endsAt?: any; expireAt?: any } | null>(null);
   // Host-issued pairing code. Remembered so this device can reconnect after a reload.
+  // A code in the link (/spot?code=…, from the host's QR or the home page) wins over a remembered one.
   const [pairingCode, setPairingCode] = useState(() => {
+    const fromLink = normalizePairingCode(new URLSearchParams(window.location.search).get('code') || '');
+    if (fromLink) return fromLink;
     try { return localStorage.getItem(STORED_SPOT_CODE_KEY) || ''; } catch { return ''; }
   });
   const [connecting, setConnecting] = useState(false);
@@ -597,11 +600,11 @@ export default function TripodMode({ onExit, sessionId }: TripodModeProps) {
               <input
                 id="spot-code"
                 type="text"
-                inputMode="text"
+                inputMode="numeric"
                 autoCapitalize="characters"
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="ABC 123"
+                placeholder="123 456"
                 value={formatPairingCode(normalizePairingCode(pairingCode))}
                 onChange={(e) => { setPairingCode(normalizePairingCode(e.target.value)); setError(''); }}
                 className="w-full bg-g2-page border border-white/10 focus:border-g2-blue focus:ring-1 focus:ring-g2-blue/30 rounded-xl px-4 py-3 text-white placeholder-g2-muted focus:outline-none transition-all font-mono text-2xl tracking-[0.2em] text-center uppercase"

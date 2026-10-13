@@ -6,6 +6,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { SpotPairing } from '../types';
 import { PAIRING_TTL_MS, SPOT_SETUP_PATH, formatPairingCode, newPairingCode } from '../spotPairing';
 import CloseButton from './CloseButton';
+import { useQr } from '../useQr';
 
 /**
  * Host-only: name a Share Spot and get a one-time code to enter on the tablet.
@@ -22,6 +23,7 @@ export default function AddShareSpot() {
   const [now, setNow] = useState(Date.now());
 
   const setupUrl = `${window.location.host}${SPOT_SETUP_PATH}`;
+  const setupQr = useQr(code ? `${window.location.origin}${SPOT_SETUP_PATH}?code=${code}` : null, 240);
 
   // Watch the code so we know the moment the tablet claims it.
   useEffect(() => {
@@ -171,9 +173,12 @@ export default function AddShareSpot() {
 
       {code && !pairing?.claimedBy && !expired && (
         <div className="space-y-2.5" aria-live="polite">
-          <p className="text-xs text-g2-secondary">
-            On the Share Spot device, open <span className="font-mono text-white">{setupUrl}</span> and enter:
-          </p>
+          <div className="flex items-center gap-3">
+            {setupQr && <img src={setupQr} alt="Scan with the Share Spot device to set it up" className="w-24 h-24 rounded-lg bg-white p-1 shrink-0" />}
+            <p className="text-xs leading-relaxed text-g2-secondary">
+              Scan this with the Share Spot device's camera, or open <span className="font-mono text-white">{setupUrl}</span> on it and enter:
+            </p>
+          </div>
           <p className="font-mono font-bold text-4xl tracking-[0.25em] text-white text-center py-2 bg-g2-page rounded-lg border border-white/10">
             {formatPairingCode(code)}
           </p>
