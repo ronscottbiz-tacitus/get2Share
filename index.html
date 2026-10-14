@@ -25,6 +25,22 @@
         if (m) document.getElementById('app-manifest').setAttribute('href', m);
       })();
     </script>
+    <!-- Vercel Web Analytics. Join codes, host event IDs and anything after "?" (pairing/screen codes) are replaced before sending. -->
+    <script>
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+      window.va('beforeSend', function (event) {
+        try {
+          var u = new URL(event.url);
+          u.pathname = u.pathname
+            .replace(/^\/e\/[^/]+/, '/e/[code]')
+            .replace(/^\/host\/[^/]+/, '/host/[event]');
+          u.search = '';
+          u.hash = '';
+          return Object.assign({}, event, { url: u.toString() });
+        } catch (e) { return null; }
+      });
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
   </head>
   <body>
     <div id="root"></div>
