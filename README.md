@@ -1,8 +1,44 @@
 # Get2Share
 
-Live event photo sharing with remote camera triggers: guests snap and share from their phones, stationary Share Spots (phones or tablets on a stand) fire on command, and the host can borrow a guest's lens for a group shot.
+**You Get2 be in the picture.** A no-app, live event photo-sharing tool that turns every guest's phone into one shared camera system.
 
-A React + Vite web app backed by Firebase (Firestore, Storage, Auth). Originally prototyped in Google AI Studio; now maintained here on GitHub.
+**Live:** [share.get2.one](https://share.get2.one) · **Case study:** [get2.one/work/share](https://get2.one/work/share) · **Built by:** [Ron Scott](https://portfolio.get2.one)
+
+![Get2Share on a TV wall and two phones](docs/get2share-hero.jpg)
+
+## Why it exists
+
+At every event I'd end up in great photos I never got back, or I'd be the one holding the phone for the group shot instead of standing in it. Get2Share puts every photo from the party in one live gallery, and makes sure the person taking pictures gets to be in them too.
+
+## What it does
+
+- **One live gallery.** Guests join by QR code or event code, with nothing to install. Every photo lands in one album everyone sees in real time.
+- **Share Spots.** The host turns spare phones or tablets into stationary cameras. Guests see each spot on their own phone, check it's free, and fire the shot with a countdown. Walk-up guests can tap the Share Spot screen and scan a QR code to keep the photo.
+- **Borrow.** A guest can ask another guest to lend their camera for a shot, with a live preview, and the photo is credited to both. Off by default; the host turns it on.
+- **TV portal.** The gallery plays on a smart TV so the whole room watches photos land.
+- **Host controls.** Photo review or auto-approve, and save settings: guests can always save their own photos, and the host decides when guests can save the rest of the album.
+
+## Tested, not just built
+
+**Load test.** [`loadtest/`](loadtest) fills a real event with simulated guests who sign in, watch the gallery, post full-size photos and react, then clean up after themselves.
+
+![Load test results: 0.2 s for a photo to reach everyone else's screen at 25 and 50 guests](docs/get2share-load-test.png)
+
+It also surfaced two scaling findings: reactions drove 73% of database reads (they grow with the square of the crowd, so there's a known throttling fix), and Firebase's limit of about 100 new sign-ins per hour per network is a real risk on shared venue Wi-Fi.
+
+**Usability testing.** Scripted think-aloud sessions changed the product: a bigger close button, swipe-back that closes a photo instead of leaving the event, separate Camera and Upload buttons, and one "Love" reaction instead of thumbs up/down.
+
+**Screenshot harness.** [`harness/`](harness) runs the app against a fake Firebase so any screen can be captured at any size without touching real data.
+
+## How it's built
+
+React 19 · TypeScript · Vite · Tailwind · Firebase (Firestore, Storage, Auth) · Vercel
+
+Prototyped in Emergent, rebuilt in Google AI Studio, then moved off AI Studio to build with Claude. It now runs on Vercel with its own Firebase project. Every feature ships on a preview branch first and goes to `main` (the live site) only after it's tested on real phones.
+
+**Next:** premium video effects and video capture. Payments aren't built yet.
+
+Photos in the screenshots are AI-generated samples; the app screens are real.
 
 ## Run locally
 
