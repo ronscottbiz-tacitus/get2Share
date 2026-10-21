@@ -117,7 +117,7 @@ function Picker({ sessionId, onPick, onClose }: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-g2-page/75 flex items-end justify-center font-sans"
+      className="fixed inset-0 z-[55] bg-g2-page/75 flex items-end justify-center font-sans"
       onClick={onClose}
     >
       <motion.section
@@ -302,7 +302,7 @@ function AskerSide({ sessionId, nickname, owner, onDone }: {
 
   const paused = frameAge > FRAME_STALE_MS;
   return (
-    <div className="fixed inset-0 bg-black z-50 font-sans" role="dialog" aria-modal="true" aria-label={`${owner.name}'s camera`}>
+    <div className="fixed inset-0 bg-black z-[55] font-sans" role="dialog" aria-modal="true" aria-label={`${owner.name}'s camera`}>
       <div className="absolute inset-0 flex items-center justify-center">
         {req?.frame ? (
           <img src={req.frame} alt={`Live view from ${owner.name}'s camera`} className="w-full h-full object-contain" />
@@ -406,7 +406,7 @@ function OwnerSide({ sessionId, busyElsewhere }: { sessionId: string; busyElsewh
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-g2-page/75 flex items-end justify-center font-sans"
+            className="fixed inset-0 z-[55] bg-g2-page/75 flex items-end justify-center font-sans"
           >
             <motion.section
               role="dialog"
@@ -623,7 +623,7 @@ function OwnerCamera({ req, sessionId, streamRef, groupShotOn }: {
   useBackToClose(true, stop);
 
   return (
-    <div className="fixed inset-0 bg-black z-50 font-sans" role="dialog" aria-modal="true" aria-label="Sharing your camera">
+    <div className="fixed inset-0 bg-black z-[55] font-sans" role="dialog" aria-modal="true" aria-label="Sharing your camera">
       <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
 
       <header className="absolute top-0 inset-x-0 pt-4 pl-5 pr-4 flex justify-between items-center z-10">
@@ -666,7 +666,7 @@ function OwnerCamera({ req, sessionId, streamRef, groupShotOn }: {
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 bg-g2-page/75 flex items-end justify-center font-sans" onClick={onClose}>
+    <div className="fixed inset-0 z-[55] bg-g2-page/75 flex items-end justify-center font-sans" onClick={onClose}>
       <section
         role="dialog"
         aria-modal="true"

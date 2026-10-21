@@ -12,6 +12,8 @@ import { paths } from './events';
 //   5. Either of them stops (ended), or it times out
 //
 // The doc ID is the camera owner's uid, so one camera serves one person at a time.
+// Borrow screens sit above an open photo (z-50) so a request is never hidden, and below
+// a Group Shot (z-[60]), which goes first.
 // firestore.rules enforce who may write what; this file is the only place that
 // writes these docs. Only while the host has turned on event.lensSharing.
 
