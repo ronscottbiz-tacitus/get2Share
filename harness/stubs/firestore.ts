@@ -86,10 +86,13 @@ export const onSnapshot = (ref: any, cb: any) => {
     if (feed && ref.path.endsWith('photos')) {
       const names = ['maya', 'marcus', 'tia', 'jordan', 'dee', 'andre', 'priya', 'luis'];
       let n = 0;
+      const feedUrls: string[] | null = JSON.parse(localStorage.getItem('h-feed-urls') || 'null');
+      const feedMax = Number(localStorage.getItem('h-feed-max') || 0);
       feedTimers.push(setInterval(() => {
+        if (feedMax && n >= feedMax) return; // the party goes quiet
         n++;
         (window as any).__fed = n;
-        rows = [{ id: `f${n}`, url: `/sample/mina30-${String(((n - 1) % 25) + 1).padStart(2, '0')}.jpg`, nickname: names[n % names.length], sessionId: `g${n % 8}`, createdAt: Date.now(), status: 'approved', reactions: { likes: 0, dislikes: 0 }, flagged: false }, ...rows];
+        rows = [{ id: `f${n}`, url: feedUrls ? feedUrls[(n - 1) % feedUrls.length] : `/sample/mina30-${String(((n - 1) % 25) + 1).padStart(2, '0')}.jpg`, nickname: names[n % names.length], sessionId: `g${n % 8}`, createdAt: Date.now(), status: 'approved', reactions: { likes: 0, dislikes: 0 }, flagged: false }, ...rows];
         const d = rows.map((r: any) => ({ id: r.id, data: () => r }));
         cb({ docs: d, forEach: (fn: any) => d.forEach(fn) });
       }, feed));

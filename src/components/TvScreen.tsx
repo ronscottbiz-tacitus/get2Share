@@ -408,7 +408,7 @@ function EventView({ event, config, photos, now, onSwitch }: { event: EventWithI
           ) : config.layout === 'slideshow' ? (
             <Slideshow photos={shown} showNames={config.showNames} jumpTo={current?.id ?? null} />
           ) : (
-            <Wall photos={shown} showNames={config.showNames} />
+            <Wall photos={shown} showNames={config.showNames} favorites={phase === 'album' || phase === 'expired'} />
           )}
 
           <AnimatePresence>
@@ -554,21 +554,169 @@ function Caption({ photo, showNames, size = 'md' }: { photo: Photo; showNames: b
   );
 }
 
+// ---------- The wall ----------
+//
+// Up to 9 tiles. Tiles stay put and change one at a time:
+//   • a new photo takes over the tile that's been up longest (of those, the one whose shape fits it best)
+//   • when nothing new has come in for a while, one tile at a time cycles to a photo that
+//     hasn't been on screen lately, so the wall stays alive and everyone's photos get a turn
+//     (after the party, it leans toward the most-loved)
+//   • a photo fills its tile when the shapes are close (a light trim at the edges);
+//     very different shapes show the whole photo over a blurred copy of itself
+
+const WALL_IDLE_MS = 20_000;   // quiet this long, and the wall starts cycling
+const WALL_CYCLE_MS = 6_000;   // one tile changes this often while it cycles
+const CROP_OK = Math.log(1.35); // shapes within 35% of each other: fill the tile
+
+// Photo shapes (width ÷ height), learned as photos load.
+const shapes = new Map<string, number>();
+function learnShape(url: string): Promise<number | undefined> {
+  if (shapes.has(url)) return Promise.resolve(shapes.get(url));
+  return new Promise((resolve) => {
+    const img = new Image();
+    const done = () => {
+      if (img.naturalWidth && img.naturalHeight) shapes.set(url, img.naturalWidth / img.naturalHeight);
+      resolve(shapes.get(url));
+    };
+    img.onload = done;
+    img.onerror = () => resolve(undefined);
+    setTimeout(() => resolve(shapes.get(url)), 4000);
+    img.src = url;
+  });
+}
+const mismatch = (photo?: number, tile?: number) => (photo && tile ? Math.abs(Math.log(photo / tile)) : 0);
+
+type WallLayout = { cols: number; rows: number; spans: [number, number][]; gap: string; radius: string };
+const span = (c: number, r: number): [number, number] => [c, r];
+function wallLayout(count: number): WallLayout {
+  const small = { gap: '1.4vmin', radius: '1.4vmin' };
+  const big = { gap: '1.2vmin', radius: '1.2vmin' };
+  if (count <= 1) return { cols: 1, rows: 1, spans: [span(1, 1)], ...small };
+  if (count === 2) return { cols: 2, rows: 1, spans: [span(1, 1), span(1, 1)], ...small };
+  if (count === 3) return { cols: 3, rows: 2, spans: [span(2, 2), span(1, 1), span(1, 1)], ...small };
+  if (count === 4) return { cols: 2, rows: 2, spans: [span(1, 1), span(1, 1), span(1, 1), span(1, 1)], ...small };
+  if (count < 9) return { cols: 4, rows: 2, spans: [span(2, 2), span(1, 1), span(1, 1), span(1, 1), span(1, 1)], ...big };
+  // The full mosaic: 6 × 3, packed with no gaps.
+  return {
+    cols: 6, rows: 3, ...big,
+    spans: [span(2, 2), span(1, 1), span(2, 1), span(1, 2), span(2, 2), span(1, 1), span(1, 1), span(1, 1), span(2, 1)],
+  };
+}
+const wallCount = (n: number) => (n >= 9 ? 9 : n >= 5 ? 5 : Math.min(n, 4));
+
+/**
+ * Which tile a photo should take: one of the few that have been up longest,
+ * preferring the one whose shape matches the photo.
+ */
+export function pickTile(placedAt: number[], photoShape: number | undefined, tileShapes: number[] | null, among = 3): number {
+  const order = placedAt.map((t, i) => [t, i] as const).sort((a, b) => a[0] - b[0]).map(([, i]) => i);
+  const options = order.slice(0, Math.min(among, order.length));
+  if (!photoShape || !tileShapes) return options[0];
+  let best = options[0];
+  let bestCost = Infinity;
+  options.forEach((slot, rank) => {
+    const cost = mismatch(photoShape, tileShapes[slot]) + rank * 0.08; // a nudge toward the longest-standing
+    if (cost < bestCost) { bestCost = cost; best = slot; }
+  });
+  return best;
+}
+
+/** The next photo to cycle in: the one off screen longest (never shown counts as longest). */
+export function pickCycle(photos: Photo[], onWall: Set<string>, lastShown: Map<string, number>, favorites: boolean): Photo | null {
+  let pool = photos.filter((p) => !onWall.has(p.id));
+  if (favorites) {
+    // After the party: a highlights loop drawn from the most-loved.
+    const keep = Math.max(18, Math.ceil(photos.length * 0.4));
+    const top = new Set([...photos].sort((a, b) => (b.reactions?.likes || 0) - (a.reactions?.likes || 0)).slice(0, keep).map((p) => p.id));
+    const loved = pool.filter((p) => top.has(p.id));
+    if (loved.length) pool = loved;
+  }
+  if (!pool.length) return null;
+  return pool.reduce((best, p) => {
+    const a = lastShown.get(p.id) || 0;
+    const b = lastShown.get(best.id) || 0;
+    return a < b || (a === b && (p.createdAt || 0) > (best.createdAt || 0)) ? p : best;
+  });
+}
+
+function useWallTiles(photos: Photo[], count: number, favorites: boolean, tileShapes: number[] | null): Photo[] {
+  const [, rerender] = useState(0);
+  const ids = useRef<string[]>([]);
+  const placed = useRef<number[]>([]);                 // when each tile last changed
+  const lastShown = useRef(new Map<string, number>()); // when each photo last went up
+  const known = useRef<Set<string> | null>(null);
+  const waiting = useRef<Photo[]>([]);                 // arrivals still loading
+  const lastArrival = useRef(Date.now());
+  const live = useRef({ photos, count, favorites, tileShapes });
+  live.current = { photos, count, favorites, tileShapes };
+
+  const byId = new Map(photos.map((p) => [p.id, p]));
+  // New arrivals: noted now, placed once their shape is known (they're loading anyway).
+  if (known.current) {
+    const fresh = photos.filter((p) => !known.current!.has(p.id));
+    if (fresh.length) { waiting.current.push(...fresh.slice().reverse()); lastArrival.current = Date.now(); }
+  }
+  known.current = new Set(photos.map((p) => p.id));
+  // Keep tiles where they are; fill any gap (a removed photo, or the wall just grew).
+  const slots = ids.current.slice(0, count).map((id) => (byId.has(id) ? id : null));
+  while (slots.length < count) slots.push(null);
+  const up = new Set(slots.filter(Boolean) as string[]);
+  const spare = photos.filter((p) => !up.has(p.id));
+  slots.forEach((id, i) => {
+    if (id) return;
+    const p = spare.shift();
+    if (!p) return;
+    slots[i] = p.id;
+    placed.current[i] = Date.now();
+    lastShown.current.set(p.id, Date.now());
+  });
+  ids.current = slots.filter(Boolean) as string[];
+  placed.current.length = ids.current.length;
+
+  const put = (p: Photo) => {
+    const { count: n, tileShapes: tiles } = live.current;
+    if (ids.current.includes(p.id) || ids.current.length < n) return;
+    const times = Array.from({ length: n }, (_, i) => placed.current[i] || 0);
+    const slot = pickTile(times, shapes.get(p.url), tiles);
+    ids.current[slot] = p.id;
+    placed.current[slot] = Date.now();
+    lastShown.current.set(p.id, Date.now());
+    rerender((x) => x + 1);
+  };
+
+  // Place arrivals, newest last so the newest stays up longest.
+  useEffect(() => {
+    const batch = waiting.current.splice(0);
+    batch.forEach((p) => learnShape(p.url).then(() => {
+      if (live.current.photos.some((q) => q.id === p.id)) put(p);
+    }));
+  }, [photos]);
+
+  // Quiet for a while: cycle one tile at a time.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const { photos: all, count: n, favorites: fav } = live.current;
+      if (Date.now() - lastArrival.current < WALL_IDLE_MS || all.length <= n) return;
+      const next = pickCycle(all, new Set(ids.current), lastShown.current, fav);
+      if (next) learnShape(next.url).then(() => put(next));
+    }, WALL_CYCLE_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  return ids.current.map((id) => byId.get(id)!).filter(Boolean);
+}
+
 /**
  * A tile that changes photos smoothly: the new photo loads out of sight, then fades in
  * over the old one, so a tile is never blank while a photo downloads.
  */
-function TilePhoto({ url }: { url: string }) {
+function TilePhoto({ url, tileShape }: { url: string; tileShape?: number }) {
   const [layers, setLayers] = useState<{ url: string; key: number }[]>([{ url, key: 0 }]);
   const n = useRef(0);
   useEffect(() => {
     if (layers[layers.length - 1].url === url) return;
     let cancelled = false;
-    const img = new Image();
-    const show = () => { if (!cancelled) setLayers((l) => [...l.slice(-1), { url, key: ++n.current }]); };
-    img.onload = show;
-    img.onerror = show;
-    img.src = url;
+    learnShape(url).then(() => { if (!cancelled) setLayers((l) => [...l.slice(-1), { url, key: ++n.current }]); });
     return () => { cancelled = true; };
   }, [url]);
   return (
@@ -582,47 +730,23 @@ function TilePhoto({ url }: { url: string }) {
           transition={{ duration: 0.9 }}
           onAnimationComplete={() => { if (i === layers.length - 1 && layers.length > 1) setLayers((ls) => ls.slice(-1)); }}
         >
-          <FitPhoto url={l.url} />
+          <SmartPhoto url={l.url} tileShape={tileShape} />
         </motion.div>
       ))}
     </>
   );
 }
 
-/**
- * Which photo sits in which wall tile. Tiles stay put: a new photo takes over the tile
- * holding the oldest one, instead of every photo sliding along one place.
- */
-export function placeTiles(prevIds: string[], photos: Photo[], arrived: Set<string>, count: number): string[] {
-  const byId = new Map(photos.map((p) => [p.id, p]));
-  const slots: (string | null)[] = prevIds.slice(0, count).map((id) => (byId.has(id) ? id : null));
-  while (slots.length < count) slots.push(null);
-  const onWall = () => new Set(slots.filter(Boolean) as string[]);
-  // New arrivals, newest first, each take the tile of the oldest photo showing.
-  const fresh = photos.filter((p) => arrived.has(p.id) && !onWall().has(p.id)).slice(0, count);
-  for (const p of fresh) {
-    const empty = slots.indexOf(null);
-    if (empty >= 0) { slots[empty] = p.id; continue; }
-    let oldest = 0;
-    slots.forEach((id, i) => { if ((byId.get(id!)?.createdAt || 0) < (byId.get(slots[oldest]!)?.createdAt || 0)) oldest = i; });
-    slots[oldest] = p.id;
+/** Fill the tile when the shapes are close; otherwise the whole photo over a blurred copy. */
+function SmartPhoto({ url, tileShape }: { url: string; tileShape?: number }) {
+  const [shape, setShape] = useState(() => shapes.get(url));
+  useEffect(() => { if (!shape) learnShape(url).then(setShape); }, [url]);
+  if (shape && tileShape && mismatch(shape, tileShape) <= CROP_OK) {
+    // A taller photo loses a little top and bottom; keep the trim nearer the bottom, where faces aren't.
+    const position = shape < tileShape ? '50% 30%' : '50% 50%';
+    return <img src={url} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ objectPosition: position }} />;
   }
-  // Any gaps (a removed photo, or the wall just grew) fill in the screen's own order.
-  const shown = onWall();
-  const fill = photos.filter((p) => !shown.has(p.id));
-  for (let i = 0; i < slots.length; i++) if (!slots[i]) slots[i] = fill.shift()?.id ?? null;
-  return slots.filter(Boolean) as string[];
-}
-
-function useStableTiles(photos: Photo[], count: number): Photo[] {
-  const known = useRef<Set<string> | null>(null);
-  const ids = useRef<string[]>([]);
-  const arrived = new Set<string>();
-  if (known.current) photos.forEach((p) => { if (!known.current!.has(p.id)) arrived.add(p.id); });
-  known.current = new Set(photos.map((p) => p.id));
-  ids.current = placeTiles(ids.current, photos, arrived, count);
-  const byId = new Map(photos.map((p) => [p.id, p]));
-  return ids.current.map((id) => byId.get(id)!).filter(Boolean);
+  return <FitPhoto url={url} />;
 }
 
 /** The whole photo, never cropped: a blurred copy of it fills any spare edges. */
@@ -635,50 +759,50 @@ function FitPhoto({ url }: { url: string }) {
   );
 }
 
-// Newest photo gets the biggest tile.
-const WALL_SPANS = [
-  'col-span-2 row-span-2', 'col-span-1 row-span-1', 'col-span-2 row-span-1', 'col-span-1 row-span-2',
-  'col-span-2 row-span-2', 'col-span-1 row-span-1', 'col-span-1 row-span-1', 'col-span-1 row-span-1', 'col-span-2 row-span-1',
-];
+function useBoxSize() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
 
-function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
-  // 9+ photos: the full mosaic. 5–8: the big tile plus four. Fewer: an even grid.
-  const count = photos.length >= WALL_SPANS.length ? WALL_SPANS.length : Math.min(photos.length, photos.length >= 5 ? 5 : 4);
-  const tiles = useStableTiles(photos, count);
-  if (tiles.length === 5) {
-    return (
-      <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-[1.2vmin]">
-        {tiles.map((p, i) => (
-          <div key={i} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${i === 0 ? 'col-span-2 row-span-2' : ''}`}>
-            <TilePhoto url={p.url} />
-            <Caption photo={p} showNames={showNames} size={i === 0 ? 'md' : 'sm'} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (tiles.length < 5) {
-    // 1: full · 2: side by side · 3: newest big with two stacked beside it · 4: 2×2
-    const grid = tiles.length === 1 ? 'grid-cols-1 grid-rows-1' : tiles.length === 2 ? 'grid-cols-2 grid-rows-1' : tiles.length === 3 ? 'grid-cols-3 grid-rows-2' : 'grid-cols-2 grid-rows-2';
-    return (
-      <div className={`absolute inset-0 grid gap-[1.4vmin] ${grid}`}>
-        {tiles.map((p, i) => (
-          <div key={i} className={`relative rounded-[1.4vmin] overflow-hidden bg-black/40 ${tiles.length === 3 && i === 0 ? 'col-span-2 row-span-2' : ''}`}>
-            <TilePhoto url={p.url} />
-            <Caption photo={p} showNames={showNames} />
-          </div>
-        ))}
-      </div>
-    );
-  }
+function Wall({ photos, showNames, favorites }: { photos: Photo[]; showNames: boolean; favorites: boolean }) {
+  const count = wallCount(photos.length);
+  const layout = wallLayout(count);
+  const [box, size] = useBoxSize();
+  const tileShapes = useMemo(
+    () => (size && size.h ? layout.spans.map(([c, r]) => ((c * size.w) / layout.cols) / ((r * size.h) / layout.rows)) : null),
+    [size?.w, size?.h, count],
+  );
+  const tiles = useWallTiles(photos, count, favorites, tileShapes);
   return (
-    <div className="absolute inset-0 grid grid-cols-6 grid-rows-3 gap-[1.2vmin] grid-flow-dense">
-      {tiles.map((p, i) => (
-        <div key={i} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${WALL_SPANS[i]}`}>
-          <TilePhoto url={p.url} />
-          <Caption photo={p} showNames={showNames} size={i === 0 ? 'md' : 'sm'} />
-        </div>
-      ))}
+    <div ref={box} className="absolute inset-0">
+      <div
+        className="absolute inset-0 grid"
+        style={{
+          gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+          gridAutoFlow: 'row dense',
+          gap: layout.gap,
+        }}
+      >
+        {tiles.map((p, i) => (
+          <div
+            key={i}
+            className="relative overflow-hidden bg-black/40"
+            style={{ gridColumn: `span ${layout.spans[i][0]}`, gridRow: `span ${layout.spans[i][1]}`, borderRadius: layout.radius }}
+          >
+            <TilePhoto url={p.url} tileShape={tileShapes?.[i]} />
+            <Caption photo={p} showNames={showNames} size={count < 5 || i === 0 ? 'md' : 'sm'} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
