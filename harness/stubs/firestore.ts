@@ -81,9 +81,23 @@ export const onSnapshot = (ref: any, cb: any) => {
     const docs = rows.map((r: any) => ({ id: r.id || r.sessionId, data: () => r }));
     cb({ docs, forEach: (fn: any) => docs.forEach(fn) });
     if (ref.kind === 'doc' && ref.path === 'sessions/guest1' && localStorage.getItem('h-trigger') === '1') {}
+    // h-feed=<ms>: a busy party. A new approved photo lands every <ms> (window.__fed counts them).
+    const feed = Number(localStorage.getItem('h-feed') || 0);
+    if (feed && ref.path.endsWith('photos')) {
+      const names = ['maya', 'marcus', 'tia', 'jordan', 'dee', 'andre', 'priya', 'luis'];
+      let n = 0;
+      feedTimers.push(setInterval(() => {
+        n++;
+        (window as any).__fed = n;
+        rows = [{ id: `f${n}`, url: `/sample/mina30-${String(((n - 1) % 25) + 1).padStart(2, '0')}.jpg`, nickname: names[n % names.length], sessionId: `g${n % 8}`, createdAt: Date.now(), status: 'approved', reactions: { likes: 0, dislikes: 0 }, flagged: false }, ...rows];
+        const d = rows.map((r: any) => ({ id: r.id, data: () => r }));
+        cb({ docs: d, forEach: (fn: any) => d.forEach(fn) });
+      }, feed));
+    }
   }, 20);
   return () => {};
 };
+const feedTimers: any[] = [];
 export const getDoc = async (ref: any) => { await new Promise((r) => setTimeout(r, Number(localStorage.getItem('h-slow') || 0))); return docSnap(ref.path); };
 export const setDoc = async (ref: any, data: any) => { if (ref.path.includes('/lensRequests/') && localStorage.getItem('h-ask') === 'busy') { const e: any = new Error('denied'); e.code = 'permission-denied'; throw e; } console.log('SET', ref.path, Object.keys(data || {}).join(','), data && data.status ? data.status : ''); };
 export const updateDoc = async (ref: any, data: any) => { if (data.groupShot) localStorage.setItem('h-gs', String(data.groupShot.firesAt.toMillis())); console.log('UPDATE', ref.path, Object.keys(data).join(','), JSON.stringify(data).slice(0, 80), data.stream_frame ? 'frame:' + data.stream_frame.length : ''); };

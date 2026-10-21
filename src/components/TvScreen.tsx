@@ -16,7 +16,12 @@ import { Photo } from '../types';
 // Built for viewing from across the room: everything sized from the screen
 // (vmin), nothing near the edges (TVs crop them), no remote needed once paired.
 
-const JUST_IN_MS = 7000;
+// "Just in": each new photo gets the whole screen for a moment. When photos come in
+// faster than that, the TV keeps up instead of falling behind:
+const JUST_IN_MS = 7000;        // a photo with nothing waiting behind it
+const JUST_IN_BUSY_MS = 4000;   // a photo with more waiting
+const JUST_IN_MAX_WAITING = 3;  // more than this waiting: jump to the newest, the rest stay on the wall
+const WALL_BREATHER_MS = 4000;  // between pop-ups on a busy night, the wall gets the screen
 // A TV reopened this long after its event ended starts fresh with a new pairing code,
 // instead of going back to the old event. (Same night, it still reconnects.)
 const RELEASE_AFTER_END_MS = 6 * 60 * 60 * 1000;
@@ -358,26 +363,7 @@ function EventView({ event, config, photos, now, onSwitch }: { event: EventWithI
   const qr = useQr(link, 320);
   const phase = eventPhase(event, now);
 
-  // "Just in": photos that arrive after this screen started showing the event.
-  const seen = useRef<Set<string> | null>(null);
-  const [queue, setQueue] = useState<Photo[]>([]);
-  useEffect(() => {
-    if (seen.current === null) {
-      seen.current = new Set(photos.map((p) => p.id));
-      return;
-    }
-    const fresh = photos.filter((p) => !seen.current!.has(p.id));
-    if (fresh.length) {
-      fresh.forEach((p) => seen.current!.add(p.id));
-      setQueue((q) => [...q, ...fresh.slice().reverse()]);
-    }
-  }, [photos]);
-  const current = queue[0] ?? null;
-  useEffect(() => {
-    if (!current) return;
-    const t = setTimeout(() => setQueue((q) => q.slice(1)), JUST_IN_MS);
-    return () => clearTimeout(t);
-  }, [current?.id]);
+  const current = useJustIn(photos);
 
   if (config.paused) {
     return (
@@ -469,6 +455,67 @@ function EventView({ event, config, photos, now, onSwitch }: { event: EventWithI
   );
 }
 
+/**
+ * "Just in": photos that arrive after this screen started showing the event, one at a time.
+ * A quiet party gets 7 seconds per photo. A busy one gets shorter turns with the wall in
+ * between, and when a line builds up it skips to the newest, so the TV is never minutes behind.
+ */
+export function pickJustIn(waiting: Photo[]): { show: Photo | null; rest: Photo[]; ms: number } {
+  if (!waiting.length) return { show: null, rest: [], ms: 0 };
+  if (waiting.length > JUST_IN_MAX_WAITING) {
+    return { show: waiting[waiting.length - 1], rest: [], ms: JUST_IN_MS };
+  }
+  const [show, ...rest] = waiting;
+  return { show, rest, ms: rest.length ? JUST_IN_BUSY_MS : JUST_IN_MS };
+}
+
+function useJustIn(photos: Photo[]): Photo | null {
+  const seen = useRef<Set<string> | null>(null);
+  const [waiting, setWaiting] = useState<Photo[]>([]);
+  const [current, setCurrent] = useState<{ photo: Photo; until: number } | null>(null);
+  const [restingUntil, setRestingUntil] = useState(0);
+  const [, tick] = useState(0);
+
+  // New arrivals join the line, oldest first.
+  useEffect(() => {
+    if (seen.current === null) {
+      seen.current = new Set(photos.map((p) => p.id));
+      return;
+    }
+    const fresh = photos.filter((p) => !seen.current!.has(p.id));
+    if (fresh.length) {
+      fresh.forEach((p) => seen.current!.add(p.id));
+      setWaiting((w) => [...w, ...fresh.slice().reverse()]);
+    }
+    // A photo the host removed leaves the line (and the screen).
+    const live = new Set(photos.map((p) => p.id));
+    setWaiting((w) => (w.every((p) => live.has(p.id)) ? w : w.filter((p) => live.has(p.id))));
+    setCurrent((c) => (c && !live.has(c.photo.id) ? null : c));
+  }, [photos]);
+
+  useEffect(() => {
+    const now = Date.now();
+    if (current) {
+      const t = setTimeout(() => {
+        setCurrent(null);
+        // Someone's waiting: let the wall show for a few seconds first.
+        setRestingUntil(Date.now() + WALL_BREATHER_MS);
+      }, Math.max(0, current.until - now));
+      return () => clearTimeout(t);
+    }
+    if (!waiting.length) return;
+    if (now < restingUntil) {
+      const t = setTimeout(() => tick((n) => n + 1), restingUntil - now);
+      return () => clearTimeout(t);
+    }
+    const { show, rest, ms } = pickJustIn(waiting);
+    setWaiting(rest);
+    if (show) setCurrent({ photo: show, until: now + ms });
+  }, [current, waiting, restingUntil]);
+
+  return current?.photo ?? null;
+}
+
 function JoinCard({ qr, link, big = false }: { qr: string; link: string; big?: boolean }) {
   return (
     <div className={`rounded-[1.6vmin] bg-g2-panel border border-white/10 p-[2.4vmin] flex flex-col items-center gap-[1.6vmin] ${big ? 'mt-[4vmin]' : ''}`}>
@@ -507,6 +554,77 @@ function Caption({ photo, showNames, size = 'md' }: { photo: Photo; showNames: b
   );
 }
 
+/**
+ * A tile that changes photos smoothly: the new photo loads out of sight, then fades in
+ * over the old one, so a tile is never blank while a photo downloads.
+ */
+function TilePhoto({ url }: { url: string }) {
+  const [layers, setLayers] = useState<{ url: string; key: number }[]>([{ url, key: 0 }]);
+  const n = useRef(0);
+  useEffect(() => {
+    if (layers[layers.length - 1].url === url) return;
+    let cancelled = false;
+    const img = new Image();
+    const show = () => { if (!cancelled) setLayers((l) => [...l.slice(-1), { url, key: ++n.current }]); };
+    img.onload = show;
+    img.onerror = show;
+    img.src = url;
+    return () => { cancelled = true; };
+  }, [url]);
+  return (
+    <>
+      {layers.map((l, i) => (
+        <motion.div
+          key={l.key}
+          className="absolute inset-0"
+          initial={i === 0 && layers.length === 1 ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.9 }}
+          onAnimationComplete={() => { if (i === layers.length - 1 && layers.length > 1) setLayers((ls) => ls.slice(-1)); }}
+        >
+          <FitPhoto url={l.url} />
+        </motion.div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Which photo sits in which wall tile. Tiles stay put: a new photo takes over the tile
+ * holding the oldest one, instead of every photo sliding along one place.
+ */
+export function placeTiles(prevIds: string[], photos: Photo[], arrived: Set<string>, count: number): string[] {
+  const byId = new Map(photos.map((p) => [p.id, p]));
+  const slots: (string | null)[] = prevIds.slice(0, count).map((id) => (byId.has(id) ? id : null));
+  while (slots.length < count) slots.push(null);
+  const onWall = () => new Set(slots.filter(Boolean) as string[]);
+  // New arrivals, newest first, each take the tile of the oldest photo showing.
+  const fresh = photos.filter((p) => arrived.has(p.id) && !onWall().has(p.id)).slice(0, count);
+  for (const p of fresh) {
+    const empty = slots.indexOf(null);
+    if (empty >= 0) { slots[empty] = p.id; continue; }
+    let oldest = 0;
+    slots.forEach((id, i) => { if ((byId.get(id!)?.createdAt || 0) < (byId.get(slots[oldest]!)?.createdAt || 0)) oldest = i; });
+    slots[oldest] = p.id;
+  }
+  // Any gaps (a removed photo, or the wall just grew) fill in the screen's own order.
+  const shown = onWall();
+  const fill = photos.filter((p) => !shown.has(p.id));
+  for (let i = 0; i < slots.length; i++) if (!slots[i]) slots[i] = fill.shift()?.id ?? null;
+  return slots.filter(Boolean) as string[];
+}
+
+function useStableTiles(photos: Photo[], count: number): Photo[] {
+  const known = useRef<Set<string> | null>(null);
+  const ids = useRef<string[]>([]);
+  const arrived = new Set<string>();
+  if (known.current) photos.forEach((p) => { if (!known.current!.has(p.id)) arrived.add(p.id); });
+  known.current = new Set(photos.map((p) => p.id));
+  ids.current = placeTiles(ids.current, photos, arrived, count);
+  const byId = new Map(photos.map((p) => [p.id, p]));
+  return ids.current.map((id) => byId.get(id)!).filter(Boolean);
+}
+
 /** The whole photo, never cropped: a blurred copy of it fills any spare edges. */
 function FitPhoto({ url }: { url: string }) {
   return (
@@ -524,14 +642,15 @@ const WALL_SPANS = [
 ];
 
 function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
-  // 9+ photos: the full mosaic. 5–8: the newest big plus four. Fewer: an even grid.
-  const tiles = photos.length >= WALL_SPANS.length ? photos.slice(0, WALL_SPANS.length) : photos.slice(0, photos.length >= 5 ? 5 : 4);
+  // 9+ photos: the full mosaic. 5–8: the big tile plus four. Fewer: an even grid.
+  const count = photos.length >= WALL_SPANS.length ? WALL_SPANS.length : Math.min(photos.length, photos.length >= 5 ? 5 : 4);
+  const tiles = useStableTiles(photos, count);
   if (tiles.length === 5) {
     return (
       <div className="absolute inset-0 grid grid-cols-4 grid-rows-2 gap-[1.2vmin]">
         {tiles.map((p, i) => (
-          <div key={p.id} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${i === 0 ? 'col-span-2 row-span-2' : ''}`}>
-            <FitPhoto url={p.url} />
+          <div key={i} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${i === 0 ? 'col-span-2 row-span-2' : ''}`}>
+            <TilePhoto url={p.url} />
             <Caption photo={p} showNames={showNames} size={i === 0 ? 'md' : 'sm'} />
           </div>
         ))}
@@ -544,8 +663,8 @@ function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
     return (
       <div className={`absolute inset-0 grid gap-[1.4vmin] ${grid}`}>
         {tiles.map((p, i) => (
-          <div key={p.id} className={`relative rounded-[1.4vmin] overflow-hidden bg-black/40 ${tiles.length === 3 && i === 0 ? 'col-span-2 row-span-2' : ''}`}>
-            <FitPhoto url={p.url} />
+          <div key={i} className={`relative rounded-[1.4vmin] overflow-hidden bg-black/40 ${tiles.length === 3 && i === 0 ? 'col-span-2 row-span-2' : ''}`}>
+            <TilePhoto url={p.url} />
             <Caption photo={p} showNames={showNames} />
           </div>
         ))}
@@ -555,8 +674,8 @@ function Wall({ photos, showNames }: { photos: Photo[]; showNames: boolean }) {
   return (
     <div className="absolute inset-0 grid grid-cols-6 grid-rows-3 gap-[1.2vmin] grid-flow-dense">
       {tiles.map((p, i) => (
-        <div key={p.id} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${WALL_SPANS[i]}`}>
-          <FitPhoto url={p.url} />
+        <div key={i} className={`relative rounded-[1.2vmin] overflow-hidden bg-black/40 ${WALL_SPANS[i]}`}>
+          <TilePhoto url={p.url} />
           <Caption photo={p} showNames={showNames} size={i === 0 ? 'md' : 'sm'} />
         </div>
       ))}

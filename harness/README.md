@@ -21,6 +21,7 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-tv=show` | /tv is paired and shows event GALA26 (`h-layout`: wall, justin, slideshow; `h-paused=1`) |
 | `h-gs=<ms>` | a Group Shot fires at that time (`h-gs-spots=1` includes Share Spots) |
 | `h-nphotos=<n>` | only the first n stub photos exist |
+| `h-feed=<ms>` | a busy party: a new approved photo arrives every ms (`window.__fed` counts them); pair with `h-tv=show` |
 | `h-ended=1` | the event ended 3 hours ago (album phase) |
 | `h-lens=1` | the host invited this guest's camera |
 | `h-auth-fail=1` | anonymous sign-in fails with "too many requests" |
