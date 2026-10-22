@@ -22,6 +22,13 @@ export const stepInReady = (p: Pick<Photo, 'stepIn'> | null | undefined) =>
 export const stepInBusy = (p: Pick<Photo, 'stepIn'> | null | undefined) =>
   p?.stepIn?.status === 'queued' || p?.stepIn?.status === 'processing';
 
+/** A job that's been working this long without an update has died; offer to start over. */
+export const STEP_IN_STUCK_MS = 5 * 60 * 1000;
+export const stepInStuck = (p: Pick<Photo, 'stepIn'> | null | undefined, now = Date.now()) => {
+  const at = p?.stepIn?.updatedAt?.toMillis?.();
+  return stepInBusy(p) && !!at && now - at > STEP_IN_STUCK_MS;
+};
+
 /** Can this device make Step In moments for this event? Hosts of Pro events, and admins. */
 export function useCanMakeStepIn(eventId: string, isHost: boolean): boolean {
   const user = auth.currentUser;

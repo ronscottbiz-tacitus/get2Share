@@ -6,7 +6,7 @@ import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebas
 import { paths } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, StepIn } from '../types';
-import { requestStepIn, stepInBusy, stepInReady, useCanMakeStepIn } from '../stepIn';
+import { requestStepIn, stepInBusy, stepInReady, stepInStuck, useCanMakeStepIn } from '../stepIn';
 import StepInStage from './StepInStage';
 import CloseButton from './CloseButton';
 import { useBackToClose } from '../useBackToClose';
@@ -100,7 +100,14 @@ export default function PhotoLightbox({
     }, () => {});
   }, [photo.id]);
   const ready = stepInReady({ stepIn }) && !stageFailed;
-  const busy = requesting || stepInBusy({ stepIn });
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!stepInBusy({ stepIn })) return;
+    const t = setInterval(() => setNowTick(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, [stepIn?.status]);
+  const stuck = stepInStuck({ stepIn }, nowTick);
+  const busy = requesting || (stepInBusy({ stepIn }) && !stuck);
   const makeStepIn = async () => {
     setStepInError('');
     setRequesting(true);
@@ -261,10 +268,11 @@ export default function PhotoLightbox({
                       className="w-full h-11 rounded-lg bg-g2-blue hover:bg-g2-blue/90 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer transition-colors"
                     >
                       <Box className="w-[18px] h-[18px]" aria-hidden="true" />
-                      {stepIn?.status === 'failed' || stepInError ? 'Try Step In again' : 'Make Step In'}
+                      {stepIn?.status === 'failed' || stepInError || stuck ? 'Try Step In again' : 'Make Step In'}
                     </button>
                     <p className="mt-2 text-[11px] leading-snug text-g2-muted">
                       {stepInError || (stepIn?.status === 'failed' && stepIn.error) ||
+                        (stuck && "That one didn't finish. Try again.") ||
                         'Turns this photo into a 3D moment for the gallery and the TVs. Pro.'}
                     </p>
                   </>

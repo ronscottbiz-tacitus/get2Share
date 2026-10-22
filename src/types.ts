@@ -33,6 +33,7 @@ export interface StepIn {
   outFrame?: StepInFrame | null;
   people?: number;
   error?: string | null;
+  updatedAt?: { toMillis(): number } | null;
 }
 
 export interface GuestSession {

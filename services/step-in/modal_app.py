@@ -24,6 +24,7 @@ ALLOWED_ORIGINS = ["https://share.get2.one", "https://get2-share.vercel.app",
 ALLOWED_ORIGIN_REGEX = r"https://get2-?share-[a-z0-9-]+\.vercel\.app"  # Vercel preview links
 
 app = modal.App(APP_NAME)
+STALE_SECONDS = 300  # a job silent this long is treated as dead and can be requested again
 
 
 def _bake_models():
@@ -74,6 +75,7 @@ class StepIn:
         from stepin.pipeline import compress, make_moment, write_ply
 
         started = time.perf_counter()
+        print(f"Step In started: event {event_id} photo {photo_id}")
         fb.set_status(event_id, photo_id, status="processing", error=None)
         try:
             img = fb.load_photo(event_id, photo_id)
@@ -143,13 +145,19 @@ def api():
         if not snap.exists:
             raise HTTPException(404, "That photo was deleted.")
         current = (snap.to_dict() or {}).get("stepIn") or {}
-        if current.get("status") in ("queued", "processing") or (current.get("status") == "ready" and not req.redo):
-            return {"status": current["status"]}
+        status = current.get("status")
+        updated = current.get("updatedAt")
+        stale = updated is None or (time.time() - updated.timestamp()) > STALE_SECONDS
+        # A job that's been "queued" or "processing" for too long died; let it start over.
+        if (status in ("queued", "processing") and not stale) or (status == "ready" and not req.redo):
+            return {"status": status}
         fb.photo_ref(req.eventId, req.photoId).update({"stepIn": {
             "status": "queued", "requestedBy": uid,
             "requestedAt": firestore.SERVER_TIMESTAMP, "updatedAt": firestore.SERVER_TIMESTAMP,
         }})
-        StepIn().make.spawn(req.eventId, req.photoId)
+        # Look the GPU job up by name, so this works from the deployed web container.
+        call = modal.Cls.from_name(APP_NAME, "StepIn")().make.spawn(req.eventId, req.photoId)
+        print(f"Step In queued: event {req.eventId} photo {req.photoId} call {call.object_id}")
         return {"status": "queued"}
 
     @web.get("/health")
