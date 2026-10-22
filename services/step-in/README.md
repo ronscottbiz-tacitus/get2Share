@@ -32,7 +32,7 @@ Every model used allows commercial use:
 | Field | Meaning |
 |---|---|
 | `status` | `queued`, `processing`, `ready` or `failed` |
-| `inUrl`, `outUrl` | Download links for the Step In and Step Out splats (compressed .ply). `outUrl` is null when no people were found. |
+| `inUrl`, `outUrl` | Download links for the Step In and Step Out splats (`.sog`, about 1–3 MB; falls back to compressed `.ply` if conversion fails). `outUrl` is null when no people were found. |
 | `inFrame`, `outFrame` | Framing hints for the viewer: `pivot` (orbit depth), `cx`/`cy` (view center as x/z, y/z), `tanH`/`tanV` (extent). Files are saved upright: y up, original camera at the origin looking down +z. |
 | `people` | How many people were found |
 | `inBytes`, `outBytes`, `inSplats`, `outSplats`, `seconds`, `timings` | Size and speed, for tuning |
@@ -104,8 +104,8 @@ uv pip install -r requirements-local.txt
 python -m stepin.cli -i ~/Projects/splatlab/sharp-in2 -o ~/Projects/splatlab/stepin-out --debug
 ```
 
-You get `<name>-in.ply` and `<name>-out.ply`, plus smaller `.compressed.ply` copies when Node is installed. Add `--birefnet birefnet-general-lite` if it runs out of memory, or `--cutout subject` to cut out the main object instead of people.
+You get `<name>-in.ply` and `<name>-out.ply`, plus small `.sog` copies when Node is installed. 3D Moments Lab opens both. Add `--birefnet birefnet-general-lite` if it runs out of memory, or `--cutout subject` to cut out the main object instead of people.
 
 ## Cost
 
-An L4 GPU on Modal costs well under a cent per photo of processing. The 5 minutes it stays warm after a burst costs a few cents. Stored files are about 3–8 MB per photo, and they're deleted with the event once cleanup is on.
+An L4 GPU on Modal costs well under a cent per photo of processing. The 5 minutes it stays warm after a burst costs a few cents. Stored files are about 2–4 MB per photo (both moments together), and they're deleted with the event once cleanup is on.

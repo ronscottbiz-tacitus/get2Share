@@ -174,7 +174,7 @@ export default function PhotoLightbox({
                 url={(view === 'out' ? stepIn?.outUrl : stepIn?.inUrl) || ''}
                 kind={view}
                 frame={frame}
-                amount={view === 'out' ? 12 : 9}
+                amount={view === 'out' ? 10 : 7}
                 interactive
                 onError={() => { setStageFailed(true); setView('photo'); }}
               />

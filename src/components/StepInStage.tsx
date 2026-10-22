@@ -102,11 +102,12 @@ export default function StepInStage({
         const res = await fetch(url, { signal: abort.signal });
         if (!res.ok) throw new Error(`Step In file: ${res.status}`);
         if (disposed) return;
-        const name = 'step-in.ply';
+        // The file type comes from the name: .sog (what the cloud job makes) or .ply.
+        const name = /\.sog(\?|$)/i.test(decodeURIComponent(url)) ? 'step-in.sog' : 'step-in.ply';
         const asset = new pc.Asset(name, 'gsplat', { url: name, filename: name, contents: res });
         let measured: Framing | null = null;
         asset.on('load:data', (data: any) => {
-          if (!frame) { try { measured = measure(data, kind); } catch { /* use defaults */ } }
+          if (!frame && typeof data?.getProp === 'function') { try { measured = measure(data, kind); } catch { /* use defaults */ } }
         });
         await new Promise<void>((resolve, reject) => {
           asset.on('load', () => resolve());
@@ -151,7 +152,8 @@ export default function StepInStage({
           const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
           const tan = K === 'out'
             ? Math.max(f.tanV, f.tanH / aspect) * (1.12 + A / 120)
-            : Math.min(f.tanV, f.tanH / aspect) * Math.max(0.62, 0.95 - A / 140);
+            // The photo sits under Step In, so only a slight crop is needed to hide the edges.
+            : Math.min(f.tanV, f.tanH / aspect) * Math.max(0.8, 0.98 - A / 250);
           camera.camera.fov = (2 * Math.atan(tan) * 180) / Math.PI;
 
           if (!shown) { shown = true; requestAnimationFrame(() => { if (!disposed) { setReady(true); cbs.current.onReady?.(); } }); }

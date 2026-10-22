@@ -89,9 +89,13 @@ class StepIn:
                         continue
                     raw = Path(tmp) / f"{kind}.ply"
                     n = write_ply(raw, splats)
-                    small = Path(tmp) / f"{kind}.compressed.ply"
-                    final = small if compress(raw, small) else raw
-                    remote = f"moments/{event_id}/{photo_id}-{kind}{'.compressed' if final == small else ''}.ply"
+                    # .sog is ~6x smaller than compressed .ply and loads faster on phones and TVs.
+                    final = raw
+                    for small in (Path(tmp) / f"{kind}.sog", Path(tmp) / f"{kind}.compressed.ply"):
+                        if compress(raw, small):
+                            final = small
+                            break
+                    remote = f"moments/{event_id}/{photo_id}-{kind}{''.join(final.suffixes)}"
                     result[f"{kind}Url"] = fb.upload(str(final), remote)
                     result[f"{kind}Splats"] = n
                     result[f"{kind}Bytes"] = final.stat().st_size

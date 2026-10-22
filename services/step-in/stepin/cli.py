@@ -24,8 +24,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Turn photos into Step In / Step Out splats.")
     ap.add_argument("-i", "--input", required=True, help="a photo, or a folder of photos")
     ap.add_argument("-o", "--output", required=True, help="folder for the .ply files")
-    ap.add_argument("--size", type=int, default=1024, help="longest side in pixels (default 1024)")
-    ap.add_argument("--bg-stride", type=int, default=2, help="background detail, 1 = full (default 2)")
+    ap.add_argument("--size", type=int, default=1536, help="longest side in pixels (default 1536)")
+    ap.add_argument("--bg-stride", type=float, default=2.5, help="background pixels per splat, 1 = full detail (default 2.5)")
     ap.add_argument("--cutout", choices=["people", "subject"], default="people",
                     help="people = every person (default); subject = the main object, people or not")
     ap.add_argument("--birefnet", default="birefnet-general",
@@ -64,8 +64,8 @@ def main() -> None:
             ply = out / f"{p.stem}-{kind}.ply"
             n = write_ply(ply, splats)
             note = f"{n:,} splats"
-            if not args.no_compress and compress(ply, out / f"{p.stem}-{kind}.compressed.ply"):
-                note += ", compressed copy saved"
+            if not args.no_compress and compress(ply, out / f"{p.stem}-{kind}.sog"):
+                note += ", small .sog copy saved"
             print(f"    Step {kind.capitalize():<4} {note}")
         print(f"    {m.people} {'person' if m.people == 1 else 'people'} found · "
               + " · ".join(f"{k} {v}s" for k, v in m.timings.items()))

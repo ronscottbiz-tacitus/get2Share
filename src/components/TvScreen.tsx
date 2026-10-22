@@ -965,8 +965,8 @@ function StepInMedia({ photo }: { photo: Photo }) {
               url={photo.stepIn!.inUrl!}
               kind="in"
               frame={photo.stepIn!.inFrame}
-              amount={10}
-              loop={8}
+              amount={8}
+              loop={9}
               maxPixelRatio={1.25}
               onError={() => setFailed(true)}
             />

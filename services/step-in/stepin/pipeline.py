@@ -36,14 +36,15 @@ COCO_PERSON = 1
 # ------------------------------------------------------------------ settings
 @dataclass
 class Settings:
-    size: int = 1024             # longest side the photo is processed at
-    bg_stride: int = 2           # background detail: 1 = every pixel, 2 = every other
+    size: int = 1536             # longest side the photo is processed at
+    bg_stride: float = 2.5       # background detail in pixels per splat (people are 1)
     grow: float = 1.2            # repaint this far past the people, % of image size
     cutout: str = "people"       # "people" (every person) or "subject" (main object)
-    min_person: float = 0.12     # ignore people shorter than this fraction of the photo
-    person_score: float = 0.6    # how sure the detector must be that it's a person
+    min_person: float = 0.08     # ignore people shorter than this fraction of the photo
+    person_score: float = 0.4    # how sure the detector must be that it's a person (low: keep people half-hidden behind others)
     birefnet: str = "birefnet-general"
-    max_people_splats: int = 200_000  # above this, the people layer uses every other pixel
+    max_people_splats: int = 360_000  # above this, the people layer is thinned evenly to fit
+    edge_jump: float = 0.02      # a depth jump bigger than this (2%) between neighbor pixels is an edge
 
 
 @dataclass
@@ -230,40 +231,113 @@ def edge_safe_depth(depth, solid, band):
     return d
 
 
-def pixels_to_splats(depth, colors, opacity, select, fx_n, fy_n, stride, size_boost=1.0):
+def snap_depth_edges(depth, jump=0.02, window=5):
+    """Where depth jumps (one person in front of another, a head against the wall), pixels on
+    the boundary get a depth in between and float in mid-air, which shows as slivers when the
+    camera moves. Snap each boundary pixel to the near or far side, whichever it's closer to."""
+    d = depth.astype(np.float32)
+    gy = np.abs(np.diff(d, axis=0, prepend=d[:1]))
+    gx = np.abs(np.diff(d, axis=1, prepend=d[:, :1]))
+    edge = np.maximum(gx, gy) > jump * d
+    if not edge.any():
+        return d, edge
+    edge = ndimage.binary_dilation(edge, iterations=window // 2)
+    lo = ndimage.minimum_filter(d, size=window)
+    hi = ndimage.maximum_filter(d, size=window)
+    snapped = np.where(d - lo < hi - d, lo, hi)
+    return np.where(edge, snapped, d), edge
+
+
+def camera_points(depth, fx_n, fy_n):
+    """(H, W, 3) camera-space points, OpenCV layout (x right, y down, z forward)."""
     h, w = depth.shape
-    ys, xs = np.mgrid[0:h:stride, 0:w:stride]
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    z = depth.astype(np.float32)
+    x = ((xs + 0.5) - 0.5 * w) / (fx_n * w) * z
+    y = ((ys + 0.5) - 0.5 * h) / (fy_n * h) * z
+    return np.stack([x, y, z], -1)
+
+
+def surface_normals(points, edge=None):
+    """Unit normals facing the camera, from the point map. Across depth edges, and on
+    surfaces seen nearly edge-on, they lean back toward the camera so splats don't vanish."""
+    p = ndimage.gaussian_filter(points, sigma=(1.2, 1.2, 0))
+    du = np.gradient(p, axis=1)
+    dv = np.gradient(p, axis=0)
+    n = np.cross(du, dv)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True) + 1e-12
+    view = points / (np.linalg.norm(points, axis=-1, keepdims=True) + 1e-12)
+    facing = np.sum(n * view, axis=-1, keepdims=True)
+    n = np.where(facing > 0, -n, n)  # face the camera
+    cos = np.abs(facing)
+    toward = -view
+    # Mostly the real surface; blend toward the camera where it's nearly edge-on or at an edge.
+    t = np.clip((0.45 - cos) / 0.3, 0, 1)
+    if edge is not None:
+        t = np.maximum(t, edge[..., None].astype(np.float32))
+    n = n * (1 - t) + toward * t
+    n /= np.linalg.norm(n, axis=-1, keepdims=True) + 1e-12
+    return n, np.abs(np.sum(n * view, axis=-1))
+
+
+def quat_z_to(n):
+    """Quaternions (w, x, y, z) that turn +z onto each normal: flat splats lie on the surface."""
+    m = np.where(n[:, 2:3] < 0, -n, n)  # a flat disc looks the same from both sides
+    q = np.stack([1 + m[:, 2], -m[:, 1], m[:, 0], np.zeros(len(m), np.float32)], 1)
+    return (q / (np.linalg.norm(q, axis=1, keepdims=True) + 1e-12)).astype(np.float32)
+
+
+def sample_grid(h, w, step):
+    """Pixel rows and columns every `step` pixels (step can be fractional)."""
+    ys = np.unique(np.minimum(h - 1, np.round(np.arange(0, h, step)).astype(int)))
+    xs = np.unique(np.minimum(w - 1, np.round(np.arange(0, w, step)).astype(int)))
+    return np.meshgrid(ys, xs, indexing="ij")
+
+
+def pixels_to_splats(depth, colors, opacity, select, fx_n, fy_n, stride, size_boost=1.0, edge=None):
+    """One flat splat per sampled pixel, lying on the surface (from the depth's normals)."""
+    h, w = depth.shape
+    pts = camera_points(depth, fx_n, fy_n)
+    normals, facing = surface_normals(pts, edge)
+    ys, xs = sample_grid(h, w, stride)
     keep = select[ys, xs]
     ys, xs = ys[keep], xs[keep]
     z = depth[ys, xs]
-    fx, fy = fx_n * w, fy_n * h
-    x = ((xs + 0.5) - 0.5 * w) / fx * z
-    y = ((ys + 0.5) - 0.5 * h) / fy * z
-    sxy = np.maximum(z / fx * stride * 0.62 * size_boost, 1e-5)
+    # Big enough to cover the pixel's footprint even where the surface turns away from us.
+    sxy = np.maximum(z / (fx_n * w) * stride * 0.62 * size_boost / np.maximum(facing[ys, xs], 0.45), 1e-5)
     a = opacity[ys, xs] if isinstance(opacity, np.ndarray) else np.full(len(z), opacity, np.float32)
-    return dict(xyz=np.stack([x, y, z], 1).astype(np.float32), rgb=colors[ys, xs].astype(np.float32),
+    # A perfectly regular grid of splats turns into a visible grid pattern once the file is
+    # compressed (positions are rounded). A small random nudge within each pixel hides it.
+    rng = np.random.default_rng(0)
+    nudge = (rng.random((len(z), 2), dtype=np.float32) - 0.5) * 0.5 * stride
+    xyz = pts[ys, xs].copy()
+    xyz[:, 0] += nudge[:, 0] * z / (fx_n * w)
+    xyz[:, 1] += nudge[:, 1] * z / (fy_n * h)
+    return dict(xyz=xyz.astype(np.float32), rgb=colors[ys, xs].astype(np.float32),
                 alpha=np.clip(a, 0.02, 0.995).astype(np.float32), sxy=sxy.astype(np.float32),
-                sz=(sxy * 0.25).astype(np.float32))
+                sz=(sxy * 0.12).astype(np.float32), rot=quat_z_to(normals[ys, xs]))
 
 
 def merge(*parts):
     return {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
 
 
-def frame_hints(s: dict, centered: bool) -> dict:
+def frame_hints(s: dict, centered: bool, photo_tan: tuple[float, float] | None = None) -> dict:
     """What a viewer needs to frame the splat: orbit pivot depth, view center, extents.
-    All as tangents (x/z, y/z) in the saved file's upright layout."""
+    All as tangents (x/z, y/z) in the saved file's upright layout. For Step In, photo_tan
+    gives the photo's exact edges, so the first frame lines up with the photo."""
     xyz = s["xyz"] * np.array([-1, -1, 1], np.float32)
     z = xyz[:, 2]
     ok = z > 1e-3
     tx, ty, z = xyz[ok, 0] / z[ok], xyz[ok, 1] / z[ok], z[ok]
     cx = float(np.median(tx)) if centered else 0.0
     cy = float(np.median(ty)) if centered else 0.0
+    tan_h = photo_tan[0] if photo_tan else float(np.percentile(np.abs(tx - cx), 97))
+    tan_v = photo_tan[1] if photo_tan else float(np.percentile(np.abs(ty - cy), 97))
     return {
         "pivot": round(float(np.percentile(z, 50 if centered else 35)), 4),
         "cx": round(cx, 4), "cy": round(cy, 4),
-        "tanH": round(float(np.percentile(np.abs(tx - cx), 97)), 4),
-        "tanV": round(float(np.percentile(np.abs(ty - cy), 97)), 4),
+        "tanH": round(tan_h, 4), "tanV": round(tan_v, 4),
         "convention": "upright",
     }
 
@@ -280,7 +354,12 @@ def write_ply(path: Path, s: dict) -> int:
     data[:, 7] = np.log(s["sxy"])
     data[:, 8] = np.log(s["sxy"])
     data[:, 9] = np.log(s["sz"])
-    data[:, 10] = 1.0
+    # Rotations are in OpenCV layout; turning the scene 180° about z maps (w, x, y, z) to (w, -x, -y, z).
+    rot = s.get("rot")
+    if rot is None:
+        data[:, 10] = 1.0
+    else:
+        data[:, 10:14] = rot * np.array([1, -1, -1, 1], np.float32)
     header = ("ply\nformat binary_little_endian 1.0\n"
               "comment Get2Share Step In (MoGe-2 + Mask R-CNN + BiRefNet + LaMa)\n"
               f"element vertex {n}\n" + "".join(f"property float {p}\n" for p in names) + "end_header\n")
@@ -291,14 +370,16 @@ def write_ply(path: Path, s: dict) -> int:
 
 
 def compress(src: Path, dst: Path) -> bool:
-    """Shrink a .ply about 4× with PlayCanvas splat-transform, if it's installed."""
+    """Shrink a .ply with PlayCanvas splat-transform, if it's installed. The output format
+    follows dst's extension: .sog (about 15-20x smaller, what the app uses) or
+    .compressed.ply (about 4x smaller, opens in more tools)."""
     import shutil
     import subprocess
     exe = shutil.which("splat-transform")
     cmd = [exe] if exe else (["npx", "--yes", "@playcanvas/splat-transform@3.8.0"] if shutil.which("npx") else None)
     if not cmd:
         return False
-    r = subprocess.run(cmd + [str(src), str(dst)], capture_output=True, text=True)
+    r = subprocess.run(cmd + ["-w", str(src), str(dst)], capture_output=True, text=True)
     return r.returncode == 0 and dst.exists()
 
 
@@ -345,23 +426,31 @@ def make_moment(img: Image.Image, models: Models, debug: bool = False) -> Moment
         bg_depth = depth
     lap("background depth")
 
+    bg_depth, bg_edge = snap_depth_edges(bg_depth, s.edge_jump)
     background = pixels_to_splats(bg_depth, np.asarray(filled, dtype=np.float32) / 255.0, 0.99,
-                                  np.ones((h, w), bool), fx_n, fy_n, stride=s.bg_stride, size_boost=1.25)
+                                  np.ones((h, w), bool), fx_n, fy_n, stride=s.bg_stride, size_boost=1.25,
+                                  edge=bg_edge)
     people_splats = None
     if has_people:
         fg_select = alpha > 0.15  # faint edge pixels are mostly old background color
         solid = ndimage.binary_erosion(alpha > 0.9, iterations=2)
         fg_depth = edge_safe_depth(depth, solid, fg_select & ~solid)
+        # Where one person stands in front of another, split the boundary cleanly. Outside the
+        # cutout, extend the people's own depth so their outline isn't treated as an edge.
+        _, (iy, ix) = ndimage.distance_transform_edt(~fg_select, return_indices=True)
+        fg_depth, fg_edge = snap_depth_edges(fg_depth[iy, ix], s.edge_jump)
         fg_rgb = rgb
         try:  # keep the old background from bleeding into soft edges
             from pymatting import estimate_foreground_ml
             fg_rgb = np.clip(estimate_foreground_ml(rgb.astype(np.float64), alpha.astype(np.float64)), 0, 1).astype(np.float32)
         except Exception:
             pass
-        # Close-ups can be mostly people; thin them out so files stay small for phones and TVs
-        fg_stride = 1 if fg_select.sum() <= s.max_people_splats else 2
+        # Close-ups can be mostly people; thin them out evenly so files stay small for phones and TVs
+        n_people = int(fg_select.sum())
+        fg_stride = 1.0 if n_people <= s.max_people_splats else float(np.sqrt(n_people / s.max_people_splats))
         people_splats = pixels_to_splats(fg_depth, fg_rgb, alpha, fg_select, fx_n, fy_n,
-                                         stride=fg_stride, size_boost=1.0 if fg_stride == 1 else 1.15)
+                                         stride=fg_stride, size_boost=1.25 if fg_stride == 1 else 1.35,
+                                         edge=fg_edge)
     lap("splats")
 
     step_in = merge(background, people_splats) if people_splats else background
@@ -371,6 +460,6 @@ def make_moment(img: Image.Image, models: Models, debug: bool = False) -> Moment
         dbg = {"cutout": Image.fromarray((alpha * 255).astype(np.uint8)), "filled": filled,
                "depth": Image.fromarray((255 * (1 - np.clip((depth - depth.min()) / max(1e-6, np.percentile(depth, 98) - depth.min()), 0, 1))).astype(np.uint8))}
     return Moment(step_in=step_in, step_out=people_splats,
-                  in_frame=frame_hints(step_in, centered=False),
+                  in_frame=frame_hints(step_in, centered=False, photo_tan=(0.5 / fx_n, 0.5 / fy_n)),
                   out_frame=frame_hints(people_splats, centered=True) if people_splats else None,
                   people=people if has_people else 0, timings=timings, debug=dbg)
