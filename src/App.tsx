@@ -287,6 +287,18 @@ export default function App() {
 
   const inGalleryNow = route.kind === 'event' && membership === 'member' && !!event;
 
+  // Host tabs: Console → Gallery in the same window. A host who never joined their own
+  // event as a guest joins quietly (as "Host"), so the gallery opens without the name screen.
+  const openHostGallery = async () => {
+    if (!event || !sessionId) return;
+    try {
+      if (!(await isMemberOf(event.id, sessionId))) {
+        await joinEvent(event.id, sessionId, nickname || 'Host', event.joinCode, event.name, event.expireAt ?? null);
+      }
+    } catch { /* the gallery falls back to asking for a name */ }
+    navigate(`${EVENT_PATH_PREFIX}${event.joinCode}`);
+  };
+
   const handleJoinEvent = async (enteredNickname: string) => {
     if (!joinInfo || !sessionId || membership === 'checking') {
       // Still signing in or finding the event: hold the nickname and join the moment it's ready.
@@ -829,6 +841,7 @@ export default function App() {
             authError={hostSignInError}
             onHostSignIn={handleHostSignIn}
             onHostSignOut={handleHostSignOut}
+            onOpenGallery={openHostGallery}
           />
         )}
       </EventContext.Provider>

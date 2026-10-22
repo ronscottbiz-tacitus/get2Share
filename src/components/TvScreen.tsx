@@ -31,6 +31,9 @@ const RELEASE_AFTER_END_MS = 6 * 60 * 60 * 1000;
 const SLIDE_MS = 8000;
 // Step In on the TV: a photo whose 3D moment just finished gets the screen for this long.
 const STEP_IN_SHOW_MS = 11000;
+// On the wall, one Step In tile moves at a time (a TV can't smoothly play nine 3D scenes);
+// each gets this long before the next one takes over.
+const WALL_LIVE_MS = 12000;
 const HEARTBEAT_MS = 60000;
 
 function readStoredCode() {
@@ -803,6 +806,7 @@ function Wall({ photos, showNames, favorites }: { photos: Photo[]; showNames: bo
     [size?.w, size?.h, count],
   );
   const tiles = useWallTiles(photos, count, favorites, tileShapes);
+  const liveId = useLiveTile(tiles);
   return (
     <div ref={box} className="absolute inset-0">
       <div
@@ -821,11 +825,44 @@ function Wall({ photos, showNames, favorites }: { photos: Photo[]; showNames: bo
             style={{ gridColumn: `span ${layout.spans[i][0]}`, gridRow: `span ${layout.spans[i][1]}`, borderRadius: layout.radius }}
           >
             <TilePhoto url={p.url} tileShape={tileShapes?.[i]} />
+            {p.id === liveId && <React.Fragment key={p.id}><WallStepIn photo={p} /></React.Fragment>}
             <Caption photo={p} showNames={showNames} size={count < 5 || i === 0 ? 'md' : 'sm'} />
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+/** Which wall tile is moving right now: Step In photos on the wall take turns. */
+function useLiveTile(tiles: Photo[]): string | null {
+  const ready = tiles.filter((p) => stepInReady(p)).map((p) => p.id);
+  const key = ready.join('|');
+  const [turn, setTurn] = useState(0);
+  useEffect(() => {
+    if (ready.length < 2) return;
+    const t = setInterval(() => setTurn((n) => n + 1), WALL_LIVE_MS);
+    return () => clearInterval(t);
+  }, [key]);
+  return ready.length ? ready[turn % ready.length] : null;
+}
+
+/** A wall tile's Step In, filling the tile over its photo. Falls back to the photo on error. */
+function WallStepIn({ photo }: { photo: Photo }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !stepInReady(photo)) return null;
+  return (
+    <React.Suspense fallback={null}>
+      <StepInStage
+        url={photo.stepIn!.inUrl!}
+        kind="in"
+        frame={photo.stepIn!.inFrame}
+        amount={7}
+        loop={8}
+        maxPixelRatio={1}
+        onError={() => setFailed(true)}
+      />
+    </React.Suspense>
   );
 }
 

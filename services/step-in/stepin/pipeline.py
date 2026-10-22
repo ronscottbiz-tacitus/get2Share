@@ -31,6 +31,8 @@ MOGE_CKPT = "Ruicheng/moge-2-vitl-normal"
 LAMA_URL = "https://github.com/enesmsahin/simple-lama-inpainting/releases/download/v0.1.0/big-lama.pt"
 SH0 = 0.28209479177387814
 COCO_PERSON = 1
+COCO_CAT, COCO_DOG = 17, 18
+SUBJECT_LABELS = (COCO_PERSON, COCO_CAT, COCO_DOG)  # Step Out cuts out people and pets
 
 
 # ------------------------------------------------------------------ settings
@@ -152,7 +154,9 @@ class Models:
         x = torch.from_numpy(np.asarray(img, dtype=np.float32) / 255.0).permute(2, 0, 1).to(self.det_device)
         with torch.inference_mode():
             out = self.detector([x])[0]
-        keep = (out["labels"] == COCO_PERSON) & (out["scores"] >= self.s.person_score)
+        labels = out["labels"].cpu().numpy()
+        is_subject = np.isin(labels, SUBJECT_LABELS)
+        keep = torch.from_numpy(is_subject).to(out["scores"].device) & (out["scores"] >= self.s.person_score)
         boxes = out["boxes"][keep].cpu().numpy()
         masks = out["masks"][keep, 0].cpu().numpy()
         tall = (boxes[:, 3] - boxes[:, 1]) >= self.s.min_person * h if len(boxes) else np.zeros(0, bool)

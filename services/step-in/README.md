@@ -3,7 +3,7 @@
 Turns one event photo into two 3D moments:
 
 - **Step In**: the whole scene. The background behind the people is filled in, so the photo opens up when the camera sways.
-- **Step Out**: just the people, as a floating cutout.
+- **Step Out**: just the people (and pets), as a floating cutout. Photos with no people or pets get Step In only.
 
 Hosts of Pro events request it per photo. The GPU job writes the files to Firebase Storage under `moments/<eventId>/` and updates the photo's `stepIn` field. The app (step 2, not built yet) listens for that field and shows the moment.
 
@@ -12,7 +12,7 @@ Every model used allows commercial use:
 | Step | Model | License |
 |---|---|---|
 | Depth and lens | MoGe-2 (Microsoft) | MIT |
-| Find every person | Mask R-CNN (torchvision) | BSD-3 |
+| Find every person and pet (cats, dogs) | Mask R-CNN (torchvision) | BSD-3 |
 | Fine cutout edges | BiRefNet, via rembg | MIT |
 | Fill in behind people | LaMa | Apache 2.0 |
 

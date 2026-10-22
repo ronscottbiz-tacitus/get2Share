@@ -11,6 +11,7 @@ import HostBar from './HostBar';
 import SavePhotosSheet from './SavePhotosSheet';
 import { canSaveAlbum, daysLeft, isOwnPhoto } from '../savePhotos';
 import { stepInReady } from '../stepIn';
+import HostTabs from './HostTabs';
 
 interface LiveGalleryFeedProps {
   sessionId: string;
@@ -264,8 +265,13 @@ export default function LiveGalleryFeed({
   return (
     <div className={`min-h-dvh bg-g2-page text-g2-text font-sans relative ${isHost ? 'pb-52' : 'pb-36'}`}>
       {/* Header */}
-      <header className="sticky top-0 bg-g2-page/90 backdrop-blur-md border-b border-white/[0.08] pl-5 pr-3 py-2.5 flex justify-between items-center z-30">
+      <header className="sticky top-0 bg-g2-page/90 backdrop-blur-md border-b border-white/[0.08] pl-5 pr-3 py-2.5 flex flex-wrap justify-between items-center gap-y-2 z-30">
         <Get2ShareLockup className="text-[21px]" />
+        {isHost && (
+          <div className="order-last w-full flex justify-center md:order-none md:w-auto">
+            <HostTabs active="gallery" onGallery={() => {}} onConsole={onGoToHost} />
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <span className="h-[30px] max-w-[120px] px-3 inline-flex items-center rounded-full border border-white/10 font-mono text-[10.5px] font-bold text-g2-secondary truncate">
             @{nickname}
