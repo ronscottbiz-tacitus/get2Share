@@ -338,7 +338,9 @@ def make_moment(img: Image.Image, models: Models, debug: bool = False) -> Moment
         ref = ~hole & valid
         if ref.sum() > 500:
             bg_depth *= float(np.median(depth[ref] / bg_depth[ref]))
-        bg_depth = np.where(hole, np.maximum(bg_depth, depth * 1.02), depth)
+        # Use the people-free depth for the whole background, not just the hole: the original
+        # depth blurs across people's outlines and leaves splats floating mid-air there.
+        bg_depth = np.where(hole, np.maximum(bg_depth, depth * 1.02), bg_depth)
     else:
         bg_depth = depth
     lap("background depth")
