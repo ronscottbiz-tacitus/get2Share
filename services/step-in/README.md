@@ -40,7 +40,7 @@ Every model used allows commercial use:
 
 ## Who can use it
 
-The request endpoint checks that the caller signed in, hosts the event, and that the event has `pro: true`. The admin accounts in `STEP_IN_ADMIN_EMAILS` (the same two as `storage.rules`) can use it on any event they host, for testing. There's no paid plan in the app yet, so for now set `pro: true` on an event in the Firebase console.
+The request endpoint checks that the caller signed in, hosts the event, and that the event is Pro: a document `features/{eventId}` with `pro: true`. It's a separate collection (not a field on the event) so hosts can't turn Pro on themselves; `firestore.rules` lets hosts read it and nobody write it. The admin accounts in `STEP_IN_ADMIN_EMAILS` (the same two as `storage.rules`) can use Step In on any event, for testing. There's no paid plan in the app yet, so to make an event Pro, add that document in the Firebase console: Firestore → Start collection `features` → Document ID = the event's ID → field `pro` (boolean) `true`.
 
 ## Set up (one time)
 
@@ -86,7 +86,7 @@ The first run in a while waits about a minute for the GPU to start and load the 
 modal run modal_app.py::cleanup_now
 ```
 
-To keep an event forever (a demo event, say), set `keep: true` on it in the Firebase console. When the report looks right, turn on real deletes by adding `STEP_IN_CLEANUP=delete` to the secret:
+To keep an event forever (a demo event, say), add `keep: true` (boolean) to its `features/{eventId}` document in the Firebase console. Don't add fields to the event document itself: the security rules only allow its known fields, and an extra one blocks hosts from changing the event. When the report looks right, turn on real deletes by adding `STEP_IN_CLEANUP=delete` to the secret:
 
 ```bash
 modal secret create --force get2share-firebase \

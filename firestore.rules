@@ -354,9 +354,11 @@ service cloud.firestore {
         && t.nickname is string && t.nickname.size() > 0 && t.nickname.size() <= 40;
     }
 
+    // stepIn (the Step In 3D moment) is written only by the cloud job (services/step-in),
+    // which bypasses these rules. Clients may carry it along but never set or change it.
     function isValidPhoto(data) {
       return data.keys().hasAll(photoKeys())
-        && data.keys().hasOnly(photoKeys().concat(['expireAt', 'takenBy']))
+        && data.keys().hasOnly(photoKeys().concat(['expireAt', 'takenBy', 'stepIn']))
         && (!('takenBy' in data) || isValidTakenBy(data.takenBy))
         && isOptionalTime(data, 'expireAt')
         && data.url is string && data.url.size() > 0 && data.url.size() <= 1000000
@@ -412,6 +414,7 @@ service cloud.firestore {
 
       allow create: if isValidId(photoId)
                     && isValidPhoto(incoming())
+                    && !('stepIn' in incoming())
                     && (
                       // Admin: bringing over photos from before events existed.
                       isAdmin()
@@ -444,6 +447,14 @@ service cloud.firestore {
                     );
 
       allow delete: if isEventHost(eid) || isOwner(existing().sessionId);
+    }
+
+    // ---------- Features (Pro) ----------
+    // features/{eventId}: paid features for one event ({ pro: true }) and housekeeping
+    // ({ keep: true } = never auto-delete). Kept off the event doc so hosts can't grant
+    // themselves Pro. Only admins in the console and the cloud job write it.
+    match /features/{eid} {
+      allow get: if isEventHost(eid);
     }
 
     // ---------- Sessions (guest cameras, Share Spots) ----------

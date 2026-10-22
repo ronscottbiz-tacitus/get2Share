@@ -37,6 +37,8 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-borrow=on` | the host turned on "Let guests borrow cameras" |
 | `h-ask=<status>` | a request maya sent to jordan: `asking`, `live`, `declined`, `ended:<reason>`, or `busy` (the ask is refused) |
 | `h-lend=<status>` | a request dee sent to maya: `asking`, `live`, `firing` (a shot fires in 3s), `shot` |
+| `h-stepin=<json>` | photos get a Step In moment: `{"p1": {"status": "ready", "inUrl": …, "outUrl": …, "inFrame": …, "url": …}}` (`url` swaps the photo; serve local files via `/@fs/tmp/…`) |
+| `h-pro=1` | ev1 is a Pro event (`features/ev1.pro`) |
 
 Share Spot: open /spot and enter pairing code SPT234 (pair it, then tap anywhere).
 Stub photos are colored gradients (unless `h-photos=sample`); /sample uses the real sample-party images.

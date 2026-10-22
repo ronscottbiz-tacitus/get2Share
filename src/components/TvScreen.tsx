@@ -11,6 +11,9 @@ import {
   createScreenCode, ScreenConfig, ScreenPairing, screenPaths, SCREEN_CODE_TTL_MS, STORED_SCREEN_KEY,
 } from '../screens';
 import { Photo } from '../types';
+import { stepInReady } from '../stepIn';
+
+const StepInStage = React.lazy(() => import('./StepInStage'));
 
 // share.get2.one/tv: a smart TV (or any big screen) that shows an event's photos.
 // Built for viewing from across the room: everything sized from the screen
@@ -26,6 +29,8 @@ const WALL_BREATHER_MS = 4000;  // between pop-ups on a busy night, the wall get
 // instead of going back to the old event. (Same night, it still reconnects.)
 const RELEASE_AFTER_END_MS = 6 * 60 * 60 * 1000;
 const SLIDE_MS = 8000;
+// Step In on the TV: a photo whose 3D moment just finished gets the screen for this long.
+const STEP_IN_SHOW_MS = 11000;
 const HEARTBEAT_MS = 60000;
 
 function readStoredCode() {
@@ -364,6 +369,7 @@ function EventView({ event, config, photos, now, onSwitch }: { event: EventWithI
   const phase = eventPhase(event, now);
 
   const current = useJustIn(photos);
+  const moment = useNewStepIn(photos);
 
   if (config.paused) {
     return (
@@ -423,6 +429,22 @@ function EventView({ event, config, photos, now, onSwitch }: { event: EventWithI
               >
                 <img src={justIn.url} alt="" className="absolute inset-0 w-full h-full object-contain" />
                 <JustInBar photo={justIn} showNames={config.showNames} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {moment && (
+              <motion.div
+                key={'si-' + moment.id}
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0 rounded-[2vmin] overflow-hidden bg-black"
+              >
+                <StepInMedia photo={moment} />
+                <JustInBar photo={moment} showNames={config.showNames} label="Step In · 3D" />
               </motion.div>
             )}
           </AnimatePresence>
@@ -813,16 +835,16 @@ function Spotlight({ photos, showNames }: { photos: Photo[]; showNames: boolean 
     <div className="absolute inset-0 flex gap-[2vmin]">
       <div className="flex-1 relative rounded-[2vmin] overflow-hidden bg-black">
         <AnimatePresence mode="popLayout">
-          <motion.img
+          <motion.div
             key={hero.id}
-            src={hero.url}
-            alt=""
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.6 }}
-            className="absolute inset-0 w-full h-full object-contain"
-          />
+            className="absolute inset-0"
+          >
+            <StepInMedia photo={hero} />
+          </motion.div>
         </AnimatePresence>
         <JustInBar photo={hero} showNames={showNames} label="Latest" />
       </div>
@@ -857,16 +879,16 @@ function Slideshow({ photos, showNames, jumpTo }: { photos: Photo[]; showNames: 
   return (
     <div className="absolute inset-0 rounded-[2vmin] overflow-hidden bg-black">
       <AnimatePresence mode="popLayout">
-        <motion.img
+        <motion.div
           key={p.id}
-          src={p.url}
-          alt=""
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.8 }}
-          className="absolute inset-0 w-full h-full object-contain"
-        />
+          className="absolute inset-0"
+        >
+          <StepInMedia photo={p} />
+        </motion.div>
       </AnimatePresence>
       <Caption photo={p} showNames={showNames} />
       <span className="absolute right-[1.6vmin] bottom-[1.6vmin] font-mono text-[1.8vmin] text-white/70">{(index % photos.length) + 1} / {photos.length}</span>
@@ -917,6 +939,75 @@ function GroupShotTv({ event }: { event: EventWithId }) {
       </motion.div>
     </AnimatePresence>
   );
+}
+
+/**
+ * A photo on the big screen: its Step In moment when it has one (the photo shows
+ * underneath until the 3D version is ready, and stays if it fails), otherwise the photo.
+ */
+function StepInMedia({ photo }: { photo: Photo }) {
+  const [failed, setFailed] = useState(false);
+  const show3d = stepInReady(photo) && !failed;
+  // The 3D version plays in a box the photo's shape, so it lines up with the photo under it.
+  const f = photo.stepIn?.inFrame;
+  const ar = f && f.tanV > 0 ? Math.max(0.5, Math.min(2.2, f.tanH / f.tanV)) : 4 / 3;
+  return (
+    <>
+      <img src={photo.url} alt="" className="absolute inset-0 w-full h-full object-contain" />
+      {show3d && (
+        <React.Suspense fallback={null}>
+          <div className="absolute inset-0 flex items-center justify-center" style={{ containerType: 'size' }}>
+          <div
+            className="relative overflow-hidden"
+            style={{ aspectRatio: String(ar), width: `min(100cqw, calc(100cqh * ${ar.toFixed(3)}))` }}
+          >
+            <StepInStage
+              url={photo.stepIn!.inUrl!}
+              kind="in"
+              frame={photo.stepIn!.inFrame}
+              amount={10}
+              loop={8}
+              maxPixelRatio={1.25}
+              onError={() => setFailed(true)}
+            />
+          </div>
+          </div>
+        </React.Suspense>
+      )}
+    </>
+  );
+}
+
+/**
+ * Step In moments that finish while this TV is on (a host just made one) get the screen
+ * for a few seconds, one at a time. Ones that were already done when the TV started
+ * play in the slideshow and spotlight instead.
+ */
+function useNewStepIn(photos: Photo[]): Photo | null {
+  const seen = useRef<Set<string> | null>(null);
+  const [queue, setQueue] = useState<string[]>([]);
+  const [current, setCurrent] = useState<string | null>(null);
+  useEffect(() => {
+    const ready = photos.filter((p) => stepInReady(p)).map((p) => p.id);
+    // Wait for the first real list: moments that were already done don't pop up.
+    if (seen.current === null) { if (photos.length) seen.current = new Set(ready); return; }
+    const fresh = ready.filter((id) => !seen.current!.has(id));
+    if (fresh.length) {
+      fresh.forEach((id) => seen.current!.add(id));
+      setQueue((q) => [...q, ...fresh]);
+    }
+  }, [photos]);
+  useEffect(() => {
+    if (current) {
+      const t = setTimeout(() => setCurrent(null), STEP_IN_SHOW_MS);
+      return () => clearTimeout(t);
+    }
+    if (queue.length) {
+      setCurrent(queue[0]);
+      setQueue((q) => q.slice(1));
+    }
+  }, [current, queue]);
+  return photos.find((p) => p.id === current && stepInReady(p)) ?? null;
 }
 
 function JustInBar({ photo, showNames, label = 'Just in' }: { photo: Photo; showNames: boolean; label?: string }) {

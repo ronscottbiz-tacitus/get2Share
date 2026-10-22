@@ -62,12 +62,19 @@ def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
     if not snap.exists:
         raise PermissionError("That event no longer exists.")
     ev = snap.to_dict()
-    if uid != ev.get("ownerUid") and uid not in (ev.get("hostUids") or []):
+    is_admin = bool(claims.get("email_verified")) and (claims.get("email") or "").lower() in admin_emails()
+    if not is_admin and uid != ev.get("ownerUid") and uid not in (ev.get("hostUids") or []):
         raise PermissionError("Only hosts can make Step In moments.")
-    is_admin = claims.get("email_verified") and (claims.get("email") or "").lower() in admin_emails()
-    if not (ev.get("pro") or is_admin):
+    if not (is_admin or features(event_id).get("pro")):
         raise PermissionError("Step In is a Pro feature.")
     return uid, ev
+
+
+def features(event_id: str) -> dict:
+    """features/{eventId}: { pro: true } for Pro events, { keep: true } to never auto-delete.
+    Separate from the event doc so hosts can't grant themselves Pro (see firestore.rules)."""
+    snap = db().collection("features").document(event_id).get()
+    return (snap.to_dict() or {}) if snap.exists else {}
 
 
 # ------------------------------------------------------------------ photos
@@ -112,18 +119,18 @@ def upload(local_path: str, remote_path: str, content_type="application/octet-st
 # ------------------------------------------------------------------ cleanup
 def expired_events(now: datetime | None = None):
     """Events past their album date, the same rule the app uses (eventPhase in src/events.ts).
-    Events marked keep: true are never touched."""
+    Events with features/{id}.keep == true are never touched."""
     now = now or datetime.now(timezone.utc)
     seen = set()
     for snap in db().collection("events").where("expireAt", "<", now).stream():
         seen.add(snap.id)
-        if not (snap.to_dict() or {}).get("keep"):
+        if not features(snap.id).get("keep"):
             yield snap
     # Older events without expireAt: 30 days after they ended
     cutoff = now - timedelta(days=ALBUM_DAYS)
     for snap in db().collection("events").where("endsAt", "<", cutoff).stream():
         ev = snap.to_dict() or {}
-        if snap.id not in seen and not ev.get("expireAt") and not ev.get("keep"):
+        if snap.id not in seen and not ev.get("expireAt") and not features(snap.id).get("keep"):
             yield snap
 
 
@@ -154,6 +161,7 @@ def cleanup(live: bool, log=print) -> dict:
         code = ev.get("joinCode")
         if code:
             db().collection("joinCodes").document(code).delete()
+        db().collection("features").document(eid).delete()
         db().recursive_delete(snap.reference)
     log(f"{'Deleted' if live else 'Would delete'} {totals['events']} expired events, "
         f"{totals['files']} files, {totals['bytes'] / 1e6:.1f} MB.")

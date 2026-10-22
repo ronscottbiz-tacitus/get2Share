@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import HostBar from './HostBar';
 import SavePhotosSheet from './SavePhotosSheet';
 import { canSaveAlbum, daysLeft, isOwnPhoto } from '../savePhotos';
+import { stepInReady } from '../stepIn';
 
 interface LiveGalleryFeedProps {
   sessionId: string;
@@ -451,6 +452,11 @@ export default function LiveGalleryFeed({
 
                   {/* Badges */}
                   <div className="absolute top-2 left-2 flex flex-wrap gap-1 pr-10">
+                    {stepInReady(photo) && (
+                      <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-blue text-white font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
+                        Step In
+                      </span>
+                    )}
                     {fromSpot && (
                       <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-page/80 border border-g2-blue-light text-g2-blue-light font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
                         Share Spot
