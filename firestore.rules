@@ -1,6 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-10-22: Step In. Photos may carry "stepIn" (written only by the cloud job);
+//   features/{eventId} holds Pro, readable by hosts. Additive.
 // Version 2026-10-07b: hosts choose when guests can save the album ("albumSaving").
 // Version 2026-10-07: guests can borrow each other's cameras ("lensSharing",
 //   people/, lensRequests/). Additive: everything older works unchanged.
