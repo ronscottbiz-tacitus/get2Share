@@ -50,6 +50,7 @@ gpu_image = (
     .env({"HF_HOME": "/models/hf", "TORCH_HOME": "/models/torch", "U2NET_HOME": "/models/rembg"})
     .add_local_python_source("stepin", copy=True)
     .run_function(_bake_models)
+    .env({"HF_HUB_OFFLINE": "1"})  # models are baked in; skip the check for updates
 )
 
 web_image = (

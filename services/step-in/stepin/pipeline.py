@@ -43,6 +43,7 @@ class Settings:
     min_person: float = 0.12     # ignore people shorter than this fraction of the photo
     person_score: float = 0.6    # how sure the detector must be that it's a person
     birefnet: str = "birefnet-general"
+    max_people_splats: int = 200_000  # above this, the people layer uses every other pixel
 
 
 @dataclass
@@ -169,8 +170,10 @@ class Models:
             return np.zeros_like(sal), 0
         grow = max(3, round(max(img.size) * 0.02))
         zone = ndimage.binary_dilation(people > 0.5, iterations=grow)
-        soft_people = np.clip((people - 0.3) / 0.4, 0, 1)
-        return np.maximum(sal * zone, soft_people).astype(np.float32), n
+        # The person finder's outline is blobby and drags in background (grass, walls).
+        # Use only its inner core, for people BiRefNet missed; BiRefNet draws the edges.
+        core = ndimage.binary_erosion(people > 0.5, iterations=max(2, round(max(img.size) * 0.012)))
+        return np.maximum(sal * zone, core.astype(np.float32)).astype(np.float32), n
 
     def fill(self, img: Image.Image, hole: np.ndarray) -> Image.Image:
         torch = self.torch
@@ -341,10 +344,10 @@ def make_moment(img: Image.Image, models: Models, debug: bool = False) -> Moment
     lap("background depth")
 
     background = pixels_to_splats(bg_depth, np.asarray(filled, dtype=np.float32) / 255.0, 0.99,
-                                  np.ones((h, w), bool), fx_n, fy_n, stride=s.bg_stride, size_boost=1.05)
+                                  np.ones((h, w), bool), fx_n, fy_n, stride=s.bg_stride, size_boost=1.25)
     people_splats = None
     if has_people:
-        fg_select = alpha > 0.04
+        fg_select = alpha > 0.15  # faint edge pixels are mostly old background color
         solid = ndimage.binary_erosion(alpha > 0.9, iterations=2)
         fg_depth = edge_safe_depth(depth, solid, fg_select & ~solid)
         fg_rgb = rgb
@@ -353,7 +356,10 @@ def make_moment(img: Image.Image, models: Models, debug: bool = False) -> Moment
             fg_rgb = np.clip(estimate_foreground_ml(rgb.astype(np.float64), alpha.astype(np.float64)), 0, 1).astype(np.float32)
         except Exception:
             pass
-        people_splats = pixels_to_splats(fg_depth, fg_rgb, alpha, fg_select, fx_n, fy_n, stride=1)
+        # Close-ups can be mostly people; thin them out so files stay small for phones and TVs
+        fg_stride = 1 if fg_select.sum() <= s.max_people_splats else 2
+        people_splats = pixels_to_splats(fg_depth, fg_rgb, alpha, fg_select, fx_n, fy_n,
+                                         stride=fg_stride, size_boost=1.0 if fg_stride == 1 else 1.15)
     lap("splats")
 
     step_in = merge(background, people_splats) if people_splats else background
