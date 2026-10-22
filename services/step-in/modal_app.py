@@ -42,7 +42,8 @@ gpu_image = (
     .pip_install("torch==2.8.0", "torchvision==0.23.0", index_url="https://download.pytorch.org/whl/cu128")
     .pip_install(
         "moge @ git+https://github.com/microsoft/MoGe.git@925b8ed",
-        "rembg[gpu]==2.0.86",
+        # onnxruntime-gpu 1.26 is the last CUDA 12.8 build, matching torch cu128 (1.27+ needs CUDA 13)
+        "rembg==2.0.86", "onnxruntime-gpu==1.26.*",
         "pymatting", "scipy", "pillow", "pillow-heif", "requests",
         "firebase-admin==7.7.0",
     )
