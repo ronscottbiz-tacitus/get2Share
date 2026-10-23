@@ -63,6 +63,12 @@ await check('stranger cannot read features', assertFails(getDoc(doc(stranger, 'f
 await check('host cannot turn Pro on', assertFails(setDoc(doc(host, 'features', EID), { pro: true })));
 await check('host cannot edit features', assertFails(updateDoc(doc(host, 'features', EID), { keep: true })));
 
+// config/stepIn: anyone signed in reads it; nobody writes it.
+await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), 'config', 'stepIn'), { allHosts: true }); });
+await check('guest reads config/stepIn', assertSucceeds(getDoc(doc(guest, 'config', 'stepIn'))));
+await check('host cannot change config/stepIn', assertFails(setDoc(doc(host, 'config', 'stepIn'), { allHosts: false })));
+await check('other config docs stay closed', assertFails(getDoc(doc(host, 'config', 'other'))));
+
 await env.cleanup();
 console.log(failed ? `${failed} FAILED` : 'All Step In rules checks passed.');
 process.exit(failed ? 1 : 0);

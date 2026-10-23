@@ -40,7 +40,13 @@ Every model used allows commercial use:
 
 ## Who can use it
 
-The request endpoint checks that the caller signed in, hosts the event, and that the event is Pro: a document `features/{eventId}` with `pro: true`. It's a separate collection (not a field on the event) so hosts can't turn Pro on themselves; `firestore.rules` lets hosts read it and nobody write it. The admin accounts in `STEP_IN_ADMIN_EMAILS` (the same two as `storage.rules`) can use Step In on any event, for testing. There's no paid plan in the app yet, so to make an event Pro, add that document in the Firebase console: Firestore → Start collection `features` → Document ID = the event's ID → field `pro` (boolean) `true`.
+The request endpoint checks that the caller signed in and hosts the event. Then, who gets Step In:
+
+- **Right now, every host.** A single switch, `config/stepIn` → `allHosts`, is on by default (also when the document doesn't exist). Use it while there's no paid plan.
+- **Later, Pro only.** In the Firebase console, create `config/stepIn` with `allHosts` (boolean) `false`. Then only events with `features/{eventId}` → `pro: true` get Step In; the payment step will write that. `features` is its own collection so hosts can't turn Pro on themselves.
+- **Admins** (`STEP_IN_ADMIN_EMAILS`, the same two as `storage.rules`) can always use it.
+
+The app reads the same switch, so the button appears and disappears with no redeploy.
 
 ## Set up (one time)
 

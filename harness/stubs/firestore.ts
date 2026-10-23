@@ -66,6 +66,7 @@ const docSnap = (path: string) => {
   if (path === 'events/ev1/lensRequests/guest1') data = lensDoc('g3', 'dee', 'guest1', 'maya', 'h-lend');
   const pm = path.match(/^events\/ev1\/photos\/(p\d)$/); if (pm) data = PHOTOS.find((x) => x.id === pm[1]);
   if (path === 'features/ev1') data = localStorage.getItem('h-pro') === '1' ? { pro: true } : undefined;
+  if (path === 'config/stepIn') data = localStorage.getItem('h-allhosts') === '0' ? { allHosts: false } : undefined;
   const tv = localStorage.getItem('h-tv');
   if (path.startsWith('screenPairings/')) data = tv ? { screenUid: 'guest1', createdAt: ts(now - 120000), eventId: tv === 'show' ? 'ev1' : null, screenName: tv === 'show' ? 'Main Hall TV' : null, claimedBy: tv === 'show' ? 'host1' : null } : undefined;
   if (tv === 'show' && path === 'events/ev1/members/guest1') data = { nickname: 'Main Hall TV' };

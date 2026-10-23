@@ -29,16 +29,29 @@ export const stepInStuck = (p: Pick<Photo, 'stepIn'> | null | undefined, now = D
   return stepInBusy(p) && !!at && now - at > STEP_IN_STUCK_MS;
 };
 
-/** Can this device make Step In moments for this event? Hosts of Pro events, and admins. */
+/**
+ * Can this device make Step In moments for this event? Admins always; other hosts when
+ * config/stepIn.allHosts is on (the default, while there's no paid plan) or the event is Pro.
+ * The cloud job checks the same things.
+ */
 export function useCanMakeStepIn(eventId: string, isHost: boolean): boolean {
   const user = auth.currentUser;
   const admin = !!user && !user.isAnonymous && !!user.emailVerified && isAdminEmail(user.email);
+  const [allHosts, setAllHosts] = useState(true);
   const [pro, setPro] = useState(false);
   useEffect(() => {
     if (!isHost || admin) return;
+    return onSnapshot(
+      doc(db, 'config', 'stepIn'),
+      (s) => setAllHosts(!s.exists() || s.data()?.allHosts !== false),
+      () => setAllHosts(true),
+    );
+  }, [isHost, admin]);
+  useEffect(() => {
+    if (!isHost || admin || allHosts) return;
     return onSnapshot(doc(db, 'features', eventId), (s) => setPro(!!s.data()?.pro), () => setPro(false));
-  }, [eventId, isHost, admin]);
-  return isHost && (admin || pro);
+  }, [eventId, isHost, admin, allHosts]);
+  return isHost && (admin || allHosts || pro);
 }
 
 /** Ask the cloud job for a Step In moment. Resolves once it's queued; progress shows up on photo.stepIn. */

@@ -1,6 +1,7 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-10-22b: config/stepIn ("allHosts") is readable by anyone signed in.
 // Version 2026-10-22: Step In. Photos may carry "stepIn" (written only by the cloud job);
 //   features/{eventId} holds Pro, readable by hosts. Additive.
 // Version 2026-10-07b: hosts choose when guests can save the album ("albumSaving").
@@ -457,6 +458,12 @@ service cloud.firestore {
     // themselves Pro. Only admins in the console and the cloud job write it.
     match /features/{eid} {
       allow get: if isEventHost(eid);
+    }
+
+    // config/stepIn: { allHosts: true } gives every host Step In while there's no paid plan.
+    // Admins change it in the Firebase console; nobody writes it from the app.
+    match /config/{docId} {
+      allow get: if signedIn() && docId == 'stepIn';
     }
 
     // ---------- Sessions (guest cameras, Share Spots) ----------

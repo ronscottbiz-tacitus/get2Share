@@ -65,9 +65,15 @@ def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
     is_admin = bool(claims.get("email_verified")) and (claims.get("email") or "").lower() in admin_emails()
     if not is_admin and uid != ev.get("ownerUid") and uid not in (ev.get("hostUids") or []):
         raise PermissionError("Only hosts can make Step In moments.")
-    if not (is_admin or features(event_id).get("pro")):
+    if not (is_admin or step_in_for_all_hosts() or features(event_id).get("pro")):
         raise PermissionError("Step In is a Pro feature.")
     return uid, ev
+
+
+def step_in_for_all_hosts() -> bool:
+    """config/stepIn.allHosts: Step In for every host, Pro or not. On unless set to false."""
+    snap = db().collection("config").document("stepIn").get()
+    return (snap.to_dict() or {}).get("allHosts", True) is not False if snap.exists else True
 
 
 def features(event_id: str) -> dict:
