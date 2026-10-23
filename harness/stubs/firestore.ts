@@ -4,8 +4,14 @@ const now = Date.now();
 // Local deck capture only: h-photos=sample swaps the gradients for G2-free AI sample-party photos.
 const SAMPLE: Record<string, string> = { p1: '07', p2: '21', p3: '16', p4: '18', p5: '15', p6: '14', p7: '25' };
 const usePics = () => { try { return localStorage.getItem('h-photos') === 'sample'; } catch { return false; } };
-const P = (id: string, nickname: string, sessionId: string, status: string, a: string, b: string, w: number, h: number, likes = 0) =>
-  ({ id, url: usePics() ? `/sample/mina30-${SAMPLE[id]}.jpg` : svg(a, b, w, h), nickname, sessionId, createdAt: now - Number(id.slice(1)) * 60000, status, reactions: { likes, dislikes: 0 }, flagged: id === 'p4' });
+// h-stepin=<json>: { "p1": { status, inUrl, outUrl, inFrame, outFrame, url? } } gives photos a Step In moment
+// (url swaps the photo itself). Serve local files through /@fs/tmp/... . h-pro=1 makes ev1 a Pro event.
+const stepIns = (): Record<string, any> => { try { return JSON.parse(localStorage.getItem('h-stepin') || '{}'); } catch { return {}; } };
+const P = (id: string, nickname: string, sessionId: string, status: string, a: string, b: string, w: number, h: number, likes = 0) => {
+  const si = stepIns()[id];
+  const { url: siUrl, ...stepIn } = si || {};
+  return { id, url: siUrl || (usePics() ? `/sample/mina30-${SAMPLE[id]}.jpg` : svg(a, b, w, h)), nickname, sessionId, createdAt: now - Number(id.slice(1)) * 60000, status, reactions: { likes, dislikes: 0 }, flagged: id === 'p4', ...(si ? { stepIn } : {}) };
+};
 const PHOTOS = [
   P('p1', 'jordan', 'g2', 'approved', '#3b2f63', '#d97757', 600, 800, 12),
   P('p2', 'Stage (Photo Spot)', 't1', 'approved', '#14324a', '#5aa7c7', 800, 600, 8),
@@ -59,6 +65,8 @@ const docSnap = (path: string) => {
   if (path === 'events/ev1/lensRequests/g2') data = lensDoc('guest1', 'maya', 'g2', 'jordan', 'h-ask');
   if (path === 'events/ev1/lensRequests/guest1') data = lensDoc('g3', 'dee', 'guest1', 'maya', 'h-lend');
   const pm = path.match(/^events\/ev1\/photos\/(p\d)$/); if (pm) data = PHOTOS.find((x) => x.id === pm[1]);
+  if (path === 'features/ev1') data = localStorage.getItem('h-pro') === '1' ? { pro: true } : undefined;
+  if (path === 'config/stepIn') data = localStorage.getItem('h-allhosts') === '0' ? { allHosts: false } : undefined;
   const tv = localStorage.getItem('h-tv');
   if (path.startsWith('screenPairings/')) data = tv ? { screenUid: 'guest1', createdAt: ts(now - 120000), eventId: tv === 'show' ? 'ev1' : null, screenName: tv === 'show' ? 'Main Hall TV' : null, claimedBy: tv === 'show' ? 'host1' : null } : undefined;
   if (tv === 'show' && path === 'events/ev1/members/guest1') data = { nickname: 'Main Hall TV' };

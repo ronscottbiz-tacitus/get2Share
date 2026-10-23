@@ -10,6 +10,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import HostBar from './HostBar';
 import SavePhotosSheet from './SavePhotosSheet';
 import { canSaveAlbum, daysLeft, isOwnPhoto } from '../savePhotos';
+import { stepInReady } from '../stepIn';
+import HostTabs from './HostTabs';
 
 interface LiveGalleryFeedProps {
   sessionId: string;
@@ -263,8 +265,13 @@ export default function LiveGalleryFeed({
   return (
     <div className={`min-h-dvh bg-g2-page text-g2-text font-sans relative ${isHost ? 'pb-52' : 'pb-36'}`}>
       {/* Header */}
-      <header className="sticky top-0 bg-g2-page/90 backdrop-blur-md border-b border-white/[0.08] pl-5 pr-3 py-2.5 flex justify-between items-center z-30">
+      <header className="sticky top-0 bg-g2-page/90 backdrop-blur-md border-b border-white/[0.08] pl-5 pr-3 py-2.5 flex flex-wrap justify-between items-center gap-y-2 z-30">
         <Get2ShareLockup className="text-[21px]" />
+        {isHost && (
+          <div className="order-last w-full flex justify-center md:order-none md:w-auto">
+            <HostTabs active="gallery" onGallery={() => {}} onConsole={onGoToHost} />
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <span className="h-[30px] max-w-[120px] px-3 inline-flex items-center rounded-full border border-white/10 font-mono text-[10.5px] font-bold text-g2-secondary truncate">
             @{nickname}
@@ -451,6 +458,11 @@ export default function LiveGalleryFeed({
 
                   {/* Badges */}
                   <div className="absolute top-2 left-2 flex flex-wrap gap-1 pr-10">
+                    {stepInReady(photo) && (
+                      <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-blue text-white font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
+                        Step In
+                      </span>
+                    )}
                     {fromSpot && (
                       <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-page/80 border border-g2-blue-light text-g2-blue-light font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
                         Share Spot

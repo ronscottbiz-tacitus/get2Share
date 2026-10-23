@@ -12,6 +12,28 @@ export interface Photo {
   flagged: boolean;
   /** Taken on someone else's phone: the guest who asked for it (see guestLens.ts). */
   takenBy?: { uid: string; nickname: string };
+  /** Step In / Step Out 3D moment, written by the cloud job (see stepIn.ts). */
+  stepIn?: StepIn;
+}
+
+/** Framing hints for a Step In splat (see services/step-in). Tangents are x/z and y/z. */
+export interface StepInFrame {
+  pivot: number;
+  cx: number;
+  cy: number;
+  tanH: number;
+  tanV: number;
+}
+
+export interface StepIn {
+  status: 'queued' | 'processing' | 'ready' | 'failed';
+  inUrl?: string | null;
+  outUrl?: string | null;
+  inFrame?: StepInFrame;
+  outFrame?: StepInFrame | null;
+  people?: number;
+  error?: string | null;
+  updatedAt?: { toMillis(): number } | null;
 }
 
 export interface GuestSession {

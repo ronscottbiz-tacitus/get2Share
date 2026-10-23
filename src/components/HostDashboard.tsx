@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ALBUM_SAVING_OPTIONS, AlbumSaving, albumSavingOf } from '../savePhotos';
 import {
   Shield, Check, X, Camera, Info, QrCode, Sliders, Smartphone, Laptop,
-  Battery, AlertCircle, Trash2, HelpCircle, ExternalLink, RefreshCw, ChevronDown, ChevronUp, Radio,
+  Battery, AlertCircle, Trash2, HelpCircle, ExternalLink, Images, RefreshCw, ChevronDown, ChevronUp, Radio,
   Lock, Edit3, Save, CheckCircle2, UserX, Image as ImageIcon, Clock
 } from 'lucide-react';
 import {
@@ -14,6 +14,7 @@ import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
 import Get2ShareLockup from './Get2ShareLockup';
+import HostTabs from './HostTabs';
 import { useRemoteShutter } from './useRemoteShutter';
 import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
@@ -46,6 +47,8 @@ interface HostDashboardProps {
   authError: string;
   onHostSignIn: () => void;
   onHostSignOut: () => void;
+  /** Switch to the event's gallery (the Gallery tab). */
+  onOpenGallery?: () => void;
 }
 
 export default function HostDashboard({
@@ -60,6 +63,7 @@ export default function HostDashboard({
   authError,
   onHostSignIn,
   onHostSignOut,
+  onOpenGallery,
 }: HostDashboardProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [sessions, setSessions] = useState<GuestSession[]>([]);
@@ -543,6 +547,11 @@ export default function HostDashboard({
       <HostCameraButton hostUid={sessionId} variant="floating" />
       {/* Container */}
       <div className="max-w-6xl mx-auto space-y-8 pb-24 md:pb-12">
+        {isHost && onOpenGallery && (
+          <div className="flex justify-center">
+            <HostTabs active="console" onGallery={onOpenGallery} onConsole={() => {}} />
+          </div>
+        )}
         {/* Header Console */}
         <header className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 glass-card neon-border p-6 rounded-2xl shadow-xl">
           <div className="flex items-center gap-3">
@@ -1276,6 +1285,15 @@ export default function HostDashboard({
                 <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4 text-g2-blue-light" /> Live gallery ({approvedPhotos.length})
                 </h3>
+                {onOpenGallery ? (
+                  <button
+                    type="button"
+                    onClick={onOpenGallery}
+                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 text-g2-secondary font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Images className="w-3 h-3" /> Open gallery
+                  </button>
+                ) : (
                 <a
                   href={joinLink}
                   target="_blank"
@@ -1284,6 +1302,7 @@ export default function HostDashboard({
                 >
                   <ExternalLink className="w-3 h-3" /> Open guest view
                 </a>
+                )}
               </div>
               {approvedPhotos.length === 0 ? (
                 <div className="p-6 bg-black/30 border border-white/5 rounded-xl text-center text-g2-muted text-xs">

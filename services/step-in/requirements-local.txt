@@ -1,0 +1,9 @@
+# Run Step In on a Mac (Apple Silicon) or any computer: python -m stepin.cli
+torch
+torchvision
+rembg[cpu]==2.0.86
+moge @ git+https://github.com/microsoft/MoGe.git@925b8ed
+pymatting
+scipy
+pillow
+pillow-heif

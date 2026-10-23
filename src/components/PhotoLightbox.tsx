@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download } from 'lucide-react';
+import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download, Box, Loader2 } from 'lucide-react';
 import { canSavePhoto, canShareFiles, downloadBlob, photoFile, shareFiles } from '../savePhotos';
-import { updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { updateDoc, deleteDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
 import { paths } from '../events';
 import { useEvent } from '../EventContext';
-import { Photo } from '../types';
+import { Photo, StepIn } from '../types';
+import { requestStepIn, stepInBusy, stepInReady, stepInStuck, useCanMakeStepIn } from '../stepIn';
+import StepInStage from './StepInStage';
 import CloseButton from './CloseButton';
 import { useBackToClose } from '../useBackToClose';
 
@@ -76,6 +78,50 @@ export default function PhotoLightbox({
   const isUploader = photo.sessionId === sessionId;
   useBackToClose(true, onClose);
 
+  // Step In: follow this photo's 3D moment live, so a host sees it finish.
+  const [stepIn, setStepIn] = useState<StepIn | undefined>(photo.stepIn);
+  const [view, setView] = useState<'photo' | 'in' | 'out'>('photo');
+  const [stepInError, setStepInError] = useState('');
+  const [requesting, setRequesting] = useState(false);
+  const [stageFailed, setStageFailed] = useState(false);
+  const canMakeStepIn = useCanMakeStepIn(eventId, !!isHost);
+  useEffect(() => {
+    setStepIn(photo.stepIn);
+    setView('photo');
+    setStepInError('');
+    setStageFailed(false);
+    return onSnapshot(paths.photo(eventId, photo.id), (snap) => {
+      const next = (snap.data() as Photo | undefined)?.stepIn;
+      setStepIn((prev) => {
+        // Just finished while open: show it.
+        if (next?.status === 'ready' && prev && prev.status !== 'ready') setView('in');
+        return next;
+      });
+    }, () => {});
+  }, [photo.id]);
+  const ready = stepInReady({ stepIn }) && !stageFailed;
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!stepInBusy({ stepIn })) return;
+    const t = setInterval(() => setNowTick(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, [stepIn?.status]);
+  const stuck = stepInStuck({ stepIn }, nowTick);
+  const busy = requesting || (stepInBusy({ stepIn }) && !stuck);
+  const makeStepIn = async () => {
+    setStepInError('');
+    setRequesting(true);
+    try {
+      await requestStepIn(eventId, photo.id, stepIn?.status === 'ready');
+    } catch (e: any) {
+      setStepInError(e?.message || 'Step In is unavailable right now.');
+    } finally {
+      setRequesting(false);
+    }
+  };
+  const frame = view === 'out' ? stepIn?.outFrame : stepIn?.inFrame;
+  const aspect = frame && frame.tanV > 0 ? Math.max(0.5, Math.min(2, frame.tanH / frame.tanV)) : 4 / 3;
+
   // Save to this device. The file is fetched as soon as the photo opens, so the
   // tap can go straight to the share sheet (phones refuse it after a wait).
   const canSave = canSavePhoto(photo, sessionId, event, !!isHost);
@@ -115,11 +161,55 @@ export default function PhotoLightbox({
       <div className="flex-1 flex items-center justify-center p-4 relative bg-black min-h-[50vh] md:min-h-0">
         <CloseButton onClick={onClose} className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80" />
 
-        <img
-          src={photo.url}
-          alt={`By ${photo.nickname}`}
-          className="max-w-full max-h-[75vh] md:max-h-[90vh] object-contain rounded-xl shadow-2xl"
-        />
+        {view !== 'photo' && ready ? (
+          <div
+            className="relative max-h-[75vh] md:max-h-[90vh]"
+            style={{ aspectRatio: String(aspect), width: `min(100%, calc(75vh * ${aspect.toFixed(3)}))` }}
+          >
+            {view === 'in' && (
+              <img src={photo.url} alt="" className="absolute inset-0 w-full h-full object-cover rounded-xl" />
+            )}
+            <div key={view} className={`absolute inset-0 overflow-hidden ${view === 'in' ? 'rounded-xl shadow-2xl' : ''}`}>
+              <StepInStage
+                url={(view === 'out' ? stepIn?.outUrl : stepIn?.inUrl) || ''}
+                kind={view}
+                frame={frame}
+                amount={view === 'out' ? 10 : 7}
+                interactive
+                onError={() => { setStageFailed(true); setView('photo'); }}
+              />
+            </div>
+            <span className="sr-only">{view === 'out' ? 'Step Out' : 'Step In'}: a 3D version of the photo by {photo.nickname}</span>
+          </div>
+        ) : (
+          <img
+            src={photo.url}
+            alt={`By ${photo.nickname}`}
+            className="max-w-full max-h-[75vh] md:max-h-[90vh] object-contain rounded-xl shadow-2xl"
+          />
+        )}
+
+        {ready && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex p-1 rounded-full bg-black/70 border border-white/15 backdrop-blur-md" role="group" aria-label="View">
+            {([
+              ['photo', 'Photo'],
+              ['in', 'Step In'],
+              ...(stepIn?.outUrl ? [['out', 'Step Out']] : []),
+            ] as [typeof view, string][]).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={view === v}
+                className={`h-9 px-4 rounded-full text-[13px] font-bold cursor-pointer transition-colors ${
+                  view === v ? 'bg-g2-blue text-white' : 'text-white/75 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Control Box Panel */}
@@ -162,6 +252,33 @@ export default function PhotoLightbox({
               {loves > 0 && <span className="font-mono text-[13px] opacity-80">· {loves}</span>}
             </button>
             <p className="-mt-3 text-[11px] text-g2-muted">Saves it to your Loved photos. The most-loved photos get featured.</p>
+
+            {canMakeStepIn && (!ready || stepInError) && (
+              <div className="-mt-1 rounded-xl border border-g2-blue/30 bg-g2-blue/5 p-3.5">
+                {busy ? (
+                  <p className="flex items-center gap-2 text-[13px] font-bold text-white" aria-live="polite">
+                    <Loader2 className="w-4 h-4 animate-spin text-g2-blue-light" aria-hidden="true" />
+                    Making Step In… about a minute
+                  </p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={makeStepIn}
+                      className="w-full h-11 rounded-lg bg-g2-blue hover:bg-g2-blue/90 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Box className="w-[18px] h-[18px]" aria-hidden="true" />
+                      {stepIn?.status === 'failed' || stepInError || stuck ? 'Try Step In again' : 'Make Step In'}
+                    </button>
+                    <p className="mt-2 text-[11px] leading-snug text-g2-muted">
+                      {stepInError || (stepIn?.status === 'failed' && stepIn.error) ||
+                        (stuck && "That one didn't finish. Try again.") ||
+                        'Turns this photo into a 3D moment for the gallery and the TVs. Pro.'}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {canSave && (
               <div className="-mt-1">
