@@ -1,6 +1,6 @@
 const isHost = () => localStorage.getItem('h-host') === '1';
 const user = () => isHost()
-  ? { uid: 'host1', isAnonymous: false, emailVerified: true, email: 'ronscottbiz@gmail.com', providerData: [] }
+  ? { uid: 'host1', isAnonymous: false, emailVerified: true, email: 'ronscottbiz@gmail.com', providerData: [], getIdToken: async () => 'harness-token' }
   : { uid: 'guest1', isAnonymous: true, emailVerified: false, email: null, providerData: [], metadata: { creationTime: new Date(newDevice() ? Date.now() : Date.now() - 86400000).toUTCString() } };
 // h-new=1: a phone scanning for the first time (no saved sign-in yet). h-slow=<ms>: network delay per call.
 const newDevice = () => localStorage.getItem('h-new') === '1';

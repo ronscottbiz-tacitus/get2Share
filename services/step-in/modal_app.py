@@ -70,6 +70,12 @@ class StepIn:
         self.models = Models(settings=Settings())
 
     @modal.method()
+    def warm(self) -> bool:
+        """Does nothing: calling it starts a GPU and loads the models (in load() above),
+        so the host's first Step In doesn't wait. The GPU stays up scaledown_window seconds."""
+        return True
+
+    @modal.method()
     def make(self, event_id: str, photo_id: str) -> dict:
         from stepin import firebase_io as fb
         from stepin.pipeline import compress, make_moment, write_ply
@@ -163,6 +169,22 @@ def api():
         call = modal.Cls.from_name(APP_NAME, "StepIn")().make.spawn(req.eventId, req.photoId)
         print(f"Step In queued: event {req.eventId} photo {req.photoId} call {call.object_id}")
         return {"status": "queued"}
+
+    class Warm(BaseModel):
+        eventId: str
+
+    @web.post("/warm")
+    def warm(req: Warm, authorization: str = Header(default="")):
+        """A Pro host has the app open: get a GPU ready. Same checks as /request."""
+        token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            raise HTTPException(401, "Sign in first.")
+        try:
+            fb.verify_host(token, req.eventId)
+        except PermissionError as e:
+            raise HTTPException(403, str(e))
+        modal.Cls.from_name(APP_NAME, "StepIn")().warm.spawn()
+        return {"warming": True}
 
     @web.get("/health")
     def health():

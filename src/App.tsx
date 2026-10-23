@@ -20,6 +20,7 @@ import {
 import { EventContext } from './EventContext';
 import CloseButton from './components/CloseButton';
 import { useBackToClose } from './useBackToClose';
+import StepInWarmer from './components/StepInWarmer';
 // Screens a guest who scans a code never needs load on demand, so the join screen arrives fast.
 const loadLightbox = () => import('./components/PhotoLightbox');
 const loadKeepsake = () => import('./components/Keepsake');
@@ -826,6 +827,7 @@ export default function App() {
     if (!event) return <Centered>Opening the Host Console…</Centered>;
     return shell(
       <EventContext.Provider value={{ event, isEventHost }}>
+        <StepInWarmer />
         {hostView === 'slideshow' ? (
           <ProjectionSlideshow onClose={() => setHostView('console')} />
         ) : (
@@ -881,6 +883,7 @@ export default function App() {
 
   return shell(
     <EventContext.Provider value={{ event, isEventHost }}>
+      {isEventHost && <StepInWarmer />}
       <LiveGalleryFeed
         sessionId={sessionId}
         nickname={nickname}

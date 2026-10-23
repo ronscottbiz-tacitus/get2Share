@@ -60,3 +60,35 @@ export async function requestStepIn(eventId: string, photoId: string, redo = fal
     throw new Error((body && typeof body.detail === 'string' && body.detail) || 'Step In is unavailable right now. Try again in a minute.');
   }
 }
+
+/** While a Pro host has the app open during a live event, keep a cloud GPU ready, so
+ *  "Make Step In" takes seconds instead of a cold start. Pings now and every 4 minutes
+ *  (the GPU shuts down 5 minutes after the last one). Silent if anything fails. */
+export const STEP_IN_WARM_MS = 4 * 60 * 1000;
+const lastWarm = new Map<string, number>();
+export function useWarmStepIn(eventId: string, enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    const ping = async () => {
+      if (document.visibilityState !== 'visible') return;
+      // One ping per few minutes per device, however many screens mount this.
+      const now = Date.now();
+      if (now - (lastWarm.get(eventId) || 0) < STEP_IN_WARM_MS - 30_000) return;
+      lastWarm.set(eventId, now);
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        await fetch(`${STEP_IN_API}/warm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ eventId }),
+        });
+      } catch { /* warming is best-effort */ }
+    };
+    ping();
+    const t = setInterval(ping, STEP_IN_WARM_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') ping(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+  }, [eventId, enabled]);
+}

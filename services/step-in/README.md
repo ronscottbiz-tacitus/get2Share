@@ -106,6 +106,10 @@ python -m stepin.cli -i ~/Projects/splatlab/sharp-in2 -o ~/Projects/splatlab/ste
 
 You get `<name>-in.ply` and `<name>-out.ply`, plus small `.sog` copies when Node is installed. 3D Moments Lab opens both. Add `--birefnet birefnet-general-lite` if it runs out of memory, or `--cutout subject` to cut out the main object instead of people.
 
+## Warm-up
+
+While a host of a Pro event (or an admin) has the Host Console or the gallery open during a live event, the app calls `POST /warm` once every 4 minutes. That starts a GPU and loads the models ahead of time, so "Make Step In" takes seconds instead of a 1–2 minute cold start. The GPU shuts down 5 minutes after the last call, once the host closes the app. Right after a `modal deploy`, the first start is still slow (a few minutes), so don't deploy during an event.
+
 ## Cost
 
 An L4 GPU on Modal costs well under a cent per photo of processing. The 5 minutes it stays warm after a burst costs a few cents. Stored files are about 2–4 MB per photo (both moments together), and they're deleted with the event once cleanup is on.
