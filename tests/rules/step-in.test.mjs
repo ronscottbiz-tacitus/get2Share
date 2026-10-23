@@ -7,7 +7,7 @@
 // Every check prints PASS or FAIL; the script exits non-zero if any fail.
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { doc, setDoc, updateDoc, getDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
   projectId: 'demo-get2share',
@@ -68,6 +68,15 @@ await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firest
 await check('guest reads config/stepIn', assertSucceeds(getDoc(doc(guest, 'config', 'stepIn'))));
 await check('host cannot change config/stepIn', assertFails(setDoc(doc(host, 'config', 'stepIn'), { allHosts: false })));
 await check('other config docs stay closed', assertFails(getDoc(doc(host, 'config', 'other'))));
+
+// Join timer: each phone writes its own record; hosts read them.
+const timing = { nickname: 'maya', steps: { opened: 400, signedIn: 900, gallery: 2100 }, notes: { signIn: 'remembered' },
+  device: 'iPhone iOS 18.1 Safari', network: 'unknown', at: serverTimestamp() };
+await check('guest saves own join timing', assertSucceeds(setDoc(doc(guest, 'events', EID, 'timings', 'maya'), timing)));
+await check('guest cannot save timing for someone else', assertFails(setDoc(doc(guest, 'events', EID, 'timings', 'other'), timing)));
+await check('guest cannot read join timings', assertFails(getDoc(doc(guest, 'events', EID, 'timings', 'maya'))));
+await check('host reads join timings', assertSucceeds(getDoc(doc(host, 'events', EID, 'timings', 'maya'))));
+await check('stranger cannot save a timing', assertFails(setDoc(doc(stranger, 'events', EID, 'timings', 'nobody'), timing)));
 
 await env.cleanup();
 console.log(failed ? `${failed} FAILED` : 'All Step In rules checks passed.');

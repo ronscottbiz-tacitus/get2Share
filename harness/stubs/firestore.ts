@@ -78,13 +78,18 @@ export const doc = (_db: any, ...segs: string[]) => ({ path: segs.join('/'), kin
 export const collection = (_db: any, ...segs: string[]) => ({ path: segs.join('/'), kind: 'col', filters: [] });
 export const where = (f: string, op: string, v: any) => ({ f, op, v });
 export const orderBy = () => null;
+export const limit = () => null;
 export const query = (c: any, ...cons: any[]) => ({ ...c, filters: cons.filter((x) => x && x.f) });
 export const serverTimestamp = () => 0;
 export const onSnapshot = (ref: any, cb: any) => {
   setTimeout(() => {
     if (ref.kind === 'doc') return cb(docSnap(ref.path));
     let rows: any[] = ref.path.endsWith('photos') ? PHOTOS.slice(0, Number(localStorage.getItem('h-nphotos') || PHOTOS.length)) : ref.path.endsWith('sessions') ? SESSIONS : ref.path === 'events' ? [{ id: 'ev1', ...EV }] : ref.path.endsWith('/people') ? PEOPLE.map(([id, n]) => ({ id, nickname: n, lastSeen: ts(Date.now()) })) : ref.path.endsWith('/joined') ? [{ id: 'ev2', name: "Nia's 30th", code: 'NIA300', joinedAt: ts(now - 86400000 * 20), expireAt: ts(now + 86400000 * 10) }] : [];
-    if (ref.path === 'events' || ref.path.endsWith('/joined') || ref.path.endsWith('/people')) return cb({ docs: rows.map((r) => ({ id: r.id, data: () => r })), forEach: () => {} });
+    if (ref.path.endsWith('/timings')) rows = localStorage.getItem('h-timings') === '1' ? [
+      { id: 'g9', nickname: 'Michelle', steps: { opened: 900, signedIn: 1400, codeFound: 98000, member: 118000, gallery: 119500 }, notes: { signIn: 'remembered' }, device: 'iPhone iOS 18.1 Safari', network: 'unknown', at: ts(now - 600000) },
+      { id: 'g2', nickname: 'jordan', steps: { opened: 700, signedIn: 1100, codeFound: 1500, member: 1800, nameScreen: 1810, joined: 9000, gallery: 9600 }, notes: { signIn: 'new' }, device: 'Android 15 Chrome', network: '4g 8.5Mbps', at: ts(now - 1200000) },
+    ] : [];
+    if (ref.path === 'events' || ref.path.endsWith('/joined') || ref.path.endsWith('/people') || ref.path.endsWith('/timings')) return cb({ docs: rows.map((r) => ({ id: r.id, data: () => r })), forEach: () => {} });
     for (const { f, op, v } of ref.filters) rows = rows.filter((r: any) => op === 'array-contains' ? (r[f] || []).includes(v) : op === '>=' ? r[f] >= v : r[f] === v);
     const docs = rows.map((r: any) => ({ id: r.id || r.sessionId, data: () => r }));
     cb({ docs, forEach: (fn: any) => docs.forEach(fn) });

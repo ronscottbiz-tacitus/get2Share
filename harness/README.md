@@ -39,6 +39,7 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-lend=<status>` | a request dee sent to maya: `asking`, `live`, `firing` (a shot fires in 3s), `shot` |
 | `h-stepin=<json>` | photos get a Step In moment: `{"p1": {"status": "ready", "inUrl": …, "outUrl": …, "inFrame": …, "url": …}}` (`url` swaps the photo; serve local files via `/@fs/tmp/…`) |
 | `h-pro=1` | ev1 is a Pro event (`features/ev1.pro`) |
+| `h-timings=1` | the Host Console's "Join speed" panel shows two sample joins (one slow) |
 | `h-allhosts=0` | Step In is Pro-only (`config/stepIn.allHosts` false); by default every host has it |
 
 Share Spot: open /spot and enter pairing code SPT234 (pair it, then tap anywhere).

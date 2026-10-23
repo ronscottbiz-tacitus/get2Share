@@ -21,6 +21,7 @@ import { EventContext } from './EventContext';
 import CloseButton from './components/CloseButton';
 import { useBackToClose } from './useBackToClose';
 import StepInWarmer from './components/StepInWarmer';
+import { markJoin, noteJoin, noteJoinOnce, saveJoinTiming } from './joinTiming';
 // Screens a guest who scans a code never needs load on demand, so the join screen arrives fast.
 const loadLightbox = () => import('./components/PhotoLightbox');
 const loadKeepsake = () => import('./components/Keepsake');
@@ -166,11 +167,14 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
+        markJoin('signedIn');
+        noteJoinOnce('signIn', 'remembered');
         setAuthUser(user);
         setAuthReady(true);
         setAuthError('');
       } else {
         setAuthUser(null);
+        noteJoin('signIn', 'new');
         signInAnonymously(auth).catch((err) => {
           console.error('Anonymous sign-in failed:', err);
           setAuthError(
@@ -198,6 +202,7 @@ export default function App() {
     (async () => {
       try {
         const found = await resolveJoinCode(routeCode);
+        markJoin('codeFound');
         if (cancelled) return;
         if (!found) {
           // The host may have made a new join link. If this device already joined
@@ -228,6 +233,8 @@ export default function App() {
         const created = Date.parse(authUser?.metadata?.creationTime || '') || 0;
         const brandNew = !!authUser?.isAnonymous && Date.now() - created < 5 * 60_000 && !findJoinedByCode(routeCode);
         const member = brandNew ? false : await isMemberOf(found.eventId, sessionId);
+        markJoin('member');
+        if (brandNew) noteJoin('lookup', 'skipped (new phone)');
         if (cancelled) return;
         if (member) {
           try {
@@ -288,6 +295,16 @@ export default function App() {
 
   const inGalleryNow = route.kind === 'event' && membership === 'member' && !!event;
 
+  // Join timer: the name screen and the gallery are the moments a guest stops waiting on us.
+  useEffect(() => {
+    if (route.kind === 'event' && membership === 'not' && joinInfo) markJoin('nameScreen');
+  }, [route.kind, membership, joinInfo]);
+  useEffect(() => {
+    if (!inGalleryNow || !event || !sessionId) return;
+    markJoin('gallery');
+    saveJoinTiming(event.id, sessionId, nickname, event.expireAt ?? null);
+  }, [inGalleryNow]);
+
   // Host tabs: Console → Gallery in the same window. A host who never joined their own
   // event as a guest joins quietly (as "Host"), so the gallery opens without the name screen.
   const openHostGallery = async () => {
@@ -315,6 +332,7 @@ export default function App() {
       try { localStorage.setItem('get2share-nickname', enteredNickname); } catch { /* ignore */ }
       setNickname(enteredNickname);
       rememberEvent({ code: joinInfo.code, name: joinInfo.name, eventId: joinInfo.eventId });
+      markJoin('joined');
       setMembership('member');
     } catch (err) {
       console.error('Join failed:', err);
@@ -851,7 +869,7 @@ export default function App() {
   }
 
   // ---------- /e/CODE ----------
-  if (membership === 'checking' && !joinError) return <Centered>Finding the event…</Centered>;
+  if (membership === 'checking' && !joinError) return <FindingEvent />;
 
   if (membership !== 'member' || !joinInfo) {
     if (!joinInfo) {
@@ -1060,6 +1078,34 @@ export default function App() {
         </Suspense>
       )}
     </EventContext.Provider>
+  );
+}
+
+/** "Finding the event…", with a way out if the connection stalls. */
+function FindingEvent() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 12000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <Centered>
+      <div className="space-y-4">
+        <p>Finding the event…</p>
+        {slow && (
+          <div className="space-y-3">
+            <p className="text-xs text-g2-muted max-w-[260px] mx-auto">This is taking longer than usual. The Wi-Fi may be busy.</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="h-11 px-5 rounded-xl bg-g2-blue text-white font-bold text-sm cursor-pointer"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+      </div>
+    </Centered>
   );
 }
 

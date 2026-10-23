@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Camera } from 'lucide-react';
 import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
@@ -20,6 +20,13 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
   const [nickname, setNickname] = useState(defaultNickname);
   const [error, setError] = useState('');
   const eventTitle = eventName;
+  // Still looking after 12 seconds: offer a reload (a stalled connection usually recovers).
+  const [slowFind, setSlowFind] = useState(false);
+  useEffect(() => {
+    if (eventTitle) return;
+    const t = setTimeout(() => setSlowFind(true), 12000);
+    return () => clearTimeout(t);
+  }, [eventTitle]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +72,14 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
               </>
             )}
           </div>
+          {!eventTitle && slowFind && (
+            <p className="mt-2 text-[12px] text-g2-muted">
+              Taking longer than usual; the Wi-Fi may be busy.{' '}
+              <button type="button" onClick={() => window.location.reload()} className="font-bold text-g2-blue-light underline cursor-pointer">
+                Try again
+              </button>
+            </p>
+          )}
           <h1
             aria-label="Finally, you get to be in the picture. And get one too."
             className="mt-[18px] font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/10.2))] leading-[1.04] tracking-[-0.02em] text-white"

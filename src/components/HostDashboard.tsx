@@ -15,6 +15,7 @@ import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
 import Get2ShareLockup from './Get2ShareLockup';
 import HostTabs from './HostTabs';
+import JoinSpeedPanel from './JoinSpeedPanel';
 import { useRemoteShutter } from './useRemoteShutter';
 import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
@@ -1341,6 +1342,9 @@ export default function HostDashboard({
                 </>
               )}
             </div>
+
+            {/* Join speed: how long guests waited to get in */}
+            <JoinSpeedPanel eventId={eventId} enabled={isHost} />
           </div>
         </div>
       </div>

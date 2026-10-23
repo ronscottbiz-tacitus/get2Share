@@ -1,6 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-10-23: join timer. Each phone saves how long joining took to
+//   events/{eventId}/timings/{uid}; hosts read them ("Join speed" in the Host Console).
 // Version 2026-10-22b: config/stepIn ("allHosts") is readable by anyone signed in.
 // Version 2026-10-22: Step In. Photos may carry "stepIn" (written only by the cloud job);
 //   features/{eventId} holds Pro, readable by hosts. Additive.
@@ -464,6 +466,24 @@ service cloud.firestore {
     // Admins change it in the Firebase console; nobody writes it from the app.
     match /config/{docId} {
       allow get: if signedIn() && docId == 'stepIn';
+    }
+
+    // ---------- Join timer ----------
+    // One small record per phone per event: how long each step of joining took.
+    function isValidTiming(d) {
+      return d.keys().hasOnly(['nickname', 'steps', 'notes', 'device', 'network', 'at', 'expireAt'])
+        && d.nickname is string && d.nickname.size() > 0 && d.nickname.size() <= 40
+        && d.steps is map && d.steps.size() <= 10
+        && (!('notes' in d) || (d.notes is map && d.notes.size() <= 6))
+        && (!('device' in d) || (d.device is string && d.device.size() <= 60))
+        && (!('network' in d) || (d.network is string && d.network.size() <= 40))
+        && d.at == request.time
+        && isOptionalTime(d, 'expireAt');
+    }
+
+    match /events/{eid}/timings/{uid} {
+      allow get, list: if isEventHost(eid);
+      allow create, update: if isOwner(uid) && canSee(eid) && isValidTiming(incoming());
     }
 
     // ---------- Sessions (guest cameras, Share Spots) ----------
