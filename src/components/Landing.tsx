@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { ArrowRight, Camera, Play, ScanFace, Timer } from 'lucide-react';
-import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import ProConcepts from './ProConcepts';
 import { LastEvent, normalizeJoinCode } from '../eventLinks';
@@ -60,12 +59,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           </button>
         </header>
 
-        <motion.section
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="mt-6"
-        >
+        <section className="mt-6 landing-rise">
           <h1
             aria-label="Finally, you get to be in the picture. And get one too."
             className="font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/10.2))] leading-[1.04] tracking-[-0.02em] text-white"
@@ -80,7 +74,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
             Every photo from the party, on everyone's phone. No app to download.
           </p>
-        </motion.section>
+        </section>
 
         <ul className="mt-5 flex flex-col gap-3.5">
           {PROMISES.map(({ icon: Icon, title, body }) => (

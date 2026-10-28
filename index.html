@@ -6,6 +6,16 @@
     <title>Get2Share · You Get2 be in the picture</title>
     <meta name="description" content="Live photo sharing for events. Guests scan a code and every photo lands in one shared gallery. You Get2 be in the picture." />
     <meta name="theme-color" content="#050506" />
+    <!-- Dark from the very first frame, before the stylesheet arrives. -->
+    <style>html,body{background:#050506}</style>
+    <script>
+      // On the landing page, start the first concept card's cover image right away (it's the biggest thing on a phone's first screen).
+      if ((location.pathname.replace(/\/+$/, '') || '/') === '/') {
+        var l = document.createElement('link');
+        l.rel = 'preload'; l.as = 'image'; l.href = '/media/pro-matrix-poster.webp'; l.setAttribute('fetchpriority', 'high');
+        document.head.appendChild(l);
+      }
+    </script>
     <!-- Open connections early: fonts, plus Firebase sign-in and database, so a guest's first scan isn't waiting on them -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
