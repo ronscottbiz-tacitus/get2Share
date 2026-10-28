@@ -3,8 +3,9 @@ import { ArrowRight, Camera, Play, ScanFace, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
 import Get2ShareLockup from './Get2ShareLockup';
 import ProConcepts from './ProConcepts';
-import { LastEvent, normalizeJoinCode } from '../events';
+import { LastEvent, normalizeJoinCode } from '../eventLinks';
 import { isPairingCode, SPOT_SETUP_PATH } from '../spotPairing';
+import { useMediaReady } from '../deferredMedia';
 
 interface LandingProps {
   lastEvent: LastEvent | null;
@@ -25,6 +26,7 @@ const prefersReducedMotion = () =>
 
 export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, onSample }: LandingProps) {
   const [stillOnly] = useState(prefersReducedMotion);
+  const mediaReady = useMediaReady();
   const [code, setCode] = useState('');
   const [error, setError] = useState(
     notFoundCode ? `No event uses the code ${notFoundCode}. Check it with the host; it may have been changed.` : ''
@@ -46,7 +48,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
   };
 
   return (
-    <div className="min-h-dvh bg-g2-page text-g2-text flex flex-col px-5 pt-4 pb-5 font-sans">
+    <main className="min-h-dvh bg-g2-page text-g2-text flex flex-col px-5 pt-4 pb-5 font-sans">
       <div className="w-full max-w-md mx-auto flex flex-col flex-1">
         <header className="flex justify-between items-center h-12">
           <Get2ShareLockup className="text-[22px]" />
@@ -100,12 +102,12 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
             className="mt-5 p-2.5 pr-4 rounded-xl bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 text-left flex items-center gap-3.5 cursor-pointer transition-colors"
           >
             <span className="relative w-[60px] h-[84px] shrink-0 rounded-lg overflow-hidden bg-black">
-              {stillOnly ? (
-                <img src="/media/g2-cwalk-loop-poster.jpg" alt="" className="w-full h-full object-cover" />
+              {stillOnly || !mediaReady ? (
+                <img src="/media/g2-cwalk-loop-poster.webp" alt="" className="w-full h-full object-cover" />
               ) : (
                 <video
                   src="/media/g2-cwalk-loop.mp4"
-                  poster="/media/g2-cwalk-loop-poster.jpg"
+                  poster="/media/g2-cwalk-loop-poster.webp"
                   autoPlay
                   muted
                   loop
@@ -191,6 +193,6 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           A Get2 product · share.get2.one
         </p>
       </div>
-    </div>
+    </main>
   );
 }

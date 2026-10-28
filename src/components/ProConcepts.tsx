@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import CloseButton from './CloseButton';
 import { useBackToClose } from '../useBackToClose';
+import { useMediaReady } from '../deferredMedia';
 
 interface Concept {
   id: string;
@@ -19,7 +20,7 @@ const CONCEPTS: Concept[] = [
     blurb: 'Every phone fires at once. Freeze the moment and fly around it.',
     card: '/media/pro-matrix-card.mp4',
     full: '/media/pro-matrix.mp4',
-    poster: '/media/pro-matrix-poster.jpg',
+    poster: '/media/pro-matrix-poster.webp',
   },
   {
     id: 'swim',
@@ -27,7 +28,7 @@ const CONCEPTS: Concept[] = [
     blurb: 'Glide through the crowd, stitched from everyone’s photos.',
     card: '/media/pro-swim-card.mp4',
     full: '/media/pro-swim.mp4',
-    poster: '/media/pro-swim-poster.jpg',
+    poster: '/media/pro-swim-poster.webp',
   },
 ];
 
@@ -45,9 +46,10 @@ function ConceptLabel({ className = '', short = false }: { className?: string; s
 /** A muted loop that only loads and plays while it's on screen. */
 function CardVideo({ c, still }: { c: Concept; still: boolean }) {
   const ref = useRef<HTMLVideoElement | null>(null);
+  const mediaReady = useMediaReady();
   useEffect(() => {
     const v = ref.current;
-    if (!v || still || typeof IntersectionObserver === 'undefined') return;
+    if (!v || still || !mediaReady || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -61,7 +63,7 @@ function CardVideo({ c, still }: { c: Concept; still: boolean }) {
     );
     io.observe(v);
     return () => io.disconnect();
-  }, [c.card, still]);
+  }, [c.card, still, mediaReady]);
   if (still) return <img src={c.poster} alt="" className="absolute inset-0 w-full h-full object-cover" />;
   return (
     <video
@@ -119,7 +121,6 @@ export default function ProConcepts() {
             key={c.id}
             type="button"
             onClick={() => setOpen(c)}
-            aria-label={`${c.title}: play the AI-generated concept`}
             className="relative aspect-[9/14] rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 text-left cursor-pointer transition-colors"
           >
             <CardVideo c={c} still={still} />
@@ -128,6 +129,7 @@ export default function ProConcepts() {
             <span className="absolute inset-x-0 bottom-0 p-3">
               <span className="block font-expanded font-black text-[15px] leading-tight text-white">{c.title}</span>
               <span className="block mt-1 text-[11.5px] leading-snug text-white/75 max-[359px]:hidden">{c.blurb}</span>
+              <span className="sr-only"> Play the AI-generated concept.</span>
             </span>
           </button>
         ))}
