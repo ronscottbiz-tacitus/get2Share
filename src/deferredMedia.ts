@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-// Decorative videos wait until the page has loaded and settled (or the visitor starts
-// using it), so they never compete with the first screen on a slow phone connection.
+// Decorative videos wait until the visitor starts using the page (a tap, key, or scroll),
+// so they never compete with the first screen on a slow phone connection. Posters show until then.
 let ready = false;
 const waiters = new Set<() => void>();
 
@@ -17,9 +17,6 @@ if (typeof window !== 'undefined') {
   ['pointerdown', 'keydown', 'scroll', 'touchstart'].forEach((t) =>
     window.addEventListener(t, onUse, { once: true, passive: true })
   );
-  const afterLoad = () => window.setTimeout(release, 3500);
-  if (document.readyState === 'complete') afterLoad();
-  else window.addEventListener('load', afterLoad, { once: true });
 }
 
 /** True once decorative media may start loading. */

@@ -52,3 +52,12 @@
   background: var(--color-g2-panel);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* Landing headline settles in on load (CSS only, so the landing page doesn't need an animation library). */
+@keyframes landing-rise {
+  from { transform: translateY(12px); }
+  to { transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .landing-rise { animation: landing-rise 0.4s ease-out both; }
+}
