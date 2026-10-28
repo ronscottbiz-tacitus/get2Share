@@ -5,6 +5,7 @@
 export default function Get2ShareLockup({ className = '' }: { className?: string }) {
   return (
     <span
+      role="img"
       aria-label="Get2Share"
       className={`font-expanded font-black tracking-[-0.01em] text-white leading-none ${className}`}
     >
