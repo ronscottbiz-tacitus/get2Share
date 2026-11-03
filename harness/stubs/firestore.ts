@@ -59,6 +59,36 @@ const lensDoc = (from: string, fromName: string, to: string, toName: string, key
 };
 const PEOPLE = [['g2', 'jordan'], ['g3', 'dee'], ['g4', 'chris'], ['g5', 'sam'], ['guest1', 'maya']];
 const sessionDoc = () => localStorage.getItem('h-lens') === '1' ? { invited_to_lens: true, lens_status: 'requesting' } : { lens_status: 'off' };
+// Walkthrough: h-wt-config=admin|all (or JSON) is config/walkthrough; unset means off.
+// h-wt=<status> makes one video exist for ev1, h-wt-aspect=16:9 turns it horizontal,
+// h-wt-url and h-wt-poster point it at a real file (this Chromium can't play H.264: use .webm).
+const walkthroughConfig = () => {
+  const v = localStorage.getItem('h-wt-config');
+  if (!v) return undefined;
+  if (v === 'admin') return { enabled: true };
+  if (v === 'all') return { enabled: true, allHosts: true };
+  return JSON.parse(v);
+};
+const walkthroughRows = () => {
+  const status = localStorage.getItem('h-wt');
+  if (!status) return [];
+  const aspect = localStorage.getItem('h-wt-aspect') || '9:16';
+  const done = status === 'preview' || status === 'published';
+  const clipStatus = (i: number) => done || i === 0 ? 'ready' : status === 'blocked' && i === 1 ? 'blocked' : status === 'failed' && i === 1 ? 'failed' : status === 'generating' && i === 1 ? 'submitted' : status === 'joining' ? 'ready' : 'pending';
+  const message: Record<string, string> = {
+    blocked: "The AI service wouldn't animate these photos, often because of faces or its content rules. This didn't use up your limit. Try different photos.",
+    failed: "The video didn't finish. This didn't use up your limit. Try again in a few minutes.",
+  };
+  return [{
+    id: 'wt1', status, aspect, seconds: 15, photoIds: ['p1', 'p2', 'p4', 'p5'], redosUsed: Number(localStorage.getItem('h-wt-redos') || 0),
+    clips: [0, 1, 2].map((index) => ({ index, startPhotoId: 'p1', endPhotoId: 'p2', status: clipStatus(index) })),
+    videoUrl: done ? localStorage.getItem('h-wt-url') || '/media/none.mp4' : null,
+    posterUrl: done ? localStorage.getItem('h-wt-poster') || svg('#0c0d10', '#0052FF', aspect === '9:16' ? 720 : 1280, aspect === '9:16' ? 1280 : 720) : null,
+    error: message[status] || null,
+    redoNotice: localStorage.getItem('h-wt-notice'),
+    createdAt: ts(now - 600000), updatedAt: ts(localStorage.getItem('h-wt-slow') ? Date.now() - 20 * 60000 : Date.now()),
+  }];
+};
 const docSnap = (path: string) => {
   let data = path === 'events/ev1/sessions/guest1' ? sessionDoc() : DOCS[path];
   if (path === 'events/ev1/members/guest1' || path === 'events/ev1/members/host1') data = localStorage.getItem('h-member') === '1' ? { nickname: 'maya', ...(localStorage.getItem('h-kept') ? { kept: [localStorage.getItem('h-kept')] } : {}) } : undefined;
@@ -67,6 +97,7 @@ const docSnap = (path: string) => {
   const pm = path.match(/^events\/ev1\/photos\/(p\d)$/); if (pm) data = PHOTOS.find((x) => x.id === pm[1]);
   if (path === 'features/ev1') data = localStorage.getItem('h-pro') === '1' ? { pro: true } : undefined;
   if (path === 'config/stepIn') data = localStorage.getItem('h-allhosts') === '0' ? { allHosts: false } : undefined;
+  if (path === 'config/walkthrough') data = walkthroughConfig();
   const tv = localStorage.getItem('h-tv');
   if (path.startsWith('screenPairings/')) data = tv ? { screenUid: 'guest1', createdAt: ts(now - 120000), eventId: tv === 'show' ? 'ev1' : null, screenName: tv === 'show' ? 'Main Hall TV' : null, claimedBy: tv === 'show' ? 'host1' : null } : undefined;
   if (tv === 'show' && path === 'events/ev1/members/guest1') data = { nickname: 'Main Hall TV' };
@@ -83,7 +114,7 @@ export const serverTimestamp = () => 0;
 export const onSnapshot = (ref: any, cb: any) => {
   setTimeout(() => {
     if (ref.kind === 'doc') return cb(docSnap(ref.path));
-    let rows: any[] = ref.path.endsWith('photos') ? PHOTOS.slice(0, Number(localStorage.getItem('h-nphotos') || PHOTOS.length)) : ref.path.endsWith('sessions') ? SESSIONS : ref.path === 'events' ? [{ id: 'ev1', ...EV }] : ref.path.endsWith('/people') ? PEOPLE.map(([id, n]) => ({ id, nickname: n, lastSeen: ts(Date.now()) })) : ref.path.endsWith('/joined') ? [{ id: 'ev2', name: "Nia's 30th", code: 'NIA300', joinedAt: ts(now - 86400000 * 20), expireAt: ts(now + 86400000 * 10) }] : [];
+    let rows: any[] = ref.path.endsWith('/walkthroughs') ? walkthroughRows() : ref.path.endsWith('photos') ? PHOTOS.slice(0, Number(localStorage.getItem('h-nphotos') || PHOTOS.length)) : ref.path.endsWith('sessions') ? SESSIONS : ref.path === 'events' ? [{ id: 'ev1', ...EV }] : ref.path.endsWith('/people') ? PEOPLE.map(([id, n]) => ({ id, nickname: n, lastSeen: ts(Date.now()) })) : ref.path.endsWith('/joined') ? [{ id: 'ev2', name: "Nia's 30th", code: 'NIA300', joinedAt: ts(now - 86400000 * 20), expireAt: ts(now + 86400000 * 10) }] : [];
     if (ref.path === 'events' || ref.path.endsWith('/joined') || ref.path.endsWith('/people')) return cb({ docs: rows.map((r) => ({ id: r.id, data: () => r })), forEach: () => {} });
     for (const { f, op, v } of ref.filters) rows = rows.filter((r: any) => op === 'array-contains' ? (r[f] || []).includes(v) : op === '>=' ? r[f] >= v : r[f] === v);
     const docs = rows.map((r: any) => ({ id: r.id || r.sessionId, data: () => r }));

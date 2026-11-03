@@ -40,6 +40,16 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-stepin=<json>` | photos get a Step In moment: `{"p1": {"status": "ready", "inUrl": …, "outUrl": …, "inFrame": …, "url": …}}` (`url` swaps the photo; serve local files via `/@fs/tmp/…`) |
 | `h-pro=1` | ev1 is a Pro event (`features/ev1.pro`) |
 | `h-allhosts=0` | Step In is Pro-only (`config/stepIn.allHosts` false); by default every host has it |
+| `h-nonadmin=1` | the host (`h-host=1`) is an ordinary host, not an admin |
+| `h-wt-config=<v>` | `config/walkthrough`: `admin` (on, admins only), `all` (on, every host), or JSON. Unset means off, so the Host Console shows no Walkthrough card |
+| `h-wt=<status>` | ev1 has one Walkthrough video: `queued`, `generating`, `joining`, `preview`, `published`, `failed`, `blocked`. Guests and TVs only see `published` |
+| `h-wt-aspect=16:9` | that video is horizontal (vertical by default) |
+| `h-wt-url`, `h-wt-poster` | real files for it, through `/@fs/…` (this Chromium can't play H.264, so use a `.webm`) |
+| `h-wt-redos=<n>`, `h-wt-notice=<text>`, `h-wt-slow=1` | redos used, the notice after a failed redo, and a job with no update in 20 minutes |
+
+The Walkthrough's cloud calls aren't faked by the stubs; stub them in a capture script with
+`page.route('**/*get2share-walkthrough*/**', …)`, or `VITE_WALKTHROUGH_API` to a local server.
+`node harness/walkthrough-shots.mjs <out-dir>` captures every Walkthrough screen.
 
 Share Spot: open /spot and enter pairing code SPT234 (pair it, then tap anywhere).
 Stub photos are colored gradients (unless `h-photos=sample`); /sample uses the real sample-party images.
