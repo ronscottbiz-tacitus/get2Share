@@ -11,6 +11,8 @@ import HostBar from './HostBar';
 import SavePhotosSheet from './SavePhotosSheet';
 import { canSaveAlbum, daysLeft, isOwnPhoto } from '../savePhotos';
 import { stepInReady, useStepInVisible } from '../stepIn';
+import { usePublishedWalkthroughs, Walkthrough } from '../walkthrough';
+import WalkthroughPlayer, { WalkthroughCard } from './WalkthroughPlayer';
 import HostTabs from './HostTabs';
 
 interface LiveGalleryFeedProps {
@@ -58,6 +60,8 @@ export default function LiveGalleryFeed({
   const [uploadProgress, setUploadProgress] = useState('');
   const eventId = event.id;
   const showStepIn = useStepInVisible(eventId, !!isHost);
+  const walkthroughs = usePublishedWalkthroughs(eventId);
+  const [playing, setPlaying] = useState<Walkthrough | null>(null);
   const autoApproval = event.autoApproval;
 
   // Where the event is in its life (live → wrap-up → album). Re-checked every 30s.
@@ -387,8 +391,25 @@ export default function LiveGalleryFeed({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {playing && (
+          <WalkthroughPlayer
+            key="walkthrough"
+            w={walkthroughs.find((w) => w.id === playing.id) ?? playing}
+            eventName={event.name}
+            canSave={canSaveAlbum(event, !!isHost)}
+            onClose={() => setPlaying(null)}
+          />
+        )}
+      </AnimatePresence>
+      {/* A host took the video down while someone was watching: close it. */}
+      {playing && !walkthroughs.some((w) => w.id === playing.id) && <CloseWhenGone onGone={() => setPlaying(null)} />}
+
       {/* Grid */}
       <main className="px-5 max-w-3xl mx-auto">
+        {activeTab === 'all' && walkthroughs.map((w) => (
+          <WalkthroughCard key={w.id} w={w} onOpen={() => setPlaying(w)} />
+        ))}
         {filteredPhotos.length === 0 ? (
           <div className="py-16 text-center">
             <div className="p-6 bg-g2-panel border border-white/[0.08] rounded-xl max-w-xs mx-auto">
@@ -582,4 +603,9 @@ export default function LiveGalleryFeed({
       </div>
     </div>
   );
+}
+
+function CloseWhenGone({ onGone }: { onGone: () => void }) {
+  useEffect(() => { onGone(); }, []);
+  return null;
 }

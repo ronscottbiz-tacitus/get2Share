@@ -12,6 +12,7 @@ import {
 } from '../screens';
 import { Photo } from '../types';
 import { stepInReady, useStepInAllHosts } from '../stepIn';
+import { usePublishedWalkthroughs, Walkthrough, WALKTHROUGH_LABEL } from '../walkthrough';
 
 const StepInStage = React.lazy(() => import('./StepInStage'));
 
@@ -34,6 +35,9 @@ const STEP_IN_SHOW_MS = 11000;
 // On the wall, one Step In tile moves at a time (a TV can't smoothly play nine 3D scenes);
 // each gets this long before the next one takes over.
 const WALL_LIVE_MS = 12000;
+// Approved Walkthrough videos: one plays as soon as it's approved, and they come round again.
+const WALKTHROUGH_FIRST_MS = 30_000;
+const WALKTHROUGH_EVERY_MS = 5 * 60_000;
 const HEARTBEAT_MS = 60000;
 
 function readStoredCode() {
@@ -379,6 +383,7 @@ function EventView({ event, config, photos: allPhotos, now, onSwitch }: { event:
   );
   const current = useJustIn(photos);
   const moment = useNewStepIn(allPhotos, showStepIn);
+  const walkthrough = useWalkthroughTurn(usePublishedWalkthroughs(event.id), !config.paused);
 
   if (config.paused) {
     return (
@@ -456,6 +461,10 @@ function EventView({ event, config, photos: allPhotos, now, onSwitch }: { event:
                 <JustInBar photo={moment} showNames={config.showNames} label="Step In · 3D" />
               </motion.div>
             )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {walkthrough.current && <TvWalkthrough key={walkthrough.current.id} w={walkthrough.current} onDone={walkthrough.finish} />}
           </AnimatePresence>
         </div>
 
@@ -1052,6 +1061,66 @@ function useNewStepIn(photos: Photo[], show: boolean | null): Photo | null {
     }
   }, [current, queue]);
   return show ? photos.find((p) => p.id === current && stepInReady(p)) ?? null : null;
+}
+
+/** Which approved Walkthrough plays now. A newly approved one goes straight away; then they take turns. */
+function useWalkthroughTurn(list: Walkthrough[], enabled: boolean) {
+  const seen = useRef<Set<string> | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const turn = useRef(0);
+  const ids = list.map((w) => w.id).join('|');
+  useEffect(() => {
+    if (seen.current === null) { seen.current = new Set(list.map((w) => w.id)); return; }
+    const fresh = list.find((w) => !seen.current!.has(w.id));
+    list.forEach((w) => seen.current!.add(w.id));
+    if (fresh && enabled) setPlaying(fresh.id);
+  }, [ids]);
+  useEffect(() => {
+    if (!enabled || !ids) return;
+    const next = () => {
+      const all = ids.split('|');
+      setPlaying((now) => now ?? all[turn.current++ % all.length]);
+    };
+    const first = setTimeout(next, WALKTHROUGH_FIRST_MS);
+    const every = setInterval(next, WALKTHROUGH_EVERY_MS);
+    return () => { clearTimeout(first); clearInterval(every); };
+  }, [ids, enabled]);
+  const current = enabled ? list.find((w) => w.id === playing) ?? null : null; // taken down mid-play: gone
+  return { current, finish: () => setPlaying(null) };
+}
+
+/** A Walkthrough on the big screen, once through, with its label beside it (below, if horizontal). */
+function TvWalkthrough({ w, onDone }: { key?: string; w: Walkthrough; onDone: () => void }) {
+  // A TV browser may refuse to play it and never say so: don't hold the screen forever.
+  useEffect(() => {
+    const t = setTimeout(onDone, (w.seconds + 8) * 1000);
+    return () => clearTimeout(t);
+  }, [w.id]);
+  const tall = w.aspect === '9:16';
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.5 }}
+      className={`absolute inset-0 z-30 rounded-[2vmin] overflow-hidden bg-black flex ${tall ? 'flex-row items-center justify-center gap-[4vmin] px-[4vmin]' : 'flex-col'}`}
+    >
+      <video
+        src={w.videoUrl || undefined}
+        poster={w.posterUrl || undefined}
+        autoPlay
+        muted
+        playsInline
+        onEnded={onDone}
+        onError={onDone}
+        className={tall ? 'h-full aspect-[9/16] object-contain' : 'flex-1 min-h-0 w-full object-contain'}
+      />
+      <div className={tall ? 'max-w-[40vmin]' : 'shrink-0 px-[3vmin] py-[1.6vmin] bg-g2-page/85 flex items-center gap-[3vmin]'}>
+        <span className={`inline-flex items-center h-[4.4vmin] px-[2vmin] rounded-full bg-g2-blue font-condensed font-extrabold text-[2.2vmin] tracking-[0.16em] uppercase text-white shrink-0 ${tall ? 'mb-[2vmin]' : ''}`}>Walkthrough</span>
+        <p className={`leading-snug text-white ${tall ? 'text-[3.2vmin]' : 'text-[2.6vmin]'}`}>{WALKTHROUGH_LABEL}</p>
+      </div>
+    </motion.div>
+  );
 }
 
 function JustInBar({ photo, showNames, label = 'Just in' }: { photo: Photo; showNames: boolean; label?: string }) {

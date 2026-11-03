@@ -20,6 +20,7 @@ import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
+import WalkthroughPanel from './WalkthroughPanel';
 import HostCameraButton from './HostCameraButton';
 import GroupShotButton from './GroupShotButton';
 import { useConsolePresence } from './useConsolePresence';
@@ -1003,6 +1004,9 @@ export default function HostDashboard({
 
             {/* TV screens paired to this event */}
             <ScreensPanel hostUid={sessionId} />
+
+            {/* AI Walkthrough video (hidden until config/walkthrough turns it on) */}
+            <WalkthroughPanel photos={photos} />
 
             {/* Tap-to-Acquire Guest Handshakes ( Sara's Active Lens ) */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
