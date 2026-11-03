@@ -49,9 +49,10 @@ def admin_emails() -> set[str]:
 
 
 # ------------------------------------------------------------------ auth
-def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
-    """Returns (uid, event) if the caller hosts this event and Step In is on for it.
-    Raises PermissionError with a message the app can show."""
+def verify_event_host(id_token: str, event_id: str, denied: str = "Only hosts can do that.") -> tuple[str, dict, bool]:
+    """Returns (uid, event, is_admin) if the caller hosts this event or is an admin, and nothing
+    more. No feature switches here: each feature checks its own. Raises PermissionError with a
+    message the app can show."""
     from firebase_admin import auth
     try:
         claims = auth.verify_id_token(id_token, app=app())
@@ -64,7 +65,14 @@ def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
     ev = snap.to_dict()
     is_admin = bool(claims.get("email_verified")) and (claims.get("email") or "").lower() in admin_emails()
     if not is_admin and uid != ev.get("ownerUid") and uid not in (ev.get("hostUids") or []):
-        raise PermissionError("Only hosts can make Step In moments.")
+        raise PermissionError(denied)
+    return uid, ev, is_admin
+
+
+def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
+    """Returns (uid, event) if the caller hosts this event and Step In is on for it.
+    Raises PermissionError with a message the app can show."""
+    uid, ev, is_admin = verify_event_host(id_token, event_id, denied="Only hosts can make Step In moments.")
     if not (is_admin or step_in_for_all_hosts() or features(event_id).get("pro")):
         raise PermissionError("Step In is a Pro feature.")
     return uid, ev
@@ -122,6 +130,18 @@ def upload(local_path: str, remote_path: str, content_type="application/octet-st
             f"{quote(remote_path, safe='')}?alt=media&token={token}")
 
 
+def rotate_download_link(remote_path: str) -> str:
+    """Give a file a new download link. The old link stops working."""
+    token = str(uuid.uuid4())
+    blob = bucket().get_blob(remote_path)
+    if blob is None:
+        raise FileNotFoundError(remote_path)
+    blob.metadata = {**(blob.metadata or {}), "firebaseStorageDownloadTokens": token}
+    blob.patch()
+    return (f"https://firebasestorage.googleapis.com/v0/b/{bucket().name}/o/"
+            f"{quote(remote_path, safe='')}?alt=media&token={token}")
+
+
 # ------------------------------------------------------------------ cleanup
 def expired_events(now: datetime | None = None):
     """Events past their album date, the same rule the app uses (eventPhase in src/events.ts).
@@ -149,7 +169,7 @@ def cleanup(live: bool, log=print) -> dict:
         ev = snap.to_dict() or {}
         eid = snap.id
         blobs = []
-        for prefix in (f"events/{eid}/", f"moments/{eid}/"):
+        for prefix in (f"events/{eid}/", f"moments/{eid}/", f"walkthroughs/{eid}/"):
             blobs.extend(b.list_blobs(prefix=prefix))
         size = sum(x.size or 0 for x in blobs)
         totals["events"] += 1
