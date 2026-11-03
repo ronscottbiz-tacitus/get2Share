@@ -1,6 +1,9 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-03: Walkthrough videos. events/{eid}/walkthroughs: hosts read all, members
+//   read only published, no client writes (only the cloud job). config/walkthrough readable
+//   by anyone signed in. Additive.
 // Version 2026-10-22b: config/stepIn ("allHosts") is readable by anyone signed in.
 // Version 2026-10-22: Step In. Photos may carry "stepIn" (written only by the cloud job);
 //   features/{eventId} holds Pro, readable by hosts. Additive.
@@ -28,6 +31,7 @@ rules_version = '2';
 //   spotPairings/{CODE}               one-time Share Spot codes, tied to one event
 //   screenPairings/{CODE}             codes a TV shows; a host claims one to add that TV
 //   events/{eventId}/screens/{tvUid}  per-TV settings (layout, QR, pause) the hosts control
+//   events/{eventId}/walkthroughs/{id} AI videos; written only by the cloud job
 //
 // What this enforces:
 //   * You only see an event's photos if you joined it (with its current join
@@ -462,8 +466,18 @@ service cloud.firestore {
 
     // config/stepIn: { allHosts: true } gives every host Step In while there's no paid plan.
     // Admins change it in the Firebase console; nobody writes it from the app.
+    // config/walkthrough: { enabled, allHosts, limits, budget, ... } switches Walkthrough videos
+    // on. The cloud job enforces it; the app reads it to decide what to offer.
     match /config/{docId} {
-      allow get: if signedIn() && docId == 'stepIn';
+      allow get: if signedIn() && (docId == 'stepIn' || docId == 'walkthrough');
+    }
+
+    // ---------- Walkthrough videos ----------
+    // Written only by the cloud job (services/step-in/walkthrough_app.py). Guests and TVs can't
+    // read one until a host approves it, and must ask for published ones in their query.
+    match /events/{eid}/walkthroughs/{wid} {
+      allow get, list: if isEventHost(eid)
+                       || (isMember(eid) && resource.data.status == 'published');
     }
 
     // ---------- Sessions (guest cameras, Share Spots) ----------
