@@ -159,3 +159,14 @@ def test_check_final_refuses_a_wrong_video(frames, tmp_path):
     paths, _ = clips(frames[:2], tmp_path)
     with pytest.raises(media.MediaError):  # the raw clip: wrong duration, and not faststart
         media.check_final(paths[0], "9:16", "720p", 15.0)
+
+
+def test_full_range_clips_come_out_as_standard_video(tmp_path):
+    """Providers and newer ffmpeg can hand back full-range video (yuvj420p). Phones and TVs get yuv420p."""
+    src = tmp_path / "full.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=s=720x1280:d=2:r=24",
+                    "-vf", "format=yuvj420p", "-c:v", "libx264", "-preset", "ultrafast", str(src)], check=True)
+    assert media.probe(str(src))["pix_fmt"] == "yuvj420p"
+    out = tmp_path / "out.mp4"
+    media.join_segments([media.Segment(str(src), 2.0)], str(out), "9:16", "720p")
+    assert media.check_final(str(out), "9:16", "720p", 2.0)["pix_fmt"] == "yuv420p"

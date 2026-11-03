@@ -124,14 +124,14 @@ def join_segments(segments: list[Segment], out: str, aspect: str, resolution: st
             speed = f"setpts={s.slowdown:.4f}*PTS," if s.slowdown != 1.0 else ""
             parts.append(
                 f"[{i}:v]trim=duration={s.seconds:.3f},setpts=PTS-STARTPTS,{speed}fps={FPS},"
-                f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p[v{i}]"
+                f"scale={w}:{h}:force_original_aspect_ratio=increase:out_range=tv,crop={w}:{h},setsar=1,format=yuv420p[v{i}]"
             )
         chain = "".join(f"[v{i}]" for i in range(len(segments)))
         graph = ";".join(parts) + f";{chain}concat=n={len(segments)}:v=1:a=0[joined];[joined]{label_filter(w, h, td)}[final]"
         _run([
             "ffmpeg", "-y", "-loglevel", "error", *inputs,
             "-filter_complex", graph, "-map", "[final]", "-an",
-            "-c:v", "libx264", "-profile:v", "high", "-level", "4.0", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-profile:v", "high", "-level", "4.0", "-pix_fmt", "yuv420p", "-color_range", "tv",
             "-preset", "veryfast", "-crf", "20", "-g", str(FPS * 2),
             "-movflags", "+faststart", "-f", "mp4", out,
         ], timeout=900)
