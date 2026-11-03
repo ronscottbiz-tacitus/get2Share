@@ -14,7 +14,7 @@ These couldn't run where this was built, so **they have never been run**. Do thi
 cd ~/Projects/get2Share-live
 git fetch && git checkout ai-walkthrough
 npm install
-npm i --no-save firebase-tools @firebase/rules-unit-testing
+npm i --no-save firebase-tools @firebase/rules-unit-testing@5
 for t in walkthrough step-in guest-lens; do
   npx firebase emulators:exec --only firestore --project demo-get2share "node tests/rules/$t.test.mjs" || break
 done
