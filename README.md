@@ -38,7 +38,7 @@ Prototyped in Emergent, rebuilt in Google AI Studio, then moved off AI Studio to
 
 **Next:** premium video effects and video capture. Payments aren't built yet.
 
-**Next, on a preview branch and not live: AI Walkthrough video.** A host picks a few photos, an outside AI video service animates from each one to the next, and after the host approves the result it appears in the gallery and on the TV wall, labeled as AI-generated. It's off until it's set up. See [`services/step-in/WALKTHROUGH.md`](services/step-in/WALKTHROUGH.md).
+**Next, on a preview branch and not live: Flow, an AI video.** A host picks a few photos, an outside AI video service animates from each one to the next, and after the host approves the result it appears in the gallery and on the TV wall, labeled as AI-generated. It's off until it's set up. See [`services/step-in/WALKTHROUGH.md`](services/step-in/WALKTHROUGH.md).
 
 Photos in the screenshots are AI-generated samples; the app screens are real.
 
@@ -63,7 +63,7 @@ Get2Share runs many events at once, each sealed off from the others.
   - A guest photo goes live immediately only if auto-approval is on, or a host fired that device's shutter in the last 2 minutes. Otherwise it is `pending`.
   - A host can make a new join link at any time; the old one stops working, and people already in stay in.
   - Share Spots join only by claiming a one-time code from the Host Console (claimed within 10 minutes, once).
-- Walkthrough videos (preview branch): `events/{id}/walkthroughs` is written only by the cloud job. Hosts read all of them; guests and TVs read one only after a host approves it.
+- Flow videos (preview branch): `events/{id}/walkthroughs` is written only by the cloud job. Hosts read all of them; guests and TVs read one only after a host approves it.
 - `storage.rules`: each device uploads only into `photos/<its uid>/`, images up to 5 MB.
 
 ## One-time Firebase setup

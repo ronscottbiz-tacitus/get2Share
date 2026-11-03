@@ -7,8 +7,8 @@ import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 import { useBackToClose } from '../useBackToClose';
 import {
-  approveWalkthrough, canMakeWalkthrough, clipsDone, createWalkthrough, deleteWalkthrough, redoWalkthroughClip,
-  unpublishWalkthrough, useHostWalkthroughs, useWalkthroughConfig, Walkthrough, WalkthroughAspect, walkthroughBusy,
+  approveWalkthrough, canMakeWalkthrough, clipsDone, createWalkthrough, deleteWalkthrough, FlowMeter, flowSeconds, getFlowMeter,
+  redoWalkthroughClip, setFlowLabel, unpublishWalkthrough, useHostWalkthroughs, useWalkthroughConfig, Walkthrough, WalkthroughAspect, walkthroughBusy,
   WalkthroughConfig, WALKTHROUGH_NOTICE, walkthroughSlow,
 } from '../walkthrough';
 import CloseButton from './CloseButton';
@@ -18,13 +18,21 @@ const primary = 'h-12 rounded-xl bg-g2-blue hover:bg-g2-blue-hover disabled:opac
 const secondary = 'h-11 rounded-xl border border-white/15 bg-white/5 hover:border-white/30 disabled:opacity-40 text-white font-bold text-[13px] flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed transition-colors';
 const danger = 'h-11 rounded-xl border border-red-400/30 text-red-300 hover:bg-red-500/10 disabled:opacity-40 font-bold text-[13px] flex items-center justify-center gap-1.5 cursor-pointer transition-colors';
 
-/** Host Console: make a Walkthrough video, follow it, preview it, approve it, take it down. */
+/** Host Console: make a Flow video, follow it, preview it, approve it, take it down. */
 export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   const { event, isEventHost } = useEvent();
   const config = useWalkthroughConfig(isEventHost);
   const rows = useHostWalkthroughs(event.id, isEventHost);
   const canMake = canMakeWalkthrough(config, isEventHost);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [meter, setMeter] = useState<FlowMeter | null>(null);
+  const stamp = `${rows[0]?.id ?? ''}:${rows[0]?.status ?? ''}:${rows[0]?.redosUsed ?? 0}`;
+  useEffect(() => {
+    if (!canMake) return;
+    let on = true;
+    getFlowMeter(event.id).then((m) => { if (on) setMeter(m); }).catch(() => { if (on) setMeter(null); });
+    return () => { on = false; };
+  }, [event.id, canMake, stamp]);
 
   // A host can always manage a video they have, even with the feature off.
   if (!canMake && rows.length === 0) return null;
@@ -36,12 +44,14 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
     <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
       <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center justify-between">
         <span className="flex items-center gap-1.5">
-          <Clapperboard className="w-4 h-4 text-g2-blue-light" aria-hidden="true" /> Walkthrough video
+          <Clapperboard className="w-4 h-4 text-g2-blue-light" aria-hidden="true" /> Flow
         </span>
         <span className="text-[10px] text-g2-muted font-medium normal-case tracking-normal shrink-0 ml-3">AI video</span>
       </h3>
 
-      {current ? <Status w={current} config={config} canMake={canMake} /> : (
+      {canMake && meter && <MeterBar meter={meter} />}
+
+      {current ? <Status w={current} meter={meter} config={config} canMake={canMake} /> : (
         <p className="text-[13px] leading-relaxed text-g2-secondary">
           Pick a few photos and AI turns them into a short, silent video that moves from one to the next. You check it before anyone else sees it.
         </p>
@@ -50,19 +60,38 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
       {canStartOver && (
         <button type="button" onClick={() => setStudioOpen(true)} className={`w-full ${primary}`}>
           <Clapperboard className="w-[18px] h-[18px]" aria-hidden="true" />
-          {current ? 'Pick different photos' : 'Make a Walkthrough video'}
+          {current ? 'Pick different photos' : 'Make a Flow'}
         </button>
       )}
 
       <AnimatePresence>
-        {studioOpen && <Studio key="studio" photos={photos} config={config} onClose={() => setStudioOpen(false)} />}
+        {studioOpen && <Studio key="studio" photos={photos} config={config} meter={meter} onClose={() => setStudioOpen(false)} />}
       </AnimatePresence>
     </div>
   );
 }
 
+/** Seconds of AI video left: each second made, including redos, comes off this. */
+function MeterBar({ meter, adding = 0 }: { meter: FlowMeter; adding?: number }) {
+  const { allowanceSeconds: all, remainingSeconds: left } = meter;
+  const usedShare = all > 0 ? (all - left) / all : 1;
+  const addShare = all > 0 ? Math.min(adding, left) / all : 0;
+  return (
+    <div className="space-y-1.5" aria-live="polite">
+      <p className="flex justify-between gap-3 text-[12px] font-bold text-g2-secondary">
+        <span>AI video seconds</span>
+        <span className="font-mono text-white">{adding > 0 ? `${adding} of ${left} sec` : `${left} of ${all} sec left`}</span>
+      </p>
+      <div className="h-2 rounded-full bg-white/10 overflow-hidden flex" aria-hidden="true">
+        <div className="h-full bg-white/25" style={{ width: `${usedShare * 100}%` }} />
+        <div className="h-full bg-g2-blue transition-[width] duration-300" style={{ width: `${addShare * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ one video's state
-function Status({ w, config, canMake }: { w: Walkthrough; config: WalkthroughConfig; canMake: boolean }) {
+function Status({ w, meter, config, canMake }: { w: Walkthrough; meter: FlowMeter | null; config: WalkthroughConfig; canMake: boolean }) {
   const { event } = useEvent();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -78,7 +107,7 @@ function Status({ w, config, canMake }: { w: Walkthrough; config: WalkthroughCon
     }
   };
   const remove = () => {
-    if (window.confirm('Delete this video for good? It still counts toward this event\'s limit.')) {
+    if (window.confirm('Delete this video for good? The AI seconds it used don\'t come back.')) {
       act('delete', () => deleteWalkthrough(event.id, w.id));
     }
   };
@@ -111,7 +140,9 @@ function Status({ w, config, canMake }: { w: Walkthrough; config: WalkthroughCon
   }
 
   const published = w.status === 'published';
-  const redosLeft = Math.max(0, config.redosPerEvent - (w.redosUsed ?? 0));
+  // A redo remakes one clip, so it needs one clip's worth of seconds.
+  const canRedo = !meter || meter.remainingSeconds >= config.clipSeconds;
+  const labelOn = w.showLabel !== false;
   return (
     <div className="space-y-3">
       <p className={`inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full font-mono text-[10px] font-bold tracking-[0.06em] uppercase ${
@@ -136,11 +167,11 @@ function Status({ w, config, canMake }: { w: Walkthrough; config: WalkthroughCon
           {canMake && (
             <div className="space-y-1.5">
               <p className="text-[12px] text-g2-tertiary">
-                {redosLeft > 0 ? `Don't like a part? Redo just that clip. ${redosLeft} ${redosLeft === 1 ? 'redo' : 'redos'} left.` : 'No redos left for this event.'}
+                {canRedo ? `Don't like a part? Redo just that clip. It uses ${config.clipSeconds} seconds.` : 'Not enough seconds left for a redo.'}
               </p>
               <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(w.clips.length, 3)}, minmax(0, 1fr))` }}>
                 {w.clips.map((c) => (
-                  <button key={c.index} type="button" disabled={!!busy || redosLeft === 0} className={secondary}
+                  <button key={c.index} type="button" disabled={!!busy || !canRedo} className={secondary}
                     onClick={() => act(`redo${c.index}`, () => redoWalkthroughClip(event.id, w.id, c.index))}>
                     {busy === `redo${c.index}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />}
                     Clip {c.index + 1}
@@ -148,6 +179,17 @@ function Status({ w, config, canMake }: { w: Walkthrough; config: WalkthroughCon
                 ))}
               </div>
             </div>
+          )}
+          {canMake && (
+            <button type="button" disabled={!!busy} role="switch" aria-checked={labelOn}
+              onClick={() => {
+                if (labelOn && !window.confirm("Turn off the AI label on the video? Copies people save or share won't say it's AI-generated.")) return;
+                act('label', () => setFlowLabel(event.id, w.id, !labelOn));
+              }}
+              className={`w-full ${secondary}`}>
+              {busy === 'label' ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}
+              AI label on the video: {labelOn ? 'On' : 'Off'}
+            </button>
           )}
         </>
       )}
@@ -198,36 +240,36 @@ function Progress({ w }: { w: Walkthrough }) {
 }
 
 // ------------------------------------------------------------------ making one
-function Studio({ photos, config, onClose }: { key?: string; photos: Photo[]; config: WalkthroughConfig; onClose: () => void }) {
+function Studio({ photos, config, meter, onClose }: { key?: string; photos: Photo[]; config: WalkthroughConfig; meter: FlowMeter | null; onClose: () => void }) {
   const { event } = useEvent();
   useBackToClose(true, onClose);
   const approved = useMemo(
     () => photos.filter((p) => p.status === 'approved').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
     [photos],
   );
-  const [presetId, setPresetId] = useState(config.defaultPreset);
   const [aspect, setAspect] = useState<WalkthroughAspect>('9:16');
   const [picked, setPicked] = useState<string[]>([]);
   const [reordered, setReordered] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const [showLabel, setShowLabel] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const requestId = useRef(crypto.randomUUID()); // a double tap or a lost answer still makes one video
 
-  const preset = config.presets.find((p) => p.id === presetId) ?? config.presets[0];
   const byId = useMemo(() => new Map(approved.map((p) => [p.id, p])), [approved]);
-  const enough = approved.length >= preset.photos;
-  const full = picked.length >= preset.photos;
+  // The most photos the seconds left can pay for. Until the meter answers, the cloud job still checks.
+  const affordable = meter ? Math.floor(meter.remainingSeconds / config.clipSeconds) + 1 : config.maxPhotos;
+  const most = Math.min(config.maxPhotos, affordable);
+  const enoughSeconds = most >= config.minPhotos;
+  const enough = approved.length >= config.minPhotos;
+  const full = picked.length >= most;
+  const seconds = flowSeconds(picked.length, config.clipSeconds);
+  const ready = picked.length >= config.minPhotos && picked.length <= most;
 
-  const choosePreset = (id: string) => {
-    const next = config.presets.find((p) => p.id === id)!;
-    setPresetId(id);
-    setPicked((list) => list.slice(0, next.photos));
-  };
   const toggle = (id: string) => {
     setPicked((list) => {
       if (list.includes(id)) return list.filter((x) => x !== id);
-      if (list.length >= preset.photos) return list;
+      if (list.length >= most) return list;
       const next = [...list, id];
       // The suggested order is the order they were taken, until the host moves one.
       return reordered ? next : next.sort((a, b) => (byId.get(a)?.createdAt || 0) - (byId.get(b)?.createdAt || 0));
@@ -245,7 +287,7 @@ function Studio({ photos, config, onClose }: { key?: string; photos: Photo[]; co
     setSending(true);
     setError('');
     try {
-      await createWalkthrough({ eventId: event.id, photoIds: picked, presetId: preset.id, aspect, requestId: requestId.current });
+      await createWalkthrough({ eventId: event.id, photoIds: picked, aspect, requestId: requestId.current, showLabel });
       onClose();
     } catch (e: any) {
       setError(e?.message || 'The video service is unavailable right now.');
@@ -274,21 +316,10 @@ function Studio({ photos, config, onClose }: { key?: string; photos: Photo[]; co
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">AI video</p>
-            <h2 id="wt-title" className="mt-0.5 font-expanded font-black text-[22px] leading-tight text-white">Make a Walkthrough</h2>
+            <h2 id="wt-title" className="mt-0.5 font-expanded font-black text-[22px] leading-tight text-white">Make a Flow</h2>
           </div>
           <CloseButton onClick={onClose} />
         </div>
-
-        <fieldset className="space-y-2">
-          <legend className="text-xs font-bold text-g2-secondary mb-2">How long</legend>
-          <div className="flex flex-wrap gap-2">
-            {config.presets.map((p) => (
-              <Choice key={p.id} active={p.id === preset.id} onClick={() => choosePreset(p.id)}>
-                {p.label} <span className="font-normal opacity-75">· {p.photos} photos</span>
-              </Choice>
-            ))}
-          </div>
-        </fieldset>
 
         <fieldset className="space-y-2">
           <legend className="text-xs font-bold text-g2-secondary mb-2">Shape</legend>
@@ -300,10 +331,14 @@ function Studio({ photos, config, onClose }: { key?: string; photos: Photo[]; co
 
         <div>
           <p className="text-xs font-bold text-g2-secondary mb-2" aria-live="polite">
-            Pick {preset.photos} photos <span className="font-mono text-g2-tertiary">({picked.length}/{preset.photos})</span>
+            Pick {config.minPhotos} to {most} photos{' '}
+            <span className="font-mono text-g2-tertiary">({picked.length} picked{picked.length ? `, ${seconds} sec` : ''})</span>
           </p>
-          {!enough ? (
-            <p className="text-[13px] text-amber-200">This needs at least {preset.photos} approved photos, and there {approved.length === 1 ? 'is' : 'are'} {approved.length} so far.</p>
+          {meter && <div className="mb-3"><MeterBar meter={meter} adding={seconds} /></div>}
+          {!enoughSeconds ? (
+            <p className="text-[13px] text-amber-200">There aren't enough AI video seconds left for a new Flow.</p>
+          ) : !enough ? (
+            <p className="text-[13px] text-amber-200">This needs at least {config.minPhotos} approved photos, and there {approved.length === 1 ? 'is' : 'are'} {approved.length} so far.</p>
           ) : (
             <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5 max-h-[34dvh] overflow-y-auto">
               {approved.map((p) => {
@@ -350,6 +385,19 @@ function Studio({ photos, config, onClose }: { key?: string; photos: Photo[]; co
           </div>
         )}
 
+        <label className="flex gap-3 items-start cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showLabel}
+            onChange={(e) => setShowLabel(e.target.checked)}
+            className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--color-g2-blue)] cursor-pointer"
+          />
+          <span className="text-[13px] leading-relaxed text-white">
+            Show a small AI label on the video
+            {!showLabel && <span className="block text-amber-200">Copies people save or share won't say it's AI-generated. The note in the app stays.</span>}
+          </span>
+        </label>
+
         <label className="flex gap-3 p-3.5 rounded-xl border border-amber-300/30 bg-amber-300/5 cursor-pointer">
           <input
             type="checkbox"
@@ -361,9 +409,9 @@ function Studio({ photos, config, onClose }: { key?: string; photos: Photo[]; co
         </label>
 
         {error && <p className="text-[13px] text-red-400" role="alert">{error}</p>}
-        <button type="button" onClick={create} disabled={!full || !accepted || sending} className={`w-full ${primary}`}>
+        <button type="button" onClick={create} disabled={!ready || !accepted || sending} className={`w-full ${primary}`}>
           {sending ? <Loader2 className="w-[18px] h-[18px] animate-spin" aria-hidden="true" /> : <Clapperboard className="w-[18px] h-[18px]" aria-hidden="true" />}
-          {sending ? 'Starting…' : 'Create'}
+          {sending ? 'Starting…' : ready ? `Create ${seconds}-second Flow` : 'Create'}
         </button>
       </motion.section>
     </motion.div>

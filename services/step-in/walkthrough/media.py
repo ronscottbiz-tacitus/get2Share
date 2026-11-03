@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .config import LABEL, LABEL_LINES, size_for
+from .config import LABEL, size_for
 
 FPS = 24
 FONT_CANDIDATES = (
@@ -76,26 +76,16 @@ def hold_clip(image: str, out: str, seconds: float, w: int, h: int, zoom: bool =
 
 # ------------------------------------------------------------------ the label
 def label_filter(w: int, h: int, text_dir: str) -> str:
-    """drawtext filters for the label. Sized from the short side, clear of the edge (TVs crop
-    edges and phones keep controls there). Text comes from files, so the apostrophe needs no
-    escaping. One line on horizontal video; two on vertical, where one line wouldn't fit."""
+    """drawtext filter for the label: one small line, with a soft shadow instead of a box so it
+    takes as little from the picture as it can. Clear of the bottom edge (TVs crop edges and phones
+    keep controls there). Text comes from a file, so the apostrophe needs no escaping."""
     font = font_path()
-    short = min(w, h)
-    size = max(16, round(short * 0.036))
-    pad = max(6, round(size * 0.42))
-    line_gap = size + 2 * pad + max(2, round(size * 0.2))
-    bottom = round(h * 0.07)
-    lines = list(LABEL_LINES) if w < h else [LABEL]
-    parts = []
-    for i, line in enumerate(lines):
-        path = Path(text_dir) / f"label-{i}.txt"
-        path.write_text(line, encoding="utf-8")
-        y = h - bottom - (len(lines) - i) * line_gap + pad
-        parts.append(
-            f"drawtext=fontfile={font}:textfile={path}:expansion=none:fontsize={size}:fontcolor=white:"
-            f"box=1:boxcolor=black@0.62:boxborderw={pad}:x=(w-text_w)/2:y={y}"
-        )
-    return ",".join(parts)
+    size = max(12, round(min(w, h) * 0.024))
+    path = Path(text_dir) / "label.txt"
+    path.write_text(LABEL, encoding="utf-8")
+    y = h - round(h * 0.06) - size
+    return (f"drawtext=fontfile={font}:textfile={path}:expansion=none:fontsize={size}:fontcolor=white@0.9:"
+            f"shadowcolor=black@0.8:shadowx=1:shadowy=1:x=(w-text_w)/2:y={y}")
 
 
 # ------------------------------------------------------------------ joining
@@ -110,9 +100,10 @@ class Segment:
         return self.seconds * self.slowdown
 
 
-def join_segments(segments: list[Segment], out: str, aspect: str, resolution: str) -> None:
+def join_segments(segments: list[Segment], out: str, aspect: str, resolution: str, label: bool = True) -> None:
     """Re-encodes every segment to one MP4 that phones and TVs can play: H.264 in yuv420p,
-    no audio track, the index at the front (faststart), and the label burned into every frame."""
+    no audio track, the index at the front (faststart), and, unless the host turned it off, the
+    label burned into every frame."""
     if not segments:
         raise MediaError("Nothing to join.")
     w, h = size_for(aspect, resolution)
@@ -127,7 +118,8 @@ def join_segments(segments: list[Segment], out: str, aspect: str, resolution: st
                 f"scale={w}:{h}:force_original_aspect_ratio=increase:out_range=tv,crop={w}:{h},setsar=1,format=yuv420p[v{i}]"
             )
         chain = "".join(f"[v{i}]" for i in range(len(segments)))
-        graph = ";".join(parts) + f";{chain}concat=n={len(segments)}:v=1:a=0[joined];[joined]{label_filter(w, h, td)}[final]"
+        tail = f"[joined]{label_filter(w, h, td)}[final]" if label else "[joined]null[final]"
+        graph = ";".join(parts) + f";{chain}concat=n={len(segments)}:v=1:a=0[joined];{tail}"
         _run([
             "ffmpeg", "-y", "-loglevel", "error", *inputs,
             "-filter_complex", graph, "-map", "[final]", "-an",

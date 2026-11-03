@@ -1116,7 +1116,7 @@ function TvWalkthrough({ w, onDone }: { key?: string; w: Walkthrough; onDone: ()
         className={tall ? 'h-full aspect-[9/16] object-contain' : 'flex-1 min-h-0 w-full object-contain'}
       />
       <div className={tall ? 'max-w-[40vmin]' : 'shrink-0 px-[3vmin] py-[1.6vmin] bg-g2-page/85 flex items-center gap-[3vmin]'}>
-        <span className={`inline-flex items-center h-[4.4vmin] px-[2vmin] rounded-full bg-g2-blue font-condensed font-extrabold text-[2.2vmin] tracking-[0.16em] uppercase text-white shrink-0 ${tall ? 'mb-[2vmin]' : ''}`}>Walkthrough</span>
+        <span className={`inline-flex items-center h-[4.4vmin] px-[2vmin] rounded-full bg-g2-blue font-condensed font-extrabold text-[2.2vmin] tracking-[0.16em] uppercase text-white shrink-0 ${tall ? 'mb-[2vmin]' : ''}`}>Flow</span>
         <p className={`leading-snug text-white ${tall ? 'text-[3.2vmin]' : 'text-[2.6vmin]'}`}>{WALKTHROUGH_LABEL}</p>
       </div>
     </motion.div>

@@ -1,6 +1,8 @@
-# AI Walkthrough videos: setup for Ron
+# Flow (AI videos): setup for Ron
 
-A host picks a few photos. An outside AI video service animates from each photo to the next. The cloud job joins the clips into one silent video with this burned in: **"AI-generated video. Some moments and details aren't real."** The host previews it, can redo a clip, and approves it. Only then does it reach the gallery and the TVs.
+The feature's public name is **Flow**. The code, database and Modal app still say "walkthrough", so nothing had to move.
+
+A host picks a few photos. An outside AI video service animates from each photo to the next. The cloud job joins the clips into one silent video with a small line burned in: **"AI-generated video. Some moments and details aren't real."** The host can turn that line off. The same words always show beside the video in the app. The host previews it, can redo a clip, and approves it. Only then does it reach the gallery and the TVs.
 
 **Status: Next, on the `ai-walkthrough` branch. Not live.** Nothing here has run on Modal or called a real video service. It stays off until you do the steps below, and it spends nothing until step 6.
 
@@ -118,14 +120,15 @@ Everything is optional except `enabled`. A missing document means off for everyo
 | `provider` | none | `fake`, `higgsfield`, `fal` or `veo`. Falls back to `WALKTHROUGH_PROVIDER`. With neither, hosts are told it isn't set up. |
 | `model` | none | The provider's model name or path. |
 | `resolution` | `720p` | Or `480p`. |
-| `limits.videosPerEvent` | 1 | Videos per event. A failed or refused one isn't counted. A deleted one is. |
-| `limits.redosPerEvent` | 2 | Redos per event. A redo that fails isn't counted. |
-| `limits.videosPerHostPerMonth` | 3 | Per person, because anyone with a Google account can make unlimited events. |
-| `limits.redosPerHostPerMonth` | 6 | Same idea. |
+| `photos.min`, `photos.max` | 3, 10 | How many photos a host can pick. The photo count sets the length: each photo after the first adds one clip. |
+| `clipSeconds` | 5 | Seconds per clip. |
+| `meter.freeAccountSeconds` | 20 | Seconds of AI video a free account gets, once, across all its events: a 15-second Flow and one redo. Raise it while you test. |
+| `limits.videosPerEvent` | 3 | A backstop; the meter is the real limit. A failed or refused one isn't counted. A deleted one is. |
+| `limits.redosPerEvent` | 5 | A backstop. A redo that fails isn't counted. |
+| `limits.videosPerHostPerMonth` | 20 | A backstop, because anyone with a Google account can make unlimited events. |
+| `limits.redosPerHostPerMonth` | 30 | Same idea. |
 | `budget.monthlyUsd` | 50 | Across all hosts. Money is set aside before each clip is sent. At the cap, hosts see a friendly message. |
 | `prices.<provider>.<resolution>` | estimates | US dollars per generated second. No price means it refuses to run. |
-| `presets` | 10 sec, 15 sec | A list of `{id, label, photos, clipSeconds}`. A larger video is just another row: `{id: "30s", label: "30 sec", photos: 7, clipSeconds: 5}`. This list replaces the defaults. |
-| `defaultPreset` | `15s` | Which one is picked first. |
 | `slowdown` | none | Per clip, like `[1.5, 1, 1]`. Plays that clip slower. The cost doesn't change. Up to 4. |
 | `hold.startSeconds`, `hold.endSeconds`, `hold.zoom` | 0, 0, off | Non-AI seconds on the first and last photo, with an optional slow zoom. Up to 5 seconds each. |
 | `prompt` | a careful default | What the AI is asked to do. |
@@ -133,6 +136,13 @@ Everything is optional except `enabled`. A missing document means off for everyo
 This document is readable by anyone signed in, as with `config/stepIn`, so don't put anything private in it.
 
 Spending is in `walkthroughUsage/global-YYYY-MM` (`reservedUsd`, `spentUsd`). When it can't tell whether a clip was billed, it counts it as spent, so this can read a little high. It's an estimate from your price table. The provider's own bill is the real number. Reservations and limits work from what's in Firestore, so they keep working even if the app is closed.
+
+## The meter
+
+Every generated second comes off a meter, redos included. Seconds for clips the host didn't get come back. Switching the label on or off re-joins saved clips, so it costs nothing and uses no seconds.
+
+- **Free:** `meter.freeAccountSeconds`, once per account. Used seconds are in `walkthroughUsage/meter-account-<uid>`.
+- **Paid event:** set `features/{eventId}.flowSeconds` (number), which the payment step will write. That event then draws on its own seconds, in `walkthroughUsage/meter-event-<eventId>`, and not the account's.
 
 ## How it behaves
 
@@ -142,7 +152,7 @@ Spending is in `walkthroughUsage/global-YYYY-MM` (`reservedUsd`, `spentUsd`). Wh
 - **A crashed job:** the 15-minute check restarts it. It skips finished clips, and a clip still at the service is checked on, not re-sent. If the worker died in the instant of sending, it can't tell, so it counts that as spent and sends again. That one case can cost one extra clip.
 - **Redo:** only that clip is regenerated. If it fails, the host keeps the video they had.
 - **Taking it down:** back to host-only, with a new file link so old links stop working. Anyone who already saved it keeps their copy.
-- **Delete:** removes the record and files for good. The video still counts toward the limit.
+- **Delete:** removes the record and files for good. Its seconds don't come back.
 - **Saving:** guests can save it unless the host set album saving to "Only me" or "After it ends", in which case the same rule as for the album applies.
 - **Photos deleted later:** deleting a photo doesn't change a video already made from it. The host has to take the video down.
 - **Where it plays on a TV:** once when approved, then every 5 minutes. A paused TV doesn't play it.

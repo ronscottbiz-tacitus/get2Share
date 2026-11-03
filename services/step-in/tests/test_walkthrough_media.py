@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from walkthrough import media
-from walkthrough.config import LABEL, LABEL_LINES, size_for
+from walkthrough.config import LABEL, size_for
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def ocr(path):
     """Read the label from the bottom of a frame, as dark text on white, which suits tesseract."""
     img = Image.open(path).convert("L")
     w, h = img.size
-    img = img.crop((0, int(h * 0.75), w, h)).point(lambda v: 0 if v > 170 else 255)
+    img = img.crop((0, int(h * 0.85), w, h)).resize((w * 3, int(h * 0.15) * 3), Image.Resampling.LANCZOS).point(lambda v: 0 if v > 170 else 255)
     img.save(path)
     done = subprocess.run(["tesseract", str(path), "stdout", "--psm", "6"], capture_output=True, text=True)
     return " ".join(done.stdout.split())
@@ -93,7 +93,6 @@ def test_label_is_burned_in_and_readable(frames, tmp_path, aspect):
 
 def test_label_text_is_the_exact_words():
     assert LABEL == "AI-generated video. Some moments and details aren't real."
-    assert " ".join(LABEL_LINES) == LABEL
 
 
 def test_app_shows_the_same_label():
@@ -170,3 +169,13 @@ def test_full_range_clips_come_out_as_standard_video(tmp_path):
     out = tmp_path / "out.mp4"
     media.join_segments([media.Segment(str(src), 2.0)], str(out), "9:16", "720p")
     assert media.check_final(str(out), "9:16", "720p", 2.0)["pix_fmt"] == "yuv420p"
+
+
+def test_label_can_be_left_off(frames, tmp_path):
+    paths, _ = clips(frames, tmp_path, "16:9")
+    out, with_label = tmp_path / "off.mp4", tmp_path / "on.mp4"
+    media.join_segments([media.Segment(paths[0], 5.0)], str(with_label), "16:9", "720p")
+    media.join_segments([media.Segment(paths[0], 5.0)], str(out), "16:9", "720p", label=False)
+    media.check_final(str(out), "16:9", "720p", 5.0)
+    bottom = lambda p: frame_at(str(p), tmp_path / "f.png", 0.1).convert("L").crop((0, 620, 1280, 700)).tobytes()
+    assert bottom(out) != bottom(with_label)

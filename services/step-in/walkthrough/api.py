@@ -40,6 +40,7 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         acceptedNotice: bool = False
         noticeVersion: int = 0
         requestId: str
+        showLabel: bool = True
 
     class Redo(BaseModel):
         eventId: str
@@ -50,19 +51,38 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         eventId: str
         walkthroughId: str
 
+    class Label(BaseModel):
+        eventId: str
+        walkthroughId: str
+        show: bool
+
+    class Meter(BaseModel):
+        eventId: str
+
     @web.post("/create")
     def create(req: Create, authorization: str = Header(default="")):
         uid, event, is_admin = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().create(
             uid=uid, is_admin=is_admin, eid=req.eventId, event=event, photo_ids=req.photoIds, preset_id=req.presetId,
             aspect=req.aspect, accepted_notice=req.acceptedNotice, notice_version=req.noticeVersion,
-            request_id=req.requestId))
+            request_id=req.requestId, show_label=req.showLabel))
 
     @web.post("/redo")
     def redo(req: Redo, authorization: str = Header(default="")):
         uid, _, is_admin = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().redo(
             uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, clip_index=req.clipIndex))
+
+    @web.post("/label")
+    def label(req: Label, authorization: str = Header(default="")):
+        uid, _, is_admin = signed_in(authorization, req.eventId)
+        return answering(lambda: service_factory().set_label(
+            uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, show=req.show))
+
+    @web.post("/meter")
+    def meter(req: Meter, authorization: str = Header(default="")):
+        uid, _, _ = signed_in(authorization, req.eventId)
+        return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId))
 
     @web.post("/approve")
     def approve(req: One, authorization: str = Header(default="")):

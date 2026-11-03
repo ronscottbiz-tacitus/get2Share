@@ -189,7 +189,7 @@ def test_only_one_job_at_a_time_for_an_event(world):
 
 
 def test_per_host_limit_catches_many_events(world):
-    ready(world, limits={"videosPerHostPerMonth": 2})
+    ready(world, limits={"videosPerHostPerMonth": 2}, meter={"freeAccountSeconds": 1000})
     for i in range(3):
         world.add_event(f"e{i}")
     for i in range(2):
@@ -446,8 +446,8 @@ def test_redo_pays_for_one_clip_and_rejoins(world):
     assert media.probe(str(world.storage.root / after["videoPath"]))["duration"] == pytest.approx(15, abs=0.3)
 
 
-def test_two_redos_per_event_by_default(world):
-    wid = preview(world)
+def test_redo_limit_per_event(world):
+    wid = preview(world, limits={"redosPerEvent": 2}, meter={"freeAccountSeconds": 1000})
     for clip in (0, 1):
         redo(world, wid, clip)
         world.svc.run("ev1", wid)
@@ -584,3 +584,86 @@ def test_frames_are_cropped_to_shape_before_sending(world):
     world.svc.run("ev1", r["id"])
     frame = world.storage.root / f"walkthroughs/ev1/{r['id']}/frames/0.jpg"
     assert Image.open(frame).size == (1280, 720)
+
+
+# ------------------------------------------------------------------ the Flow meter and label
+def test_photos_set_the_length_from_3_to_10(world):
+    ready(world, meter={"freeAccountSeconds": 1000}, limits={"videosPerEvent": 99})
+    world.add_event("ev1", count=12)
+    for bad in (2, 11):
+        with pytest.raises(ApiError) as e:
+            world.create(photos=[f"p{i}" for i in range(bad)], rid=f"b{bad}")
+        assert e.value.status == 400 and "3 to 10" in e.value.message
+    r = world.create(photos=[f"p{i}" for i in range(10)], rid="ten")
+    d = world.doc("ev1", r["id"])
+    assert len(d["clips"]) == 9 and d["seconds"] == 45
+
+
+def test_free_account_gets_a_15_second_flow_and_one_redo(world):
+    wid = preview(world)
+    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free"}
+    redo(world, wid, 0)
+    world.svc.run("ev1", wid)
+    assert world.svc.meter(uid="host1", eid="ev1")["remainingSeconds"] == 0
+    with pytest.raises(ApiError) as e:
+        redo(world, wid, 1)
+    assert e.value.status == 429 and "seconds" in e.value.message
+
+
+def test_free_seconds_follow_the_account_not_the_event(world):
+    preview(world)
+    world.add_event("other")
+    with pytest.raises(ApiError) as e:
+        world.create(eid="other", rid="again")
+    assert e.value.status == 429 and "seconds" in e.value.message
+    world.create(eid="other", rid="r2", uid="someone-else")  # another host has their own
+
+
+def test_paid_seconds_belong_to_the_event(world):
+    ready(world)
+    world.add_event()
+    world.db.collection("features").document("ev1").set({"flowSeconds": 60})
+    r = world.create(photos=[f"p{i}" for i in range(7)])
+    world.svc.run("ev1", r["id"])
+    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event"}
+    assert world.usage("meter-account-host1") == {}
+
+
+def test_seconds_come_back_for_clips_the_host_did_not_get(world):
+    ready(world)
+    world.add_event()
+    wid = world.create()["id"]
+    assert world.svc.meter(uid="host1", eid="ev1")["usedSeconds"] == 15
+    world.script[1] = ["blocked"]
+    assert world.svc.run("ev1", wid) == "blocked"
+    assert world.svc.meter(uid="host1", eid="ev1")["usedSeconds"] == 5  # clip 0 was made and kept
+
+
+def test_label_is_on_by_default_and_switching_it_makes_no_ai_calls(world):
+    wid = preview(world)
+    assert world.doc("ev1", wid)["showLabel"] is True
+    used = world.svc.meter(uid="host1", eid="ev1")["usedSeconds"]
+    submitted = len(world.provider.submitted)
+    assert world.svc.set_label(uid="host1", is_admin=False, eid="ev1", wid=wid, show=False)["status"] == "queued"
+    assert world.svc.run("ev1", wid) == "preview"
+    d = world.doc("ev1", wid)
+    assert d["showLabel"] is False and d["labelOffBy"] == "host1" and d["videoVersion"] == 2
+    assert len(world.provider.submitted) == submitted
+    assert world.svc.meter(uid="host1", eid="ev1")["usedSeconds"] == used
+    assert world.svc.set_label(uid="host1", is_admin=False, eid="ev1", wid=wid, show=False)["status"] == "preview"  # no change, no work
+
+
+def test_label_can_be_off_from_the_start(world):
+    ready(world)
+    world.add_event()
+    r = world.svc.create(uid="host1", is_admin=False, eid="ev1", event={}, photo_ids=["p0", "p1", "p2"], preset_id=None, aspect="9:16",
+                         accepted_notice=True, notice_version=1, request_id="x", show_label=False)
+    assert world.doc("ev1", r["id"])["labelOffBy"] == "host1"
+
+
+def test_a_published_video_must_come_down_before_changing_its_label(world):
+    wid = preview(world)
+    world.svc.approve(uid="host1", eid="ev1", wid=wid)
+    with pytest.raises(ApiError) as e:
+        world.svc.set_label(uid="host1", is_admin=False, eid="ev1", wid=wid, show=False)
+    assert e.value.status == 409

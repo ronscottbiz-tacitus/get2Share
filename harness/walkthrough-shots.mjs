@@ -27,7 +27,11 @@ async function open(path, ls, [w, h] = PHONE) {
   await page.route('**/fonts.googleapis.com/**', (r) => r.fulfill({ contentType: 'text/css', body: fontCss }));
   await page.route('**/*get2share-walkthrough*/**', (r) => {
     api.push({ url: r.request().url(), body: r.request().postDataJSON() });
-    r.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' }, body: JSON.stringify({ id: 'wt1', status: 'queued' }) });
+    const meterLeft = Number(ls['h-meter-left'] ?? 20);
+    const answer = r.request().url().endsWith('/meter')
+      ? { allowanceSeconds: 20, usedSeconds: 20 - meterLeft, remainingSeconds: meterLeft, plan: 'free' }
+      : { id: 'wt1', status: 'queued' };
+    r.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' }, body: JSON.stringify(answer) });
   });
   await page.route('**/*get2share-step-in*/**', (r) => {
     warm.push(r.request().url());
@@ -44,7 +48,7 @@ const media = (aspect) => {
   return MEDIA ? { 'h-wt-url': asset(`final-${t}.webm`), 'h-wt-poster': asset(`poster-${t}.jpg`) } : {};
 };
 const hostAll = { 'h-host': '1', 'h-wt-config': 'all' };
-const card = (page) => page.getByRole('heading', { name: /Walkthrough video/i });
+const card = (page) => page.getByRole('heading', { name: /^Flow/i });
 
 // ---------- who sees the Host Console card
 { const { ctx, page } = await open('/host/ev1', { 'h-host': '1' });
@@ -59,7 +63,7 @@ const card = (page) => page.getByRole('heading', { name: /Walkthrough video/i })
   await card(page).scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
   await shot(page, '01-console-card-phone');
-  await page.getByRole('button', { name: 'Make a Walkthrough video' }).click();
+  await page.getByRole('button', { name: 'Make a Flow' }).click();
   await page.waitForTimeout(500);
   await shot(page, '02-studio-empty-phone');
   const create = page.getByRole('button', { name: 'Create' });
@@ -83,26 +87,59 @@ const card = (page) => page.getByRole('heading', { name: /Walkthrough video/i })
   await page.waitForTimeout(500);
   const sent = api.find((a) => a.url.endsWith('/create'))?.body;
   check('create sends the accepted notice', sent?.acceptedNotice === true && sent?.noticeVersion === 1);
-  check('create sends the host-chosen order, shape and preset', sent?.photoIds?.length === 4 && sent?.aspect === '16:9' && sent?.presetId === '15s', JSON.stringify(sent?.photoIds));
+  check('create sends the host-chosen order and shape, label on by default', sent?.photoIds?.length === 4 && sent?.aspect === '16:9' && sent?.showLabel === true, JSON.stringify(sent?.photoIds));
   // Picked p2, p6, p5, p1. Suggested by createdAt (stub p1 is newest): p6, p5, p2, p1. Then the host swapped 2 and 3.
   check('order: oldest first, then the host\'s move', sent?.photoIds?.join() === 'p6,p2,p5,p1', sent?.photoIds?.join());
   check('no page errors while making one', errs.length === 0, errs.join(' | '));
   await ctx.close(); }
 
-// ---------- shorter preset: photo count follows config
-{ const { ctx, page, api } = await open('/host/ev1', { ...hostAll });
-  await page.getByRole('button', { name: 'Make a Walkthrough video' }).click();
-  await page.waitForTimeout(300);
-  await page.getByRole('button', { name: /10 sec/ }).click();
+// ---------- photo count sets the length, within the range and the meter
+{ const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-meter-left': '15' });
+  await page.getByRole('button', { name: 'Make a Flow' }).click();
+  await page.waitForTimeout(400);
+  const tiles = page.getByRole('button', { name: /^Photo by/ });
+  const create = page.getByRole('button', { name: /^Create/ });
+  await page.getByRole('checkbox', { name: /outside AI service/ }).check();
+  await tiles.nth(0).click(); await tiles.nth(1).click();
+  check('2 photos is too few', await create.isDisabled());
+  await tiles.nth(2).click();
+  check('3 photos makes a 10-second Flow', (await create.isEnabled()) && (await page.getByRole('button', { name: 'Create 10-second Flow' }).count()) === 1);
+  await tiles.nth(3).click();
+  check('4 photos makes a 15-second Flow', (await page.getByRole('button', { name: 'Create 15-second Flow' }).count()) === 1);
+  check('the meter stops a 5th photo', await tiles.nth(4).isDisabled());
+  await shot(page, '03b-studio-meter-phone');
+  await ctx.close(); }
+{ const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-meter-left': '5' });
+  await page.getByRole('button', { name: 'Make a Flow' }).click();
+  await page.waitForTimeout(400);
+  check('too few seconds: says so', (await page.getByText(/enough AI video seconds/).count()) === 1);
+  check('too few seconds: nothing to pick', (await page.getByRole('button', { name: /^Photo by/ }).count()) === 0);
+  await ctx.close(); }
+{ const config = JSON.stringify({ enabled: true, allHosts: true, photos: { min: 3, max: 4 } });
+  const { ctx, page } = await open('/host/ev1', { 'h-host': '1', 'h-wt-config': config, 'h-meter-left': '500' });
+  await page.getByRole('button', { name: 'Make a Flow' }).click();
+  await page.waitForTimeout(400);
+  check('the photo range comes from config', (await page.getByText(/Pick 3 to 4 photos/).count()) === 1);
+  await ctx.close(); }
+{ const { ctx, page, api } = await open('/host/ev1', { ...hostAll, 'h-photos': 'sample' });
+  await page.getByRole('button', { name: 'Make a Flow' }).click();
+  await page.waitForTimeout(400);
   const tiles = page.getByRole('button', { name: /^Photo by/ });
   for (const i of [0, 1, 2]) await tiles.nth(i).click();
-  check('10 sec is 3 photos', await tiles.nth(3).isDisabled());
+  await page.getByRole('checkbox', { name: /small AI label/ }).uncheck();
+  check('turning the label off explains what it means', (await page.getByText(/won't say it's AI-generated/).count()) === 1);
+  await page.getByRole('checkbox', { name: /outside AI service/ }).check();
+  await page.getByRole('button', { name: /^Create/ }).click();
+  await page.waitForTimeout(400);
+  check('create can leave the label off', api.find((a) => a.url.endsWith('/create'))?.body?.showLabel === false);
   await ctx.close(); }
-{ const presets = JSON.stringify({ enabled: true, allHosts: true, presets: [{ id: 'big', label: '25 sec', photos: 5, clipSeconds: 5 }] });
-  const { ctx, page } = await open('/host/ev1', { 'h-host': '1', 'h-wt-config': presets });
-  await page.getByRole('button', { name: 'Make a Walkthrough video' }).click();
+{ const { ctx, page, api } = await open('/host/ev1', { ...hostAll, 'h-wt': 'preview', 'h-meter-left': '5', ...media('9:16') });
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('switch', { name: /AI label on the video: On/ }).click();
   await page.waitForTimeout(300);
-  check('a larger preset comes from config alone', (await page.getByRole('button', { name: /25 sec/ }).count()) === 1 && (await page.getByText(/Pick 5 photos/).count()) === 1);
+  const sent = api.find((a) => a.url.endsWith('/label'))?.body;
+  check('the label switch asks the cloud job', sent?.show === false);
+  check('the note beside the video stays', (await page.getByText(LABEL, { exact: true }).count()) === 1);
   await ctx.close(); }
 
 // ---------- every state on the console, phone width
@@ -135,8 +172,8 @@ for (const [name, ls] of [
   check('redo asks for just that clip', api.find((a) => a.url.endsWith('/redo'))?.body?.clipIndex === 1);
   check('approve calls the cloud job', paths.includes('approve'));
   await ctx.close(); }
-{ const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-wt': 'preview', 'h-wt-redos': '2' });
-  check('redos used up: buttons off', await page.getByRole('button', { name: 'Clip 1' }).isDisabled());
+{ const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-wt': 'preview', 'h-meter-left': '0' });
+  check('no seconds left: redo buttons off', await page.getByRole('button', { name: 'Clip 1' }).isDisabled());
   await ctx.close(); }
 { const { ctx, page, api } = await open('/host/ev1', { 'h-host': '1', 'h-wt': 'published', ...media('9:16') });
   check('feature off: a host can still take it down', (await page.getByRole('button', { name: 'Take it down' }).count()) === 1);
@@ -148,14 +185,14 @@ for (const [name, ls] of [
 // ---------- guests
 for (const status of ['queued', 'generating', 'joining', 'preview', 'failed', 'blocked']) {
   const { ctx, page } = await open('/e/GALA26', { 'h-member': '1', 'h-wt': status, ...media('9:16') });
-  check(`guest sees nothing while it's ${status}`, (await page.getByText('Walkthrough video').count()) === 0 && (await page.locator('video').count()) === 0);
+  check(`guest sees nothing while it's ${status}`, (await page.getByText('Flow video').count()) === 0 && (await page.locator('video').count()) === 0);
   await ctx.close();
 }
 for (const [name, ls, aspect] of [['14-gallery-card-phone', {}, '9:16'], ['16-gallery-card-horizontal-phone', { 'h-wt-aspect': '16:9' }, '16:9']]) {
   const { ctx, page, errs } = await open('/e/GALA26', { 'h-member': '1', 'h-photos': 'sample', 'h-wt': 'published', ...ls, ...media(aspect) });
   await shot(page, name);
   check(`${name}: the label is on the card`, (await page.getByText(LABEL, { exact: true }).count()) === 1);
-  await page.getByText('Walkthrough video').click();
+  await page.getByText('Flow video').click();
   await page.waitForTimeout(900);
   await shot(page, name.replace('gallery-card', 'player').replace('14', '15').replace('16', '17'));
   check(`${name}: player shows video, label and save`, (await page.locator('video').count()) === 1 && (await page.getByText(LABEL, { exact: true }).count()) >= 1 && (await page.getByRole('button', { name: 'Save to this device' }).count()) === 1);
@@ -163,7 +200,7 @@ for (const [name, ls, aspect] of [['14-gallery-card-phone', {}, '9:16'], ['16-ga
   await ctx.close();
 }
 { const { ctx, page } = await open('/e/GALA26', { 'h-member': '1', 'h-wt': 'published', 'h-saving': 'host', ...media('9:16') });
-  await page.getByText('Walkthrough video').click();
+  await page.getByText('Flow video').click();
   await page.waitForTimeout(500);
   check('"Only me" saving: guests get no save button', (await page.getByRole('button', { name: 'Save to this device' }).count()) === 0);
   await ctx.close(); }
@@ -249,5 +286,5 @@ for (const [layout, wantStage] of [['slideshow', true], ['justin', true], ['wall
 }
 
 await browser.close();
-console.log(failed ? `${failed} FAILED` : 'All Walkthrough screen checks passed.');
+console.log(failed ? `${failed} FAILED` : 'All Flow screen checks passed.');
 process.exit(failed ? 1 : 0);

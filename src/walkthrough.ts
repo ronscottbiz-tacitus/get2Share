@@ -3,7 +3,7 @@ import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { isAdminEmail } from './hosts';
 
-// Walkthrough: a host picks a few photos, and an outside AI video service animates from each
+// Flow (called Walkthrough in the code and database): a host picks a few photos, and an outside AI video service animates from each
 // photo to the next. A cloud job (services/step-in/walkthrough_app.py) makes the clips, joins
 // them, burns in the label below, and writes events/{eid}/walkthroughs/{id}. The host previews
 // it and approves it; only then can guests and TVs read it (see firestore.rules).
@@ -42,45 +42,42 @@ export interface Walkthrough {
   videoUrl?: string | null;
   posterUrl?: string | null;
   redosUsed?: number;
+  /** Burned-in label on the video. On unless the host turned it off. The note in the app always shows. */
+  showLabel?: boolean;
   error?: string | null;
   redoNotice?: string | null;
   createdAt?: { toMillis(): number } | null;
   updatedAt?: { toMillis(): number } | null;
 }
 
-export interface WalkthroughPreset { id: string; label: string; photos: number; clipSeconds: number }
-
 export interface WalkthroughConfig {
   enabled: boolean;
   allHosts: boolean;
-  presets: WalkthroughPreset[];
-  defaultPreset: string;
-  redosPerEvent: number;
+  minPhotos: number;
+  maxPhotos: number;
+  clipSeconds: number;
 }
 
-const DEFAULT_PRESETS: WalkthroughPreset[] = [
-  { id: '10s', label: '10 sec', photos: 3, clipSeconds: 5 },
-  { id: '15s', label: '15 sec', photos: 4, clipSeconds: 5 },
-];
-
-export const OFF_CONFIG: WalkthroughConfig = { enabled: false, allHosts: false, presets: DEFAULT_PRESETS, defaultPreset: '15s', redosPerEvent: 2 };
+export const OFF_CONFIG: WalkthroughConfig = { enabled: false, allHosts: false, minPhotos: 3, maxPhotos: 10, clipSeconds: 5 };
 
 /** Reads config/walkthrough the way the cloud job does: only a literal true turns anything on. */
 export function parseWalkthroughConfig(d: any): WalkthroughConfig {
   if (!d) return OFF_CONFIG;
-  const fromDoc: WalkthroughPreset[] = (Array.isArray(d.presets) ? d.presets : [])
-    .filter((p: any) => p && typeof p.id === 'string' && Number.isInteger(p.photos) && p.photos >= 2 && typeof p.clipSeconds === 'number')
-    .map((p: any) => ({ id: p.id, label: String(p.label || p.id), photos: p.photos, clipSeconds: p.clipSeconds }));
-  const presets = fromDoc.length ? fromDoc : DEFAULT_PRESETS;
-  const redos = d.limits?.redosPerEvent;
+  const whole = (v: any, fallback: number) => (Number.isInteger(v) && v >= 2 ? v : fallback);
+  const minPhotos = whole(d.photos?.min, OFF_CONFIG.minPhotos);
   return {
     enabled: d.enabled === true,
     allHosts: d.allHosts === true,
-    presets,
-    defaultPreset: presets.some((p) => p.id === d.defaultPreset) ? d.defaultPreset : presets.some((p) => p.id === '15s') ? '15s' : presets[presets.length - 1].id,
-    redosPerEvent: typeof redos === 'number' ? redos : 2,
+    minPhotos,
+    maxPhotos: Math.max(minPhotos, whole(d.photos?.max, OFF_CONFIG.maxPhotos)),
+    clipSeconds: typeof d.clipSeconds === 'number' && d.clipSeconds >= 1 ? d.clipSeconds : OFF_CONFIG.clipSeconds,
   };
 }
+
+/** Each photo after the first adds one clip. */
+export const flowSeconds = (photos: number, clipSeconds: number) => Math.max(0, photos - 1) * clipSeconds;
+
+export interface FlowMeter { allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' }
 
 export function useWalkthroughConfig(active: boolean): WalkthroughConfig {
   const [config, setConfig] = useState<WalkthroughConfig>(OFF_CONFIG);
@@ -160,7 +157,9 @@ async function call(path: string, body: Record<string, unknown>): Promise<any> {
   return answer;
 }
 
-export const createWalkthrough = (args: { eventId: string; photoIds: string[]; presetId: string; aspect: WalkthroughAspect; requestId: string }) =>
+export const getFlowMeter = (eventId: string): Promise<FlowMeter> => call('/meter', { eventId });
+export const setFlowLabel = (eventId: string, walkthroughId: string, show: boolean) => call('/label', { eventId, walkthroughId, show });
+export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean }) =>
   call('/create', { ...args, acceptedNotice: true, noticeVersion: NOTICE_VERSION });
 export const redoWalkthroughClip = (eventId: string, walkthroughId: string, clipIndex: number) =>
   call('/redo', { eventId, walkthroughId, clipIndex });
@@ -174,5 +173,5 @@ export async function walkthroughFile(eventName: string, w: Walkthrough): Promis
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
   const slug = eventName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'party';
-  return new File([blob], `get2share-${slug}-walkthrough.mp4`, { type: 'video/mp4' });
+  return new File([blob], `get2share-${slug}-flow.mp4`, { type: 'video/mp4' });
 }

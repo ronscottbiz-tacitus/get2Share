@@ -24,11 +24,18 @@ DEFAULT_PRESETS = (
 )
 DEFAULT_PRESET = "15s"
 
+# The host picks photos, and the photo count sets the length: each photo after the first adds a clip.
+MIN_PHOTOS = 3
+MAX_PHOTOS = 10
+CLIP_SECONDS = 5
+# Seconds of AI video a free account gets, once: a 15-second Flow and one 5-second redo.
+FREE_ACCOUNT_SECONDS = 20
+
 DEFAULT_LIMITS = {
-    "videosPerEvent": 1,
-    "redosPerEvent": 2,
-    "videosPerHostPerMonth": 3,  # anyone with a Google account can make unlimited events
-    "redosPerHostPerMonth": 6,
+    "videosPerEvent": 3,          # the meter is the real limit; these are backstops
+    "redosPerEvent": 5,
+    "videosPerHostPerMonth": 20,  # anyone with a Google account can make unlimited events
+    "redosPerHostPerMonth": 30,
 }
 DEFAULT_MONTHLY_BUDGET_USD = 50.0
 
@@ -82,6 +89,10 @@ class Config:
     hold_start: float = 0.0  # still (non-AI) seconds on the first photo
     hold_end: float = 0.0    # still (non-AI) seconds on the last photo
     hold_zoom: bool = False  # a gentle zoom during those still seconds
+    min_photos: int = MIN_PHOTOS
+    max_photos: int = MAX_PHOTOS
+    clip_seconds: float = CLIP_SECONDS
+    free_account_seconds: float = FREE_ACCOUNT_SECONDS
 
     def preset(self, preset_id: str | None) -> Preset | None:
         wanted = preset_id or self.default_preset
@@ -140,7 +151,16 @@ def parse_config(data: dict | None) -> Config:
         raw_slow = []
     hold = d.get("hold") if isinstance(d.get("hold"), dict) else {}
 
+    photos_in = d.get("photos") if isinstance(d.get("photos"), dict) else {}
+    meter_in = d.get("meter") if isinstance(d.get("meter"), dict) else {}
+    min_photos = int(_number(photos_in.get("min"), MIN_PHOTOS, 2, MAX_PRESET_PHOTOS))
+    max_photos = max(min_photos, int(_number(photos_in.get("max"), MAX_PHOTOS, 2, MAX_PRESET_PHOTOS)))
+
     return Config(
+        min_photos=min_photos,
+        max_photos=max_photos,
+        clip_seconds=float(_number(d.get("clipSeconds"), CLIP_SECONDS, 1, 30)),
+        free_account_seconds=float(_number(meter_in.get("freeAccountSeconds"), FREE_ACCOUNT_SECONDS, 0)),
         enabled=d.get("enabled") is True,
         all_hosts=d.get("allHosts") is True,
         provider=d.get("provider") if isinstance(d.get("provider"), str) and d.get("provider") else None,

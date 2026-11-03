@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import media
-from .config import ASPECTS, LABEL, NOTICE_VERSION, Config, month_key, parse_config, size_for
+from .config import ASPECTS, LABEL, NOTICE_VERSION, Config, Preset, month_key, parse_config, size_for
 from .providers import (
     ClipRequest, ContentRejected, GenerationFailed, Provider, ProviderError, ProviderFailed, ProviderNotReady,
     TransientProviderError, selected_name,
@@ -56,8 +56,9 @@ MSG_BLOCKED_REDO = ("The AI service wouldn't redo this clip, often because of fa
                     "Your video is unchanged and this redo wasn't counted.")
 MSG_FAILED = "The video didn't finish. This didn't use up your limit. Try again in a few minutes."
 MSG_FAILED_REDO = "That redo didn't finish. Your video is unchanged and this redo wasn't counted."
-MSG_BUDGET = "Walkthrough videos have reached this month's budget. Try again next month."
-MSG_OFF = "Walkthrough videos are turned off right now."
+MSG_METER = "Not enough AI video seconds left for this."
+MSG_BUDGET = "Flow videos have reached this month's budget. Try again next month."
+MSG_OFF = "Flow videos are turned off right now."
 MSG_PHOTO_GONE = "One of these photos was deleted. Pick different photos."
 
 
@@ -136,7 +137,7 @@ class Service:
         if not cfg.enabled:
             raise ApiError(403, MSG_OFF)
         if not (is_admin or cfg.all_hosts):
-            raise ApiError(403, "Walkthrough videos aren't open to all hosts yet.")
+            raise ApiError(403, "Flow videos aren't open to all hosts yet.")
 
     def _photo_ok(self, eid: str, photo_id: str) -> bool:
         snap = self.db.collection("events").document(eid).collection("photos").document(photo_id).get()
@@ -144,18 +145,16 @@ class Service:
 
     # -------------------------------------------------------------- POST /create
     def create(self, *, uid: str, is_admin: bool, eid: str, event: dict, photo_ids: list[str], preset_id: str | None,
-               aspect: str, accepted_notice: bool, notice_version: int, request_id: str) -> dict:
+               aspect: str, accepted_notice: bool, notice_version: int, request_id: str, show_label: bool = True) -> dict:
         cfg = self.config()
         self._require_access(cfg, is_admin)
         if accepted_notice is not True or notice_version != NOTICE_VERSION:
             raise ApiError(400, "Accept the notice about the outside AI service first.")
         if aspect not in ASPECTS:
             raise ApiError(400, "Pick vertical or horizontal.")
-        preset = cfg.preset(preset_id)
-        if preset is None:
-            raise ApiError(400, "That video length isn't available.")
-        if len(photo_ids) != preset.photos or len(set(photo_ids)) != preset.photos:
-            raise ApiError(400, f"Pick exactly {preset.photos} different photos.")
+        if not (cfg.min_photos <= len(photo_ids) <= cfg.max_photos) or len(set(photo_ids)) != len(photo_ids):
+            raise ApiError(400, f"Pick {cfg.min_photos} to {cfg.max_photos} different photos.")
+        preset = Preset("flow", "Flow", len(photo_ids), cfg.clip_seconds)
         if not request_id or len(request_id) > 80:
             raise ApiError(400, "Missing request ID.")
         expire = event.get("expireAt")
@@ -167,15 +166,15 @@ class Service:
 
         provider = selected_name(cfg.provider, self.d.env)
         if not provider:
-            raise ApiError(503, "Walkthrough videos aren't set up yet: no video service is chosen.")
+            raise ApiError(503, "Flow videos aren't set up yet: no video service is chosen.")
         try:
             self.d.provider_for(provider, cfg.model)  # catches a missing key before anything is counted
         except ProviderNotReady as e:
             self.d.log(f"Walkthrough provider not ready: {e}")
-            raise ApiError(503, "Walkthrough videos aren't set up yet: the video service isn't ready.")
+            raise ApiError(503, "Flow videos aren't set up yet: the video service isn't ready.")
         per_second = cfg.price_per_second(provider, cfg.resolution)
         if per_second is None:
-            raise ApiError(503, "Walkthrough videos aren't set up yet: no price is set for this video service.")
+            raise ApiError(503, "Flow videos aren't set up yet: no price is set for this video service.")
 
         clip_usd = _money(per_second * preset.clip_seconds)
         wid = hashlib.sha1(f"{eid}:{request_id}".encode()).hexdigest()[:20]  # a double tap makes one video
@@ -201,6 +200,8 @@ class Service:
             "seconds": seconds,
             "clips": clips,
             "label": LABEL,
+            "showLabel": show_label is not False,
+            "labelOffBy": None if show_label is not False else uid,
             "provider": provider,
             "redosUsed": 0,
             "videoVersion": 0,
@@ -249,16 +250,22 @@ class Service:
             ev_use = _dict(event_ref.get(transaction=tx))
             host_use = _dict(host_ref.get(transaction=tx))
             glob = _dict(global_ref.get(transaction=tx))
+            meter_key, allowance = self._meter_source(cfg, eid, uid, tx)
+            meter_ref = self.usage_ref(meter_key)
+            meter = _dict(meter_ref.get(transaction=tx))
             if ev_use.get("activeJob"):
                 raise ApiError(409, "A video for this event is already being made.")
             if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
-                raise ApiError(429, "This event has already used its Walkthrough video.")
+                raise ApiError(429, "This event has already used its Flow videos.")
             if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
-                raise ApiError(429, "You've used all your Walkthrough videos for this month.")
+                raise ApiError(429, "You've used all your Flow videos for this month.")
             if _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
                 raise ApiError(429, MSG_BUDGET)
+            if meter.get("secondsUsed", 0) + preset.seconds > allowance:
+                raise ApiError(429, MSG_METER)
             tx.set(wt, doc)
-            tx.set(self.job_ref(eid, wid), job)
+            tx.set(self.job_ref(eid, wid), {**job, "meterKey": meter_key})
+            tx.set(meter_ref, {**meter, "secondsUsed": meter.get("secondsUsed", 0) + preset.seconds})
             tx.set(event_ref, {**ev_use, "videos": ev_use.get("videos", 0) + 1, "activeJob": wid})
             tx.set(host_ref, {**host_use, "videos": host_use.get("videos", 0) + 1})
             tx.set(global_ref, {**glob, "reservedUsd": _money(glob.get("reservedUsd", 0) + total)})
@@ -313,6 +320,10 @@ class Service:
                                                self.usage_ref(f"global-{month}"))
             ev_use, host_use, glob = (_dict(event_ref.get(transaction=tx)), _dict(host_ref.get(transaction=tx)),
                                       _dict(global_ref.get(transaction=tx)))
+            meter_key, allowance = self._meter_source(cfg, eid, uid, tx)
+            meter_key = job.get("meterKey") or meter_key
+            meter_ref = self.usage_ref(meter_key)
+            meter = _dict(meter_ref.get(transaction=tx))
             if ev_use.get("activeJob"):
                 raise ApiError(409, "A video for this event is already being made.")
             clips = wt["clips"]
@@ -331,9 +342,9 @@ class Service:
                 wt["redosUsed"] = wt.get("redosUsed", 0) + 1
             else:  # failed: try again, counted like a new video until it fails again
                 if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
-                    raise ApiError(429, "This event has already used its Walkthrough video.")
+                    raise ApiError(429, "This event has already used its Flow videos.")
                 if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
-                    raise ApiError(429, "You've used all your Walkthrough videos for this month.")
+                    raise ApiError(429, "You've used all your Flow videos for this month.")
                 todo = [c["index"] for c in clips if c.get("status") != "ready"]
                 new_job = {"mode": "create", "redoClip": None, "countsVideo": True, "countsRedo": False}
                 host_use["videos"] = host_use.get("videos", 0) + 1
@@ -342,13 +353,17 @@ class Service:
             total = _money(clip_usd * len(todo))
             if _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
                 raise ApiError(429, MSG_BUDGET)
+            seconds = wt.get("clipSeconds", cfg.clip_seconds) * len(todo)
+            if meter.get("secondsUsed", 0) + seconds > allowance:
+                raise ApiError(429, MSG_METER)
             for i in todo:
                 clip = clips[i]
                 clip.update(status="pending", gen=clip.get("gen", 1) + 1, attempt=1, providerRef=None, error=None)
                 reservations[res_key(i, clip)] = {"usd": clip_usd, "state": "reserved", "month": month}
             tx.update(wt_ref, {"clips": clips, "status": "queued", "error": None, "errorKind": None, "redoNotice": None,
                                "redosUsed": wt.get("redosUsed", 0), "updatedAt": self.d.server_time})
-            tx.update(job_ref, {**new_job, "active": True, "reservations": reservations, "chargedHost": uid,
+            tx.set(meter_ref, {**meter, "secondsUsed": meter.get("secondsUsed", 0) + seconds})
+            tx.update(job_ref, {**new_job, "active": True, "reservations": reservations, "chargedHost": uid, "meterKey": meter_key,
                                 "chargedMonth": month, "leaseOwner": None, "leaseUntil": now + 60, "runs": 0})
             tx.set(event_ref, {**ev_use, "activeJob": wid})
             tx.set(host_ref, host_use)
@@ -357,6 +372,59 @@ class Service:
         self.d.run_tx(tx_redo)
         self._spawn(eid, wid)
         return {"id": wid, "status": "queued"}
+
+    # -------------------------------------------------------------- the meter
+    def _meter_source(self, cfg: Config, eid: str, uid: str, tx=None) -> tuple[str, float]:
+        """Which seconds this video draws on. An event with paid seconds uses those; otherwise
+        it's the host's one free allowance, which follows the account across events."""
+        features = self.db.collection("features").document(eid)
+        data = _dict(features.get(transaction=tx) if tx is not None else features.get())
+        paid = data.get("flowSeconds")
+        if isinstance(paid, (int, float)) and not isinstance(paid, bool) and paid > 0:
+            return f"meter-event-{eid}", float(paid)
+        return f"meter-account-{uid}", cfg.free_account_seconds
+
+    def meter(self, *, uid: str, eid: str) -> dict:
+        cfg = self.config()
+        key, allowance = self._meter_source(cfg, eid, uid)
+        used = _dict(self.usage_ref(key).get()).get("secondsUsed", 0)
+        return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
+                "plan": "event" if key.startswith("meter-event-") else "free"}
+
+    # -------------------------------------------------------------- POST /label
+    def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool) -> dict:
+        """Turn the burned-in label on or off. Re-joins the saved clips: nothing goes to the AI service."""
+        self._require_access(self.config(), is_admin)
+        now = self.d.now()
+
+        def tx_label(tx):
+            wt_ref, job_ref = self.wt_ref(eid, wid), self.job_ref(eid, wid)
+            wt_snap = wt_ref.get(transaction=tx)
+            if not wt_snap.exists:
+                raise ApiError(404, "That video was deleted.")
+            wt = wt_snap.to_dict()
+            event_ref = self.usage_ref(f"event-{eid}")
+            ev_use = _dict(event_ref.get(transaction=tx))
+            if wt.get("status") == "published":
+                raise ApiError(409, "Take this video down before changing it.")
+            if wt.get("status") != "preview":
+                raise ApiError(409, "This video can't be changed right now.")
+            if ev_use.get("activeJob"):
+                raise ApiError(409, "A video for this event is already being made.")
+            if wt.get("showLabel", True) is show:
+                return False
+            tx.update(wt_ref, {"status": "queued", "showLabel": show, "labelOffBy": None if show else uid,
+                               "labelOffAt": None if show else self.d.server_time, "redoNotice": None,
+                               "updatedAt": self.d.server_time})
+            tx.update(job_ref, {"mode": "label", "redoClip": None, "active": True, "leaseOwner": None,
+                                "leaseUntil": now + 60, "runs": 0})
+            tx.set(event_ref, {**ev_use, "activeJob": wid})
+            return True
+
+        if self.d.run_tx(tx_label):
+            self._spawn(eid, wid)
+            return {"id": wid, "status": "queued"}
+        return {"id": wid, "status": "preview"}
 
     # -------------------------------------------------------------- POST /approve
     def approve(self, *, uid: str, eid: str, wid: str) -> dict:
@@ -573,12 +641,22 @@ class Service:
             host_ref = self.usage_ref(f"host-{job.get('chargedHost')}-{job.get('chargedMonth')}")
             ev_use, host_use = _dict(event_ref.get(transaction=tx)), _dict(host_ref.get(transaction=tx))
             globals_by_month = self._settle_all_reads(tx, wt, job)
+            is_label = job.get("mode") == "label"
+            meter_ref = self.usage_ref(job["meterKey"]) if job.get("meterKey") else None
+            meter = _dict(meter_ref.get(transaction=tx)) if meter_ref else {}
 
             self._settle_all_writes(tx, job, wt, globals_by_month)
             is_redo = job.get("mode") == "redo"
             patch: dict = {"updatedAt": self.d.server_time}
+            if not ok and meter_ref and not is_label:  # seconds for clips the host didn't get come back
+                unmade = 1 if is_redo else sum(1 for c in wt["clips"] if c.get("status") != "ready")
+                refund = unmade * wt.get("clipSeconds", 0)
+                tx.set(meter_ref, {**meter, "secondsUsed": max(0, meter.get("secondsUsed", 0) - refund)})
             if not ok:
-                if is_redo:
+                if is_label:  # keep the video they have, with the label as it was
+                    patch.update(status="preview", showLabel=not wt.get("showLabel", True),
+                                 redoNotice="The label didn't change. Your video is unchanged. Try again in a minute.")
+                elif is_redo:
                     # Keep the video the host already has, and the good clip it was made from.
                     clips = wt["clips"]
                     clip = clips[job["redoClip"]]
@@ -640,7 +718,8 @@ class Service:
             return "failed"
 
         todo = [c["index"] for c in wt["clips"] if c.get("status") != "ready"]
-        self._set_status(eid, wid, status="generating")
+        if todo:
+            self._set_status(eid, wid, status="generating")
         try:
             frames = self._frames(eid, wid, wt, job, tmp, todo)
         except FileNotFoundError:
@@ -842,10 +921,10 @@ class Service:
         final = str(tmp / "final.mp4")
         expected = sum(s.output_seconds for s in segments)
         try:
-            media.join_segments(segments, final, wt["aspect"], wt["resolution"])
+            media.join_segments(segments, final, wt["aspect"], wt["resolution"], label=wt.get("showLabel", True))
         except media.MediaError as e:  # one retry for the join too
             self.d.log(f"Walkthrough {eid}/{wid}: join failed, trying again: {e}")
-            media.join_segments(segments, final, wt["aspect"], wt["resolution"])
+            media.join_segments(segments, final, wt["aspect"], wt["resolution"], label=wt.get("showLabel", True))
         info = media.check_final(final, wt["aspect"], wt["resolution"], expected)
         poster = str(tmp / "poster.jpg")
         media.poster_frame(final, poster)

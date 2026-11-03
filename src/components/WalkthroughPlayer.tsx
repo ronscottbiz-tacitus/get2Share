@@ -45,7 +45,7 @@ export function WalkthroughCard({ w, onOpen }: { key?: string; w: Walkthrough; o
         </span>
       </span>
       <span className="min-w-0">
-        <span className="block font-expanded font-black text-[15px] leading-tight text-white">Walkthrough video</span>
+        <span className="block font-expanded font-black text-[15px] leading-tight text-white">Flow video</span>
         <WalkthroughLabel className="mt-1" />
       </span>
     </button>
@@ -105,7 +105,7 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
       exit={{ opacity: 0 }}
       role="dialog"
       aria-modal="true"
-      aria-label="Walkthrough video"
+      aria-label="Flow video"
       className="fixed inset-0 z-[60] bg-g2-page flex flex-col font-sans"
     >
       <div className="flex-1 min-h-0 flex items-center justify-center p-4 relative">

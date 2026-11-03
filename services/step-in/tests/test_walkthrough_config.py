@@ -4,7 +4,8 @@ from walkthrough.config import LABEL, month_key, parse_config, size_for
 def test_missing_doc_is_off_and_admin_only():
     c = parse_config(None)
     assert c.enabled is False and c.all_hosts is False and c.provider is None
-    assert c.limits["videosPerEvent"] == 1 and c.limits["redosPerEvent"] == 2
+    assert (c.min_photos, c.max_photos, c.clip_seconds, c.free_account_seconds) == (3, 10, 5, 20)
+    assert c.limits["videosPerEvent"] >= 1 and c.limits["redosPerEvent"] >= 1
     assert c.limits["videosPerHostPerMonth"] >= 1
     assert c.monthly_budget_usd == 50
 
@@ -33,7 +34,7 @@ def test_bad_values_fall_back():
     c = parse_config({"presets": [{"id": "x", "photos": 1}, {"photos": 3}, "junk"], "limits": {"videosPerEvent": "lots"},
                       "budget": {"monthlyUsd": -5}, "resolution": "8k", "slowdown": [9, "x", 1.5], "hold": {"startSeconds": 99}})
     assert [p.id for p in c.presets] == ["10s", "15s"]
-    assert c.limits["videosPerEvent"] == 1
+    assert c.limits["videosPerEvent"] == 3
     assert c.monthly_budget_usd == 50
     assert c.resolution == "720p"
     assert c.slowdown == (1.0, 1.0, 1.5)
