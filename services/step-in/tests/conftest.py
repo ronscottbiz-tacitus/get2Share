@@ -18,6 +18,7 @@ from PIL import Image  # noqa: E402
 
 from walkthrough.providers import FakeProvider  # noqa: E402
 from walkthrough.service import Deps, Service  # noqa: E402
+from walkthrough.transactions import run_transaction  # noqa: E402
 
 
 # ------------------------------------------------------------------ in-memory Firestore
@@ -179,7 +180,7 @@ class World:
         self.deps = Deps(
             db=db, run_tx=run_tx, storage=self.storage, load_photo=self.load_photo,
             provider_for=self.provider_for, spawn=lambda e, w: self.spawned.append((e, w)),
-            server_time=server_time, now=self.clock, sleep=self.clock.sleep, log=lambda *_: None,
+            server_time=server_time, now=self.clock, sleep=self.clock.sleep, log=print,
         )
         self.svc = Service(self.deps)
 
@@ -246,10 +247,7 @@ def _emulator_world(tmp_path):
     db = firestore.Client(project=project, credentials=AnonymousCredentials())
 
     def run_tx(fn):
-        @firestore.transactional
-        def go(tx):
-            return fn(tx)
-        return go(db.transaction())
+        return run_transaction(db, fn)
 
     return World(db, run_tx, tmp_path, SERVER_TIMESTAMP)
 

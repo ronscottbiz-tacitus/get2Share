@@ -7,6 +7,7 @@ from stepin import firebase_io as fb
 
 from .providers import get_provider
 from .service import Deps, Service
+from .transactions import run_transaction
 
 
 class FirebaseStorage:
@@ -34,13 +35,7 @@ class FirebaseStorage:
 
 
 def _run_tx(fn):
-    from google.cloud import firestore
-    db = fb.db()
-
-    @firestore.transactional
-    def go(tx):
-        return fn(tx)
-    return go(db.transaction())
+    return run_transaction(fb.db(), fn)
 
 
 def service(spawn) -> Service:
