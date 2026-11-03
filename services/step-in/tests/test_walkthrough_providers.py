@@ -53,6 +53,22 @@ def test_higgsfield_request_uses_key_header_and_turns_audio_off(req):
     assert kw["json"]["generate_audio"] is False
 
 
+def test_higgsfield_kling_uses_its_own_field_names(req):
+    s = Session(Resp(200, {"status_url": "https://api.higgsfield.ai/requests/x/status"}))
+    HiggsfieldProvider(model="kling-video/v3.0/std/image-to-video", key="K", session=s).submit(req)
+    body = s.calls[0][2]["json"]
+    assert body["last_image_url"] == req.end_url and body["sound"] == "off"
+    assert "end_image_url" not in body and "generate_audio" not in body
+
+
+def test_higgsfield_seedance_field_names(req):
+    s = Session(Resp(200, {"status_url": "https://api.higgsfield.ai/requests/x/status"}))
+    HiggsfieldProvider(model="bytedance/seedance-2.5/image-to-video", key="K", session=s).submit(req)
+    body = s.calls[0][2]["json"]
+    assert body["end_image_url"] == req.end_url and body["generate_audio"] is False and body["resolution"] == req.resolution
+    assert "aspect_ratio" not in body and "last_image_url" not in body
+
+
 @pytest.mark.parametrize("status,error", [("nsfw", ContentRejected), ("failed", GenerationFailed), ("canceled", GenerationFailed)])
 def test_higgsfield_terminal_states(status, error):
     p = HiggsfieldProvider(model="m", key="K", session=Session(Resp(200, {"status": status})))

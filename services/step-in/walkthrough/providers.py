@@ -227,8 +227,10 @@ def video_url_from(body: dict) -> str | None:
 
 
 class HiggsfieldProvider(HttpProvider):
-    """UNVERIFIED. POST https://api.higgsfield.ai/<model-path>, header Authorization: Key <key>,
-    then poll status_url until completed, failed, nsfw or canceled. Body fields are a best guess."""
+    """UNVERIFIED until a real clip has run. POST https://api.higgsfield.ai/<model-path>, header
+    Authorization: Key <key>, then poll status_url until completed, failed, nsfw or canceled.
+    Field names follow Higgsfield's docs as of Nov 2026, and they differ by model. There's no
+    aspect field for image-to-video, so the frames we send set the shape."""
     name = "higgsfield"
     env_key = "HIGGSFIELD_API_KEY"
     BASE = "https://api.higgsfield.ai"
@@ -236,16 +238,14 @@ class HiggsfieldProvider(HttpProvider):
     def default_model(self):
         return os.environ.get("HIGGSFIELD_MODEL_PATH")
 
+    def body_for(self, req: ClipRequest) -> dict:
+        base = {"prompt": req.prompt, "image_url": req.start_url, "duration": int(req.seconds)}
+        if self.model.lstrip("/").startswith("kling-video"):
+            return {**base, "last_image_url": req.end_url, "sound": "on" if req.generate_audio else "off"}
+        return {**base, "end_image_url": req.end_url, "resolution": req.resolution, "generate_audio": req.generate_audio}
+
     def submit(self, req: ClipRequest) -> str:
-        body = self.call("POST", f"{self.BASE}/{self.model.lstrip('/')}", json={
-            "prompt": req.prompt,
-            "image_url": req.start_url,
-            "end_image_url": req.end_url,
-            "duration": int(req.seconds),
-            "resolution": req.resolution,
-            "aspect_ratio": req.aspect,
-            "generate_audio": req.generate_audio,
-        })
+        body = self.call("POST", f"{self.BASE}/{self.model.lstrip('/')}", json=self.body_for(req))
         ref = body.get("status_url")
         if not ref:
             raise ProviderFailed("higgsfield: no status_url in the answer")
