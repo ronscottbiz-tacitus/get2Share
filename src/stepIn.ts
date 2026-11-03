@@ -30,6 +30,56 @@ export const stepInStuck = (p: Pick<Photo, 'stepIn'> | null | undefined, now = D
 };
 
 /**
+ * config/stepIn.allHosts, live. null until known, so a screen doesn't flash a moment it's about
+ * to hide. On (true) when the doc is missing or can't be read, as it always has been.
+ */
+export function useStepInAllHosts(active = true): boolean | null {
+  const [allHosts, setAllHosts] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    return onSnapshot(
+      doc(db, 'config', 'stepIn'),
+      (s) => setAllHosts(!s.exists() || s.data()?.allHosts !== false),
+      () => setAllHosts(true),
+    );
+  }, [active]);
+  return allHosts;
+}
+
+/**
+ * Should this person see finished Step In moments? When allHosts is off, moments that already
+ * exist stop showing to everyone except admins, who keep them for testing, and hosts of a Pro
+ * event. Guests and TVs can't read whether an event is Pro, so at a Pro event they follow the
+ * switch too.
+ */
+export function useStepInVisible(eventId: string, isHost: boolean): boolean {
+  const user = auth.currentUser;
+  const admin = !!user && !user.isAnonymous && !!user.emailVerified && isAdminEmail(user.email);
+  const allHosts = useStepInAllHosts(!admin);
+  const pro = useStepInPro(eventId, isHost && !admin && allHosts === false);
+  return admin || allHosts === true || (isHost && pro);
+}
+
+function useStepInPro(eventId: string, active: boolean): boolean {
+  const [pro, setPro] = useState(false);
+  useEffect(() => {
+    if (!active) return;
+    return onSnapshot(doc(db, 'features', eventId), (s) => setPro(!!s.data()?.pro), () => setPro(false));
+  }, [eventId, active]);
+  return pro;
+}
+
+/**
+ * Should this device keep a GPU warm? Hosts when allHosts is on, or at a Pro event. Admins follow
+ * the same rule: with allHosts off they can still make moments, without a GPU idling for it.
+ */
+export function useStepInShouldWarm(eventId: string, isHost: boolean): boolean {
+  const allHosts = useStepInAllHosts(isHost);
+  const pro = useStepInPro(eventId, isHost && allHosts === false);
+  return isHost && (allHosts === true || (allHosts === false && pro));
+}
+
+/**
  * Can this device make Step In moments for this event? Admins always; other hosts when
  * config/stepIn.allHosts is on (the default, while there's no paid plan) or the event is Pro.
  * The cloud job checks the same things.

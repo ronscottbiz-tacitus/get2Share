@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import HostBar from './HostBar';
 import SavePhotosSheet from './SavePhotosSheet';
 import { canSaveAlbum, daysLeft, isOwnPhoto } from '../savePhotos';
-import { stepInReady } from '../stepIn';
+import { stepInReady, useStepInVisible } from '../stepIn';
 import HostTabs from './HostTabs';
 
 interface LiveGalleryFeedProps {
@@ -57,6 +57,7 @@ export default function LiveGalleryFeed({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const eventId = event.id;
+  const showStepIn = useStepInVisible(eventId, !!isHost);
   const autoApproval = event.autoApproval;
 
   // Where the event is in its life (live → wrap-up → album). Re-checked every 30s.
@@ -458,7 +459,7 @@ export default function LiveGalleryFeed({
 
                   {/* Badges */}
                   <div className="absolute top-2 left-2 flex flex-wrap gap-1 pr-10">
-                    {stepInReady(photo) && (
+                    {showStepIn && stepInReady(photo) && (
                       <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-blue text-white font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
                         Step In
                       </span>

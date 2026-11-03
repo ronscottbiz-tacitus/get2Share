@@ -11,7 +11,7 @@ import {
   createScreenCode, ScreenConfig, ScreenPairing, screenPaths, SCREEN_CODE_TTL_MS, STORED_SCREEN_KEY,
 } from '../screens';
 import { Photo } from '../types';
-import { stepInReady } from '../stepIn';
+import { stepInReady, useStepInAllHosts } from '../stepIn';
 
 const StepInStage = React.lazy(() => import('./StepInStage'));
 
@@ -366,13 +366,19 @@ function Tagline() {
   );
 }
 
-function EventView({ event, config, photos, now, onSwitch }: { event: EventWithId; config: ScreenConfig; photos: Photo[]; now: number; onSwitch: () => void }) {
+function EventView({ event, config, photos: allPhotos, now, onSwitch }: { event: EventWithId; config: ScreenConfig; photos: Photo[]; now: number; onSwitch: () => void }) {
   const link = joinUrl(event.joinCode);
   const qr = useQr(link, 320);
   const phase = eventPhase(event, now);
 
+  // config/stepIn.allHosts off: Step In moments don't show anywhere on the TV.
+  const showStepIn = useStepInAllHosts();
+  const photos = useMemo(
+    () => (showStepIn === true || !allPhotos.some((p) => p.stepIn) ? allPhotos : allPhotos.map(({ stepIn: _hidden, ...p }) => p)),
+    [allPhotos, showStepIn],
+  );
   const current = useJustIn(photos);
-  const moment = useNewStepIn(photos);
+  const moment = useNewStepIn(allPhotos, showStepIn);
 
   if (config.paused) {
     return (
@@ -1020,20 +1026,21 @@ function StepInMedia({ photo }: { photo: Photo }) {
  * for a few seconds, one at a time. Ones that were already done when the TV started
  * play in the slideshow and spotlight instead.
  */
-function useNewStepIn(photos: Photo[]): Photo | null {
+function useNewStepIn(photos: Photo[], show: boolean | null): Photo | null {
   const seen = useRef<Set<string> | null>(null);
   const [queue, setQueue] = useState<string[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   useEffect(() => {
+    if (show === null) return; // the switch isn't known yet
     const ready = photos.filter((p) => stepInReady(p)).map((p) => p.id);
     // Wait for the first real list: moments that were already done don't pop up.
     if (seen.current === null) { if (photos.length) seen.current = new Set(ready); return; }
     const fresh = ready.filter((id) => !seen.current!.has(id));
     if (fresh.length) {
       fresh.forEach((id) => seen.current!.add(id));
-      setQueue((q) => [...q, ...fresh]);
+      if (show) setQueue((q) => [...q, ...fresh]);
     }
-  }, [photos]);
+  }, [photos, show]);
   useEffect(() => {
     if (current) {
       const t = setTimeout(() => setCurrent(null), STEP_IN_SHOW_MS);
@@ -1044,7 +1051,7 @@ function useNewStepIn(photos: Photo[]): Photo | null {
       setQueue((q) => q.slice(1));
     }
   }, [current, queue]);
-  return photos.find((p) => p.id === current && stepInReady(p)) ?? null;
+  return show ? photos.find((p) => p.id === current && stepInReady(p)) ?? null : null;
 }
 
 function JustInBar({ photo, showNames, label = 'Just in' }: { photo: Photo; showNames: boolean; label?: string }) {

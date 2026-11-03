@@ -24,6 +24,7 @@ Every model used allows commercial use:
 | `stepin/cli.py` | Run it on your own computer, on a folder of photos. |
 | `stepin/firebase_io.py` | Firebase reads and writes, the host check, and the expired-event cleanup. |
 | `modal_app.py` | The cloud side: request endpoint, GPU job, nightly cleanup. |
+| `walkthrough_app.py`, `walkthrough/`, `WALKTHROUGH.md` | A separate Modal app for AI Walkthrough videos (not Step In). |
 
 ## Data written to each photo
 
@@ -47,6 +48,8 @@ The request endpoint checks that the caller signed in and hosts the event. Then,
 - **Admins** (`STEP_IN_ADMIN_EMAILS`, the same two as `storage.rules`) can always use it.
 
 The app reads the same switch, so the button appears and disappears with no redeploy.
+
+With `allHosts` set to `false`, moments that already exist also stop showing: no badge in the gallery, no 3D view in the photo, nothing on TVs. Admins keep the Make button and the moments for testing, but no GPU warms up while they sit idle. Hosts of a Pro event keep theirs too, while their guests and TVs follow the switch, because guests can't read whether an event is Pro. With `allHosts` on or missing, nothing changes.
 
 ## Set up (one time)
 

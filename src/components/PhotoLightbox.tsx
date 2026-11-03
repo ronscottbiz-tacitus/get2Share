@@ -6,7 +6,7 @@ import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebas
 import { paths } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, StepIn } from '../types';
-import { requestStepIn, stepInBusy, stepInReady, stepInStuck, useCanMakeStepIn } from '../stepIn';
+import { requestStepIn, stepInBusy, stepInReady, stepInStuck, useCanMakeStepIn, useStepInVisible } from '../stepIn';
 import StepInStage from './StepInStage';
 import CloseButton from './CloseButton';
 import { useBackToClose } from '../useBackToClose';
@@ -85,6 +85,7 @@ export default function PhotoLightbox({
   const [requesting, setRequesting] = useState(false);
   const [stageFailed, setStageFailed] = useState(false);
   const canMakeStepIn = useCanMakeStepIn(eventId, !!isHost);
+  const stepInVisible = useStepInVisible(eventId, !!isHost);
   useEffect(() => {
     setStepIn(photo.stepIn);
     setView('photo');
@@ -99,7 +100,7 @@ export default function PhotoLightbox({
       });
     }, () => {});
   }, [photo.id]);
-  const ready = stepInReady({ stepIn }) && !stageFailed;
+  const ready = stepInVisible && stepInReady({ stepIn }) && !stageFailed;
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     if (!stepInBusy({ stepIn })) return;
