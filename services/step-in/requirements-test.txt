@@ -1,0 +1,7 @@
+# Walkthrough tests: python -m pytest tests   (needs ffmpeg, and tesseract for the label check)
+pytest
+firebase-admin==7.7.0
+pillow
+requests
+fastapi[standard]
+httpx

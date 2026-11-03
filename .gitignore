@@ -10,3 +10,4 @@ coverage/
 # Python (services/)
 __pycache__/
 .venv/
+.pytest_cache/
