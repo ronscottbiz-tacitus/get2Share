@@ -5,14 +5,14 @@ import VideoBird from './VideoBird';
 import { useBackToClose } from '../useBackToClose';
 import { useMediaReady } from '../deferredMedia';
 
-// Placeholders until real clips exist. The Flow loop is the old AI concept clip, not something the
-// app made, so its badge and player say so. Swap both before calling these real footage.
+// The Flow loop is the old AI concept clip, not something the app made, so its badge and player say
+// so. The Flick loop is an AI scene followed by the real app's borrowed-camera countdown.
 const FLOW = {
   card: '/media/pro-swim-card.mp4',
   full: '/media/pro-swim.mp4',
   poster: '/media/pro-swim-poster.webp',
 };
-const FLICK_POSTER = '/media/flick-poster.webp';
+const FLICK = { card: '/media/flick-card.mp4', poster: '/media/flick-poster.webp' };
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -30,7 +30,7 @@ const AiBadge = ({ className = '' }: { className?: string }) => (
 );
 
 /** A muted loop that only loads and plays while it's on screen. */
-function FlowLoop({ still }: { still: boolean }) {
+function CardLoop({ card, poster, still }: { card: string; poster: string; still: boolean }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const mediaReady = useMediaReady();
   useEffect(() => {
@@ -39,7 +39,7 @@ function FlowLoop({ still }: { still: boolean }) {
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          if (!v.src) v.src = FLOW.card;
+          if (!v.src) v.src = card;
           v.play().catch(() => {});
         } else {
           v.pause();
@@ -49,10 +49,10 @@ function FlowLoop({ still }: { still: boolean }) {
     );
     io.observe(v);
     return () => io.disconnect();
-  }, [still, mediaReady]);
-  if (still) return <img src={FLOW.poster} alt="" className="absolute inset-0 w-full h-full object-cover" />;
+  }, [card, still, mediaReady]);
+  if (still) return <img src={poster} alt="" className="absolute inset-0 w-full h-full object-cover" />;
   return (
-    <video ref={ref} poster={FLOW.poster} muted loop playsInline preload="none" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover" />
+    <video ref={ref} poster={poster} muted loop playsInline preload="none" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover" />
   );
 }
 
@@ -92,15 +92,8 @@ export default function HeroFeatures() {
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
         <article className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] flex flex-col">
           <div className="relative aspect-[4/5] bg-black">
-            <img src={FLICK_POSTER} alt="" className="absolute inset-0 w-full h-full object-cover" />
-            {/* A borrowed camera's viewfinder over the shot */}
-            <span aria-hidden="true" className="absolute inset-3 top-10 bottom-4">
-              <span className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-white/90 rounded-tl" />
-              <span className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-white/90 rounded-tr" />
-              <span className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-white/90 rounded-bl" />
-              <span className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-white/90 rounded-br" />
-            </span>
-            <AiBadge className="absolute top-2 left-2" />
+            <CardLoop card={FLICK.card} poster={FLICK.poster} still={still} />
+            <AiBadge className="absolute bottom-2 left-2" />
           </div>
           <div className="p-3">
             <h3 className="font-expanded font-black text-[17px] leading-tight text-white">Flick</h3>
@@ -116,8 +109,8 @@ export default function HeroFeatures() {
           className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 text-left cursor-pointer transition-colors flex flex-col"
         >
           <span className="relative block w-full aspect-[4/5] bg-black">
-            <FlowLoop still={still} />
-            <AiBadge className="absolute top-2 left-2" />
+            <CardLoop card={FLOW.card} poster={FLOW.poster} still={still} />
+            <AiBadge className="absolute bottom-2 left-2" />
           </span>
           <span className="block p-3">
             <span className="flex items-center gap-1.5">
