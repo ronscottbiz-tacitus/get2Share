@@ -22,7 +22,7 @@ def api(world):
 
 
 BODY = {"eventId": "ev1", "photoIds": ["p0", "p1", "p2", "p3"], "presetId": "15s", "aspect": "9:16",
-        "acceptedNotice": True, "noticeVersion": 1, "requestId": "r1"}
+        "acceptedNotice": True, "noticeVersion": 2, "requestId": "r1"}
 H = {"Authorization": "Bearer host"}
 
 

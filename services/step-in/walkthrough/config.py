@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 LABEL = "AI-generated video. Some moments and details aren't real."
 # The same words, split for vertical video, where one line would not fit.
 LABEL_LINES = ("AI-generated video.", "Some moments and details aren't real.")
-NOTICE_VERSION = 1
+NOTICE_VERSION = 2
 
 ASPECTS = ("9:16", "16:9")
 RESOLUTIONS = ("720p", "480p")

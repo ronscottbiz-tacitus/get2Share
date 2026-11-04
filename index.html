@@ -9,10 +9,10 @@
     <!-- Dark from the very first frame, before the stylesheet arrives. -->
     <style>html,body{background:#050506}</style>
     <script>
-      // On the landing page, start the first concept card's cover image right away (it's the biggest thing on a phone's first screen).
+      // On the landing page, start the Flick card's image right away (it's the biggest thing on a phone's first screen).
       if ((location.pathname.replace(/\/+$/, '') || '/') === '/') {
         var l = document.createElement('link');
-        l.rel = 'preload'; l.as = 'image'; l.href = '/media/pro-matrix-poster.webp'; l.setAttribute('fetchpriority', 'high');
+        l.rel = 'preload'; l.as = 'image'; l.href = '/media/flick-poster.webp'; l.setAttribute('fetchpriority', 'high');
         document.head.appendChild(l);
       }
     </script>

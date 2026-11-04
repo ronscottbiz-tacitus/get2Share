@@ -384,12 +384,14 @@ class Service:
             return f"meter-event-{eid}", float(paid)
         return f"meter-account-{uid}", cfg.free_account_seconds
 
-    def meter(self, *, uid: str, eid: str) -> dict:
+    def meter(self, *, uid: str, eid: str, is_admin: bool = False) -> dict:
+        """`access` is how the app learns an invited host can use Flow: the invite list stays private."""
         cfg = self.config()
         key, allowance = self._meter_source(cfg, eid, uid)
         used = _dict(self.usage_ref(key).get()).get("secondsUsed", 0)
         return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
-                "plan": "event" if key.startswith("meter-event-") else "free"}
+                "plan": "event" if key.startswith("meter-event-") else "free",
+                "access": cfg.enabled and (is_admin or cfg.all_hosts)}
 
     # -------------------------------------------------------------- POST /label
     def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool) -> dict:
@@ -831,12 +833,15 @@ class Service:
                     url = self._wait(eid, wid, me, provider, clip["providerRef"])
                     self._download_clip(eid, wid, index, clip, provider, url, tmp)
                     self._settle(eid, wid, key, "spent")
+                    self._discard(provider, clip["providerRef"])
                 except ContentRejected as e:
                     self._settle(eid, wid, key, "released")
+                    self._discard(provider, clip["providerRef"])
                     self._update_clip(eid, wid, index, status="blocked", providerRef=None, error=str(e)[:200])
                     return "blocked", None
                 except GenerationFailed as e:        # it said it failed: providers don't bill those
                     self._settle(eid, wid, key, "released")
+                    self._discard(provider, clip["providerRef"])
                     final = self._retry_or_fail(eid, wid, index, clip, str(e))
                     if final:
                         return final
@@ -878,6 +883,13 @@ class Service:
                 self._heartbeat(eid, wid, me)
                 last_beat = now
             self.d.sleep(self.d.poll_seconds)
+
+    def _discard(self, provider: Provider, ref: str) -> None:
+        """Our copy is safe, so ask the service to delete theirs. If it can't, its own retention applies."""
+        try:
+            provider.discard(ref)
+        except Exception as e:
+            self.d.log(f"Couldn't delete a request from the video service: {type(e).__name__}: {e}")
 
     def _download_clip(self, eid, wid, index, clip, provider: Provider, url: str, tmp: Path) -> None:
         """Provider links expire, so the clip goes to our Storage straight away."""

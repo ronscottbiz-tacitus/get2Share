@@ -81,8 +81,8 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
 
     @web.post("/meter")
     def meter(req: Meter, authorization: str = Header(default="")):
-        uid, _, _ = signed_in(authorization, req.eventId)
-        return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId))
+        uid, _, is_admin = signed_in(authorization, req.eventId)
+        return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin))
 
     @web.post("/approve")
     def approve(req: One, authorization: str = Header(default="")):

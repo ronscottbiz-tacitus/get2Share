@@ -52,9 +52,12 @@ def run_walkthrough(event_id: str, walkthrough_id: str) -> str:
 def api():
     from stepin import firebase_io as fb
     from walkthrough.api import build_api
+    from walkthrough.runtime import is_invited
 
     def verify(token: str, event_id: str):
-        return fb.verify_event_host(token, event_id, denied="Only hosts can make Walkthrough videos.")
+        uid, event, is_admin = fb.verify_event_host(token, event_id, denied="Only hosts can make Flow videos.")
+        # An invited host gets the same access as an admin to this feature, and nothing else.
+        return uid, event, is_admin or is_invited(token)
 
     return build_api(_service, verify, origins=ALLOWED_ORIGINS, origin_regex=ALLOWED_ORIGIN_REGEX)
 

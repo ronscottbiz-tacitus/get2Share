@@ -761,14 +761,14 @@ export default function HostDashboard({
                 {/* Guests borrowing each other's cameras */}
                 <div className="flex items-center justify-between p-3.5 bg-black/40 border border-white/5 rounded-xl">
                   <div>
-                    <p className="text-xs font-bold text-white">Let guests borrow cameras</p>
+                    <p className="text-xs font-bold text-white">Flick: let guests borrow cameras</p>
                     <p className="text-[10px] text-g2-muted mt-0.5">A guest can ask another to lend their camera, so they can be in the shot</p>
                   </div>
                   <button
                     onClick={handleToggleLensSharing}
                     role="switch"
                     aria-checked={lensSharing}
-                    aria-label="Let guests borrow cameras"
+                    aria-label="Flick: let guests borrow cameras"
                     className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer relative shrink-0 ${
                       lensSharing ? 'bg-g2-blue' : 'bg-white/10'
                     }`}

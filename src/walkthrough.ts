@@ -19,8 +19,8 @@ export const WALKTHROUGH_API: string =
 export const WALKTHROUGH_LABEL = "AI-generated video. Some moments and details aren't real.";
 
 /** What a host must accept before creating. Bump NOTICE_VERSION (here and in config.py) if it changes. */
-export const WALKTHROUGH_NOTICE = "Your photos go to an outside AI service, and the AI can add or change people's faces and moments.";
-export const NOTICE_VERSION = 1;
+export const WALKTHROUGH_NOTICE = "These photos go to an outside AI service, which may use them to improve its AI. The AI can add or change people's faces and moments. I have permission from everyone pictured, and none of them are kids.";
+export const NOTICE_VERSION = 2;
 
 export type WalkthroughAspect = '9:16' | '16:9';
 export type WalkthroughStatus = 'queued' | 'generating' | 'joining' | 'preview' | 'published' | 'failed' | 'blocked';
@@ -77,7 +77,7 @@ export function parseWalkthroughConfig(d: any): WalkthroughConfig {
 /** Each photo after the first adds one clip. */
 export const flowSeconds = (photos: number, clipSeconds: number) => Math.max(0, photos - 1) * clipSeconds;
 
-export interface FlowMeter { allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' }
+export interface FlowMeter { allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event'; access?: boolean }
 
 export function useWalkthroughConfig(active: boolean): WalkthroughConfig {
   const [config, setConfig] = useState<WalkthroughConfig>(OFF_CONFIG);

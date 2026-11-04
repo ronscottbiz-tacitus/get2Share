@@ -88,6 +88,9 @@ class Provider:
         """Download a finished clip."""
         raise NotImplementedError
 
+    def discard(self, ref: str) -> None:
+        """Ask the service to delete its copy of a finished request. Not every service can."""
+
 
 class FakeProvider(Provider):
     """No network, no cost. `script` makes a clip misbehave, attempt by attempt, for tests:
@@ -243,6 +246,10 @@ class HiggsfieldProvider(HttpProvider):
         if self.model.lstrip("/").startswith("kling-video"):
             return {**base, "last_image_url": req.end_url, "sound": "on" if req.generate_audio else "off"}
         return {**base, "end_image_url": req.end_url, "resolution": req.resolution, "generate_audio": req.generate_audio}
+
+    def discard(self, ref: str) -> None:
+        """DELETE /requests/{id} removes the request's files, prompt and parameters. ref is its status_url."""
+        self.call("DELETE", ref.removesuffix("/status"))
 
     def submit(self, req: ClipRequest) -> str:
         body = self.call("POST", f"{self.BASE}/{self.model.lstrip('/')}", json=self.body_for(req))

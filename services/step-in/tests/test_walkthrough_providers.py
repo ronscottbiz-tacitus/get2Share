@@ -53,6 +53,21 @@ def test_higgsfield_request_uses_key_header_and_turns_audio_off(req):
     assert kw["json"]["generate_audio"] is False
 
 
+def test_higgsfield_deletes_a_finished_request(req):
+    s = Session(Resp(200, {"status": "deleted"}))
+    HiggsfieldProvider(model="m", key="K", session=s).discard("https://api.higgsfield.ai/requests/abc/status")
+    assert s.calls[0][0] == "DELETE" and s.calls[0][1] == "https://api.higgsfield.ai/requests/abc"
+
+
+def test_only_a_verified_invited_email_counts():
+    from walkthrough.runtime import email_is_invited as ok
+    assert ok({"email": "Host@Example.com", "email_verified": True}, [" host@example.com "])
+    assert not ok({"email": "host@example.com", "email_verified": False}, ["host@example.com"])
+    assert not ok({"email": "other@example.com", "email_verified": True}, ["host@example.com"])
+    assert not ok({"email_verified": True}, [""])
+    assert not ok({"email": "host@example.com", "email_verified": True}, "host@example.com")
+
+
 def test_higgsfield_kling_uses_its_own_field_names(req):
     s = Session(Resp(200, {"status_url": "https://api.higgsfield.ai/requests/x/status"}))
     HiggsfieldProvider(model="kling-video/v3.0/std/image-to-video", key="K", session=s).submit(req)

@@ -34,6 +34,23 @@ class FirebaseStorage:
         return fb.rotate_download_link(remote)
 
 
+def email_is_invited(claims: dict, emails) -> bool:
+    """Only a verified email counts, the same bar admins have to clear."""
+    email = (claims.get("email") or "").strip().lower()
+    if not email or not claims.get("email_verified") or not isinstance(emails, (list, tuple)):
+        return False
+    return email in {str(e).strip().lower() for e in emails}
+
+
+def is_invited(id_token: str) -> bool:
+    """config/flowInvites: { emails: [...] }. No client can read it (see firestore.rules)."""
+    from firebase_admin import auth
+    snap = fb.db().collection("config").document("flowInvites").get()
+    if not snap.exists:
+        return False
+    return email_is_invited(auth.verify_id_token(id_token, app=fb.app()), (snap.to_dict() or {}).get("emails"))
+
+
 def _run_tx(fn):
     return run_transaction(fb.db(), fn)
 

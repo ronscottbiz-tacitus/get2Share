@@ -137,6 +137,10 @@ This document is readable by anyone signed in, as with `config/stepIn`, so don't
 
 Spending is in `walkthroughUsage/global-YYYY-MM` (`reservedUsd`, `spentUsd`). When it can't tell whether a clip was billed, it counts it as spent, so this can read a little high. It's an estimate from your price table. The provider's own bill is the real number. Reservations and limits work from what's in Firestore, so they keep working even if the app is closed.
 
+## Inviting hosts
+
+In Firebase, create the document `config/flowInvites` with an array field `emails`, one string per host. Each invited host signs in with Google using that email. Apps can't read this document, so the list stays private. Remove an email to end that host's access. Admins don't need an invite, and `allHosts: true` opens Flow to everyone.
+
 ## The meter
 
 Every generated second comes off a meter, redos included. Seconds for clips the host didn't get come back. Switching the label on or off re-joins saved clips, so it costs nothing and uses no seconds.
@@ -147,6 +151,7 @@ Every generated second comes off a meter, redos included. Seconds for clips the 
 ## How it behaves
 
 - **Leaving the page:** the job runs in the cloud. Progress shows when the host returns. There are no notifications.
+- **Copies at the video service:** once a clip is saved, or refused, the job asks the service to delete its copy (Higgsfield: `DELETE /requests/{id}`, otherwise kept 7 days). A failed delete only gets logged. This doesn't undo any use the service's terms allow while it had the photos.
 - **A refused photo** (faces, content rules): a friendly message, no retry, nothing counted. The host picks different photos. This assumes services don't bill refused clips, which needs checking against your provider's terms.
 - **Temporary failures:** one automatic retry. If that fails too, the host can tap Try again. Finished clips are kept and not paid for again.
 - **A crashed job:** the 15-minute check restarts it. It skips finished clips, and a clip still at the service is checked on, not re-sent. If the worker died in the instant of sending, it can't tell, so it counts that as spent and sends again. That one case can cost one extra clip.

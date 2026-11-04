@@ -14,7 +14,7 @@ At every event I'd end up in great photos I never got back, or I'd be the one ho
 
 - **One live gallery.** Guests join by QR code or event code, with nothing to install. Every photo lands in one album everyone sees in real time.
 - **Share Spots.** The host turns spare phones or tablets into stationary cameras. Guests see each spot on their own phone, check it's free, and fire the shot with a countdown. Walk-up guests can tap the Share Spot screen and scan a QR code to keep the photo.
-- **Borrow.** A guest can ask another guest to lend their camera for a shot, with a live preview, and the photo is credited to both. Off by default; the host turns it on.
+- **Flick.** A guest can ask another guest to lend their camera for a shot, with a live preview, and the photo is credited to both. Off by default; the host turns it on.
 - **TV portal.** The gallery plays on a smart TV so the whole room watches photos land.
 - **Host controls.** Photo review or auto-approve, and save settings: guests can always save their own photos, and the host decides when guests can save the rest of the album.
 

@@ -3,7 +3,8 @@
 //   node harness/walkthrough-shots.mjs <out-dir> [<dir with final-v.webm, final-h.webm, poster-v.jpg, poster-h.jpg>]
 // Prints PASS or FAIL for each check; exits non-zero if any fail. Nothing leaves this machine:
 // calls to the cloud job are answered here, and counted.
-import { chromium } from 'playwright';
+import { createRequire } from 'module';
+const { chromium } = createRequire(import.meta.url)('playwright');
 const S = process.cwd();
 const OUT = process.argv[2] || '.';
 const MEDIA = process.argv[3];
@@ -29,7 +30,7 @@ async function open(path, ls, [w, h] = PHONE) {
     api.push({ url: r.request().url(), body: r.request().postDataJSON() });
     const meterLeft = Number(ls['h-meter-left'] ?? 20);
     const answer = r.request().url().endsWith('/meter')
-      ? { allowanceSeconds: 20, usedSeconds: 20 - meterLeft, remainingSeconds: meterLeft, plan: 'free' }
+      ? { allowanceSeconds: 20, usedSeconds: 20 - meterLeft, remainingSeconds: meterLeft, plan: 'free', access: ls['h-meter-access'] === '1' }
       : { id: 'wt1', status: 'queued' };
     r.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' }, body: JSON.stringify(answer) });
   });
@@ -73,7 +74,7 @@ const card = (page) => page.getByRole('heading', { name: /^Flow/i });
   for (const i of [3, 0, 1, 4]) await tiles.nth(i).click();
   await page.waitForTimeout(300);
   check('Create stays off until the notice is accepted', await create.isDisabled());
-  await page.getByText(/I understand/).scrollIntoViewIfNeeded();
+  await page.getByText(/outside AI service/).scrollIntoViewIfNeeded();
   await page.waitForTimeout(200);
   await shot(page, '03-studio-picked-phone');
   await page.getByRole('button', { name: 'Move photo 2 later' }).click();
@@ -86,11 +87,41 @@ const card = (page) => page.getByRole('heading', { name: /^Flow/i });
   await create.click();
   await page.waitForTimeout(500);
   const sent = api.find((a) => a.url.endsWith('/create'))?.body;
-  check('create sends the accepted notice', sent?.acceptedNotice === true && sent?.noticeVersion === 1);
+  check('create sends the accepted notice', sent?.acceptedNotice === true && sent?.noticeVersion === 2);
   check('create sends the host-chosen order and shape, label on by default', sent?.photoIds?.length === 4 && sent?.aspect === '16:9' && sent?.showLabel === true, JSON.stringify(sent?.photoIds));
   // Picked p2, p6, p5, p1. Suggested by createdAt (stub p1 is newest): p6, p5, p2, p1. Then the host swapped 2 and 3.
   check('order: oldest first, then the host\'s move', sent?.photoIds?.join() === 'p6,p2,p5,p1', sent?.photoIds?.join());
   check('no page errors while making one', errs.length === 0, errs.join(' | '));
+  await ctx.close(); }
+
+// ---------- invited hosts, and the landing page
+{ const { ctx, page } = await open('/host/ev1', { 'h-host': '1', 'h-nonadmin': '1', 'h-wt-config': 'admin' });
+  await page.waitForTimeout(600);
+  check('uninvited host on admin-only: no card', (await card(page).count()) === 0);
+  await ctx.close(); }
+{ const { ctx, page } = await open('/host/ev1', { 'h-host': '1', 'h-nonadmin': '1', 'h-wt-config': 'admin', 'h-meter-access': '1' });
+  await page.waitForTimeout(600);
+  check('invited host on admin-only: sees the card', (await card(page).count()) === 1);
+  await ctx.close(); }
+{ const { ctx, page, errs } = await open('/', {});
+  await page.waitForTimeout(1200);
+  await shot(page, '00-landing-phone');
+  const text = await page.locator('main').innerText();
+  check('landing: Flick and Flow, no Coming to Pro', /Flick/.test(text) && /Flow/.test(text) && !/Coming to Pro/i.test(text) && !/Matrix/.test(text));
+  check('landing: Flow is marked early access and samples as AI', /Early access/i.test(text) && /AI sample/i.test(text));
+  await page.getByRole('button', { name: /Flow/ }).first().click();
+  await page.waitForTimeout(500);
+  await shot(page, '00b-landing-flow-player-phone');
+  check('landing: Flow player says it is a sample', (await page.getByText(/AI-generated sample to show the idea/).count()) === 1);
+  check('landing: no page errors', errs.length === 0, errs.join(' | '));
+  await ctx.close(); }
+{ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await page.route('**/fonts.googleapis.com/**', (r) => r.fulfill({ contentType: 'text/css', body: fontCss }));
+  await page.goto('http://localhost:5199/');
+  await page.waitForTimeout(1000);
+  const state = await page.locator('.video-bird-wing').first().evaluate((el) => getComputedStyle(el).animationName);
+  check('reduced motion: the bird holds still', state === 'none', state);
   await ctx.close(); }
 
 // ---------- photo count sets the length, within the range and the meter

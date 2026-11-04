@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Loader2, Monitor, RefreshCw, Smartphone, Trash2,
+  AlertTriangle, ArrowDown, ArrowUp, Check, Loader2, Monitor, RefreshCw, Smartphone, Trash2,
+  Clapperboard,
 } from 'lucide-react';
 import { useEvent } from '../EventContext';
 import { Photo } from '../types';
@@ -12,6 +13,7 @@ import {
   WalkthroughConfig, WALKTHROUGH_NOTICE, walkthroughSlow,
 } from '../walkthrough';
 import CloseButton from './CloseButton';
+import VideoBird from './VideoBird';
 import { WalkthroughLabel, WalkthroughVideo } from './WalkthroughPlayer';
 
 const primary = 'h-12 rounded-xl bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-40 disabled:hover:bg-g2-blue text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed transition-colors';
@@ -23,16 +25,17 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   const { event, isEventHost } = useEvent();
   const config = useWalkthroughConfig(isEventHost);
   const rows = useHostWalkthroughs(event.id, isEventHost);
-  const canMake = canMakeWalkthrough(config, isEventHost);
   const [studioOpen, setStudioOpen] = useState(false);
   const [meter, setMeter] = useState<FlowMeter | null>(null);
+  // An invited host's access comes from the cloud job, since the invite list is private.
+  const canMake = canMakeWalkthrough(config, isEventHost) || (isEventHost && config.enabled && meter?.access === true);
   const stamp = `${rows[0]?.id ?? ''}:${rows[0]?.status ?? ''}:${rows[0]?.redosUsed ?? 0}`;
   useEffect(() => {
-    if (!canMake) return;
+    if (!isEventHost || !config.enabled) return;
     let on = true;
     getFlowMeter(event.id).then((m) => { if (on) setMeter(m); }).catch(() => { if (on) setMeter(null); });
     return () => { on = false; };
-  }, [event.id, canMake, stamp]);
+  }, [event.id, isEventHost, config.enabled, stamp]);
 
   // A host can always manage a video they have, even with the feature off.
   if (!canMake && rows.length === 0) return null;
@@ -44,7 +47,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
     <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
       <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center justify-between">
         <span className="flex items-center gap-1.5">
-          <Clapperboard className="w-4 h-4 text-g2-blue-light" aria-hidden="true" /> Flow
+          <VideoBird className="w-[22px] h-4" /> Flow
         </span>
         <span className="text-[10px] text-g2-muted font-medium normal-case tracking-normal shrink-0 ml-3">AI video</span>
       </h3>
@@ -227,8 +230,12 @@ function Progress({ w }: { w: Walkthrough }) {
         <Loader2 className="w-4 h-4 animate-spin text-g2-blue-light" aria-hidden="true" />
         {w.status === 'queued' ? 'Starting…' : joining ? 'Putting it together…' : `Making clip ${Math.min(done + 1, total)} of ${total}…`}
       </p>
-      <div className="h-2 rounded-full bg-white/10 overflow-hidden" aria-hidden="true">
-        <div className="h-full bg-g2-blue transition-[width] duration-500" style={{ width: `${Math.round(share * 100)}%` }} />
+      {/* The bird flies along the bar while the host waits */}
+      <div className="relative pt-5" aria-hidden="true">
+        <VideoBird flying className="absolute top-0 w-[30px] h-[22px] -translate-x-1/2 transition-[left] duration-500" style={{ left: `clamp(15px, ${Math.round(share * 100)}%, calc(100% - 15px))` }} />
+        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-full bg-g2-blue transition-[width] duration-500" style={{ width: `${Math.round(share * 100)}%` }} />
+        </div>
       </div>
       <p className="text-[12px] leading-relaxed text-g2-tertiary">
         {walkthroughSlow(w, now)
@@ -405,7 +412,7 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
             onChange={(e) => setAccepted(e.target.checked)}
             className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--color-g2-blue)] cursor-pointer"
           />
-          <span className="text-[13px] leading-relaxed text-white">{WALKTHROUGH_NOTICE} <span className="text-g2-secondary">I understand.</span></span>
+          <span className="text-[13px] leading-relaxed text-white">{WALKTHROUGH_NOTICE}</span>
         </label>
 
         {error && <p className="text-[13px] text-red-400" role="alert">{error}</p>}

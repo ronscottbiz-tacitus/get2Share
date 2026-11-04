@@ -554,7 +554,7 @@ export default function LiveGalleryFeed({
                 <span className="w-12 h-12 rounded-xl border border-white/20 bg-white/5 flex items-center justify-center">
                   <Users className="w-5 h-5" aria-hidden="true" />
                 </span>
-                <span className="text-[11px] font-semibold">Borrow</span>
+                <span className="text-[11px] font-semibold">Flick</span>
               </button>
             ) : (
               <span />

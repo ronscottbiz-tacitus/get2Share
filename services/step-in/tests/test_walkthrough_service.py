@@ -601,7 +601,7 @@ def test_photos_set_the_length_from_3_to_10(world):
 
 def test_free_account_gets_a_15_second_flow_and_one_redo(world):
     wid = preview(world)
-    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free"}
+    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free", "access": True}
     redo(world, wid, 0)
     world.svc.run("ev1", wid)
     assert world.svc.meter(uid="host1", eid="ev1")["remainingSeconds"] == 0
@@ -625,7 +625,7 @@ def test_paid_seconds_belong_to_the_event(world):
     world.db.collection("features").document("ev1").set({"flowSeconds": 60})
     r = world.create(photos=[f"p{i}" for i in range(7)])
     world.svc.run("ev1", r["id"])
-    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event"}
+    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event", "access": True}
     assert world.usage("meter-account-host1") == {}
 
 
@@ -657,7 +657,7 @@ def test_label_can_be_off_from_the_start(world):
     ready(world)
     world.add_event()
     r = world.svc.create(uid="host1", is_admin=False, eid="ev1", event={}, photo_ids=["p0", "p1", "p2"], preset_id=None, aspect="9:16",
-                         accepted_notice=True, notice_version=1, request_id="x", show_label=False)
+                         accepted_notice=True, notice_version=2, request_id="x", show_label=False)
     assert world.doc("ev1", r["id"])["labelOffBy"] == "host1"
 
 
@@ -667,3 +667,26 @@ def test_a_published_video_must_come_down_before_changing_its_label(world):
     with pytest.raises(ApiError) as e:
         world.svc.set_label(uid="host1", is_admin=False, eid="ev1", wid=wid, show=False)
     assert e.value.status == 409
+
+
+# ------------------------------------------------------------------ invites and the service's copies
+def test_meter_tells_the_app_who_has_access(world):
+    ready(world, allHosts=False)
+    world.add_event()
+    assert world.svc.meter(uid="host1", eid="ev1", is_admin=False)["access"] is False
+    assert world.svc.meter(uid="host1", eid="ev1", is_admin=True)["access"] is True  # an admin or invited host
+
+
+def test_asks_the_service_to_delete_its_copy_once_ours_is_saved(world):
+    calls = []
+    world.provider.discard = calls.append
+    preview(world)
+    assert len(calls) == 3 and all(c.startswith("fake-") for c in calls)
+
+
+def test_a_failed_delete_does_not_hurt_the_video(world):
+    def boom(ref):
+        raise RuntimeError("service down")
+    world.provider.discard = boom
+    wid = preview(world)
+    assert world.doc("ev1", wid)["status"] == "preview"

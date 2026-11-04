@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ArrowRight, Camera, Play, ScanFace, Timer } from 'lucide-react';
+import { ArrowRight, Camera, Play, Timer } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
-import ProConcepts from './ProConcepts';
+import HeroFeatures from './HeroFeatures';
 import { LastEvent, normalizeJoinCode } from '../eventLinks';
 import { isPairingCode, SPOT_SETUP_PATH } from '../spotPairing';
 import { useMediaReady } from '../deferredMedia';
@@ -15,7 +15,6 @@ interface LandingProps {
 }
 
 const PROMISES = [
-  { icon: ScanFace, title: 'Step into the shot', body: 'Tap the screen. Everyone gets the photo.' },
   { icon: Timer, title: 'Group Shot moments', body: 'The host counts down. Every phone fires together.' },
 ];
 
@@ -76,6 +75,8 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           </p>
         </section>
 
+        <HeroFeatures />
+
         <ul className="mt-5 flex flex-col gap-3.5">
           {PROMISES.map(({ icon: Icon, title, body }) => (
             <li key={title} className="flex gap-3 items-start">
@@ -120,8 +121,6 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
             <Play className="w-5 h-5 text-g2-blue-light shrink-0" aria-hidden="true" />
           </button>
         )}
-
-        <ProConcepts />
 
         <div className="flex-1 min-h-6" />
 

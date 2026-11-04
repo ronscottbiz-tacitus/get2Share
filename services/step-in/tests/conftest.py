@@ -213,7 +213,7 @@ class World:
     def create(self, eid="ev1", uid="host1", photos=("p0", "p1", "p2", "p3"), preset="15s", aspect="9:16", rid="r1",
                is_admin=False, accepted=True):
         return self.svc.create(uid=uid, is_admin=is_admin, eid=eid, event={}, photo_ids=list(photos), preset_id=preset,
-                               aspect=aspect, accepted_notice=accepted, notice_version=1, request_id=rid)
+                               aspect=aspect, accepted_notice=accepted, notice_version=2, request_id=rid)
 
     def doc(self, eid, wid):
         return self.svc.wt_ref(eid, wid).get().to_dict()
