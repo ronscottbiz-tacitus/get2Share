@@ -14,6 +14,7 @@ export interface GroupShot {
   spots?: boolean;
 }
 
+// The feature is called Flash now. This stays as it is because it's saved on existing photos.
 export const GROUP_SHOT_SUFFIX = ' (Group Shot)';
 
 /** Milliseconds since (positive) or until (negative) the cameras fire, or null if no Group Shot is on. */

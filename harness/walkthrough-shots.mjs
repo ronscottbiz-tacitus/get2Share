@@ -116,7 +116,7 @@ const card = (page) => page.getByRole('heading', { name: /^Flow/i });
   check('landing: no page errors', errs.length === 0, errs.join(' | '));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  check('landing: new headline and copy', /You never get it/.test(text) && /Now you Get2/.test(text) && /Get in the shot/.test(text) && /Walk back through the night/.test(text));
+  check('landing: new headline and copy', /You never get it/.test(text) && /Now you Get2/.test(text) && /Get in the shot/.test(text) && /Walk back through the night/.test(text) && /flash mob for photos/.test(text) && !/Group Shot/.test(text));
   check('landing: early access link', ((await page.getByRole('link', { name: 'Ask for early access' }).getAttribute('href')) || '').startsWith('mailto:ron@get2studio.com'));
   check('landing: nothing wider than a phone', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await ctx.close(); }

@@ -53,11 +53,11 @@ function storeCode(code: string | null) {
 function cleanName(nickname: string) {
   return nickname.replace(/\s*\((Tripod|Photo Spot|Share Spot|Group Shot)\)$/, '');
 }
-/** Who took it, and where: "@maya", "Photo Wall" (a Share Spot), or "@jo · Group Shot". */
+/** Who took it, and where: "@maya", "Photo Wall" (a Share Spot), or "@jo · Flash". */
 function credit(p: Photo): { who: string; where: string } {
   const name = cleanName(p.nickname || '');
   if (/\((Tripod|Photo Spot|Share Spot)\)$/.test(p.nickname || '')) return { who: '', where: name };
-  if (/\(Group Shot\)$/.test(p.nickname || '')) return { who: `@${name}`, where: 'Group Shot' };
+  if (/\(Group Shot\)$/.test(p.nickname || '')) return { who: `@${name}`, where: 'Flash' };
   return { who: `@${name}`, where: '' };
 }
 
@@ -971,7 +971,7 @@ function GroupShotTv({ event }: { event: EventWithId }) {
       >
         {clock < 0 ? (
           <>
-            <p className="font-mono text-[3vmin] font-bold tracking-[0.2em] uppercase text-g2-blue-light">Group Shot</p>
+            <p className="font-mono text-[3vmin] font-bold tracking-[0.2em] uppercase text-g2-blue-light">Flash</p>
             <p className="font-expanded font-black text-[9vmin] leading-none text-white">Phones up!</p>
             <motion.div
               key={seconds}

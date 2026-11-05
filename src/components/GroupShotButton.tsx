@@ -67,7 +67,7 @@ export default function GroupShotButton({ hostUid }: { hostUid: string }) {
         className="bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-80 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer disabled:cursor-default transition-all duration-300"
       >
         <Users className="w-4 h-4" aria-hidden="true" />
-        {counting ? `Group Shot in ${Math.ceil(-clock! / 1000)}…` : 'Group Shot'}
+        {counting ? `Flash in ${Math.ceil(-clock! / 1000)}…` : 'Flash'}
       </button>
       <label className="flex items-center gap-1.5 text-[11px] text-g2-secondary cursor-pointer select-none">
         <input
@@ -81,7 +81,7 @@ export default function GroupShotButton({ hostUid }: { hostUid: string }) {
       </label>
       {(counting || justFired) && (
         <span className="text-[11px] text-g2-tertiary" role="status">
-          {counting ? 'Guests are getting their cameras up.' : `${landed} ${landed === 1 ? 'photo' : 'photos'} from the Group Shot`}
+          {counting ? 'Guests are getting their cameras up.' : `${landed} ${landed === 1 ? 'photo' : 'photos'} from the Flash`}
         </span>
       )}
       {error && <span className="text-[11px] text-red-400" role="alert">{error}</span>}

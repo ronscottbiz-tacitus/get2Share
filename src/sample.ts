@@ -44,7 +44,7 @@ export const SAMPLE_PHOTOS: SamplePhoto[] = [
   { id: "m20", src: "/sample/mina30-20.jpg", by: "@aaliyah", kind: "guest", alt: "A toast", minute: 153, w: 967, h: 1200 },
   { id: "m06", src: "/sample/mina30-06.jpg", by: "@marco", kind: "guest", alt: "Mina blows out her 30 candle", minute: 162, w: 967, h: 1200 },
   { id: "m22", src: "/sample/mina30-22.jpg", by: "@marco", kind: "guest", alt: "Mina hugs G2", minute: 171, w: 967, h: 1200 },
-  { id: "m10", src: "/sample/mina30-10.jpg", by: "Group Shot \u00b7 14 phones", kind: "group", alt: "Group Shot with a ring of phones", minute: 180, w: 967, h: 1200 },
+  { id: "m10", src: "/sample/mina30-10.jpg", by: "Flash \u00b7 14 phones", kind: "group", alt: "Flash with a ring of phones", minute: 180, w: 967, h: 1200 },
   { id: "m25", src: "/sample/mina30-25.jpg", by: "@g2", kind: "guest", alt: "A Share Spot clamped to the railing", minute: 189, w: 967, h: 1200 },
   { id: "m21", src: "/sample/mina30-21.jpg", by: "Spot \u00b7 Dance Floor", kind: "spot", alt: "Overhead view of the dance floor", minute: 198, w: 1200, h: 944 },
   { id: "m23", src: "/sample/mina30-23.jpg", by: "Spot \u00b7 Skyline", kind: "spot", alt: "The crew at the rooftop edge", minute: 207, w: 967, h: 1200 },

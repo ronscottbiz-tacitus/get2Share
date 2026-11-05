@@ -162,7 +162,7 @@ export function endedMessage(reason: LensEndReason | null | undefined, owner: st
     case 'stopped': return `${owner} stopped sharing their camera.`;
     case 'away': return `${owner}'s phone went to sleep, so the camera closed.`;
     case 'idle': return 'The camera closed after two quiet minutes.';
-    case 'groupshot': return 'Paused for the Group Shot. Ask again after.';
+    case 'groupshot': return 'Paused for the Flash. Ask again after.';
     case 'camera': return `${owner}'s camera wouldn't open.`;
     case 'host': return 'The host ended camera sharing.';
     case 'lost': return `Lost touch with ${owner}'s camera.`;

@@ -89,7 +89,7 @@ export default function HeroFeatures() {
   return (
     <section className="mt-5" aria-labelledby="hero-features-title">
       <h2 id="hero-features-title" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">
-        Flick it. Flow it. Keep it.
+        Flick it. Flash it. Flow it.
       </h2>
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
         <article className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] flex flex-col">

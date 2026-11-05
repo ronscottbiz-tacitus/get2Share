@@ -142,7 +142,7 @@ export default function HostBar({ hostUid, onOpenConsole }: { hostUid: string; o
       setNow(Date.now());
     } catch (err) {
       console.error('Group Shot failed to start:', err);
-      setError("Group Shot didn't start.");
+      setError("Flash didn't start.");
     }
   };
 
@@ -167,7 +167,7 @@ export default function HostBar({ hostUid, onOpenConsole }: { hostUid: string; o
           className={`${btn} bg-g2-blue hover:bg-g2-blue-hover text-white disabled:opacity-60 disabled:cursor-default`}
         >
           <Users className="w-4 h-4" aria-hidden="true" />
-          {counting ? `In ${Math.ceil(-clock! / 1000)}…` : 'Group Shot'}
+          {counting ? `In ${Math.ceil(-clock! / 1000)}…` : 'Flash'}
         </button>
         <button type="button" onClick={onOpenConsole} className={`${btn} border border-white/15 text-white hover:bg-white/5`}>
           <LayoutDashboard className="w-4 h-4" aria-hidden="true" /> Console

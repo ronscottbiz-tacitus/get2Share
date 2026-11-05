@@ -144,7 +144,7 @@ export default function GroupShotGuest({ sessionId, nickname }: { sessionId: str
         setStep('posted');
       } catch (err) {
         console.error('Group Shot upload failed:', err);
-        setError("Your Group Shot didn't post. Check the Wi-Fi.");
+        setError("Your Flash didn't post. Check the Wi-Fi.");
         setStep('failed');
       }
     }, 'image/jpeg', 0.92);
@@ -176,7 +176,7 @@ export default function GroupShotGuest({ sessionId, nickname }: { sessionId: str
             exit={{ y: 40, opacity: 0 }}
             className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] font-sans"
             role="dialog"
-            aria-label="Group Shot"
+            aria-label="Flash"
           >
             <div className="max-w-md mx-auto rounded-2xl bg-g2-blue text-white p-5 shadow-[0_10px_60px_rgba(0,82,255,0.5)]">
               {step === 'ask' && (
@@ -184,7 +184,7 @@ export default function GroupShotGuest({ sessionId, nickname }: { sessionId: str
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-mono text-[11px] font-bold tracking-[0.12em] uppercase text-white/75 flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5" aria-hidden="true" /> Group Shot
+                        <Users className="w-3.5 h-3.5" aria-hidden="true" /> Flash
                       </p>
                       <p className="mt-1 font-expanded font-black text-[26px] leading-tight">
                         Every camera fires in {secondsLeft}.
@@ -202,8 +202,8 @@ export default function GroupShotGuest({ sessionId, nickname }: { sessionId: str
                   </button>
                 </>
               )}
-              {step === 'missed' && <p className="font-bold text-[16px]">Missed this one. Catch the next Group Shot!</p>}
-              {step === 'posted' && <p className="font-bold text-[16px]">Got it! Your Group Shot is in the gallery.</p>}
+              {step === 'missed' && <p className="font-bold text-[16px]">Missed this one. Catch the next Flash!</p>}
+              {step === 'posted' && <p className="font-bold text-[16px]">Got it! Your Flash is in the gallery.</p>}
               {step === 'failed' && <p className="font-bold text-[16px]">{error || "That one didn't work."}</p>}
             </div>
           </motion.div>
@@ -212,7 +212,7 @@ export default function GroupShotGuest({ sessionId, nickname }: { sessionId: str
 
       {/* The camera, counting down to the shared moment */}
       {showCamera && (
-        <div className="fixed inset-0 z-[60] bg-black font-sans" role="dialog" aria-label="Group Shot camera">
+        <div className="fixed inset-0 z-[60] bg-black font-sans" role="dialog" aria-label="Flash camera">
           <video
             ref={videoRef}
             playsInline
@@ -221,14 +221,14 @@ export default function GroupShotGuest({ sessionId, nickname }: { sessionId: str
             className={`absolute inset-0 w-full h-full object-cover ${facing === 'user' ? '-scale-x-100' : ''}`}
           />
           <div className="absolute inset-x-0 top-0 p-4 pt-[max(1rem,env(safe-area-inset-top))] flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent">
-            <p className="font-mono text-[11px] font-bold tracking-[0.12em] uppercase text-white">Group Shot</p>
+            <p className="font-mono text-[11px] font-bold tracking-[0.12em] uppercase text-white">Flash</p>
             <div className="flex items-center gap-2">
               {step === 'camera' && (
                 <button type="button" onClick={flip} aria-label="Flip camera" className="w-11 h-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center cursor-pointer">
                   <RefreshCw className="w-5 h-5" aria-hidden="true" />
                 </button>
               )}
-              <CloseButton onClick={dismiss} label="Leave the Group Shot" />
+              <CloseButton onClick={dismiss} label="Leave the Flash" />
             </div>
           </div>
           {step === 'camera' && (

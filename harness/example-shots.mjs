@@ -35,7 +35,7 @@ const at = (ms) => String(Date.now() + ms);
   await ctx.close(); }
 // 3. Host console button
 { const { ctx, page, errs, logs } = await open('/host/ev1', { 'h-host': '1' }, 1280, 800);
-  await page.getByRole('button', { name: /Group Shot/ }).first().click(); await page.waitForTimeout(1200);
+  await page.getByRole('button', { name: /Flash/ }).first().click(); await page.waitForTimeout(1200);
   await page.screenshot({ path: 'gs-5-host.png', clip: { x: 0, y: 0, width: 1280, height: 260 } });
   console.log('host logs', logs.filter(l => l.startsWith('UPDATE')));
   console.log('errs', errs); await ctx.close(); }

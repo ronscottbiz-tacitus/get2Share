@@ -164,7 +164,7 @@ export default function SampleParty({ onHost, onBack }: SamplePartyProps) {
         <h1 className="mt-3 font-expanded font-black text-[30px] leading-[1.05] text-white">{SAMPLE_EVENT.name}</h1>
         <p className="mt-1 text-sm text-g2-secondary">{SAMPLE_EVENT.subtitle} · from {SAMPLE_EVENT.startsAt}</p>
         <p className="mt-3 text-[13px] leading-relaxed text-g2-tertiary">
-          A pretend party to show how Get2Share works. Everyone here, guests and G2 alike, was made with AI. This is what your gallery looks like when everyone's phone, the Share Spots and the Group Shot all post to one place.
+          A pretend party to show how Get2Share works. Everyone here, guests and G2 alike, was made with AI. This is what your gallery looks like when everyone's phone, the Share Spots and the Flash all post to one place.
         </p>
         <dl className="mt-4 grid grid-cols-3 gap-2">
           {[
@@ -182,7 +182,7 @@ export default function SampleParty({ onHost, onBack }: SamplePartyProps) {
       </section>
 
       <nav className="max-w-3xl mx-auto px-5 mt-5 mb-3 flex gap-2 overflow-x-auto" aria-label="Filter photos">
-        {([['all', 'All photos'], ['spots', 'Share Spots & Group Shot']] as const).map(([id, label]) => (
+        {([['all', 'All photos'], ['spots', 'Share Spots & Flash']] as const).map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -212,7 +212,7 @@ export default function SampleParty({ onHost, onBack }: SamplePartyProps) {
               </span>
               {p.kind !== 'guest' && (
                 <span className={`absolute top-2 left-2 h-[22px] px-2 inline-flex items-center rounded-full bg-g2-page/80 font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase ${p.kind === 'spot' ? 'border border-g2-blue-light text-g2-blue-light' : 'border border-white text-white'}`}>
-                  {p.kind === 'spot' ? 'Share Spot' : 'Group Shot'}
+                  {p.kind === 'spot' ? 'Share Spot' : 'Flash'}
                 </span>
               )}
             </button>

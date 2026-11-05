@@ -493,7 +493,7 @@ export default function LiveGalleryFeed({
                     )}
                     {fromLens && (
                       <span className="h-[22px] px-2 inline-flex items-center rounded-full bg-g2-page/80 border border-white text-white font-mono text-[9.5px] font-bold tracking-[0.06em] uppercase">
-                        Group Shot
+                        Flash
                       </span>
                     )}
                     {isPending && (

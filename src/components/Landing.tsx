@@ -16,7 +16,7 @@ interface LandingProps {
 }
 
 const PROMISES = [
-  { icon: GroupShotIcon, title: 'Group Shot moments', body: 'The host counts down. Every phone fires together.' },
+  { icon: GroupShotIcon, title: 'Flash', body: "It's a flash mob for photos. The host counts down and every phone fires together." },
 ];
 
 /** share.get2.one with no event: join one by code, or host your own. */
@@ -117,7 +117,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
             <span className="min-w-0 flex-1">
               <span className="block font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase text-g2-tertiary">AI-generated sample</span>
               <span className="block mt-0.5 text-[15px] font-bold text-white">See a sample party</span>
-              <span className="block text-[13px] leading-snug text-g2-tertiary">Mina's 30th: 25 photos, 3 Share Spots and a Group Shot.</span>
+              <span className="block text-[13px] leading-snug text-g2-tertiary">Mina's 30th: 25 photos, 3 Share Spots and a Flash.</span>
             </span>
             <Play className="w-5 h-5 text-g2-blue-light shrink-0" aria-hidden="true" />
           </button>
