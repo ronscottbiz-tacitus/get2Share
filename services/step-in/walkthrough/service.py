@@ -145,9 +145,10 @@ class Service:
 
     # -------------------------------------------------------------- POST /create
     def create(self, *, uid: str, is_admin: bool, eid: str, event: dict, photo_ids: list[str], preset_id: str | None,
-               aspect: str, accepted_notice: bool, notice_version: int, request_id: str, show_label: bool = True) -> dict:
+               aspect: str, accepted_notice: bool, notice_version: int, request_id: str, show_label: bool = True,
+               grant_seconds: float | None = None) -> dict:
         cfg = self.config()
-        self._require_access(cfg, is_admin)
+        self._require_access(cfg, is_admin or grant_seconds is not None)
         if accepted_notice is not True or notice_version != NOTICE_VERSION:
             raise ApiError(400, "Accept the notice about the outside AI service first.")
         if aspect not in ASPECTS:
@@ -250,15 +251,16 @@ class Service:
             ev_use = _dict(event_ref.get(transaction=tx))
             host_use = _dict(host_ref.get(transaction=tx))
             glob = _dict(global_ref.get(transaction=tx))
-            meter_key, allowance = self._meter_source(cfg, eid, uid, tx)
+            meter_key, allowance = self._meter_source(cfg, eid, uid, tx, grant_seconds)
             meter_ref = self.usage_ref(meter_key)
             meter = _dict(meter_ref.get(transaction=tx))
             if ev_use.get("activeJob"):
                 raise ApiError(409, "A video for this event is already being made.")
-            if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
-                raise ApiError(429, "This event has already used its Flow videos.")
-            if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
-                raise ApiError(429, "You've used all your Flow videos for this month.")
+            if grant_seconds is None:  # a grant's seconds are its limit; the monthly budget still applies
+                if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
+                    raise ApiError(429, "This event has already used its Flow videos.")
+                if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
+                    raise ApiError(429, "You've used all your Flow videos for this month.")
             if _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
                 raise ApiError(429, MSG_BUDGET)
             if meter.get("secondsUsed", 0) + preset.seconds > allowance:
@@ -283,11 +285,11 @@ class Service:
             self.d.log(f"Walkthrough spawn failed for {eid}/{wid}: {e}")
 
     # -------------------------------------------------------------- POST /redo
-    def redo(self, *, uid: str, is_admin: bool, eid: str, wid: str, clip_index: int) -> dict:
+    def redo(self, *, uid: str, is_admin: bool, eid: str, wid: str, clip_index: int, grant_seconds: float | None = None) -> dict:
         """Regenerate one clip of a finished preview. On a video that failed, this is "try again":
         it fills in the missing clips, with the finished ones kept, and uses no redo."""
         cfg = self.config()
-        self._require_access(cfg, is_admin)
+        self._require_access(cfg, is_admin or grant_seconds is not None)
         snap = self.wt_ref(eid, wid).get()
         if not snap.exists:
             raise ApiError(404, "That video was deleted.")
@@ -320,8 +322,8 @@ class Service:
                                                self.usage_ref(f"global-{month}"))
             ev_use, host_use, glob = (_dict(event_ref.get(transaction=tx)), _dict(host_ref.get(transaction=tx)),
                                       _dict(global_ref.get(transaction=tx)))
-            meter_key, allowance = self._meter_source(cfg, eid, uid, tx)
-            meter_key = job.get("meterKey") or meter_key
+            # Whoever asks pays from their own seconds, as they stand today.
+            meter_key, allowance = self._meter_source(cfg, eid, uid, tx, grant_seconds)
             meter_ref = self.usage_ref(meter_key)
             meter = _dict(meter_ref.get(transaction=tx))
             if ev_use.get("activeJob"):
@@ -331,20 +333,22 @@ class Service:
             clip_usd = job.get("clipUsd", 0)
 
             if status == "preview":
-                if ev_use.get("redos", 0) >= cfg.limits["redosPerEvent"]:
-                    raise ApiError(429, "This event has used all its redos.")
-                if host_use.get("redos", 0) >= cfg.limits["redosPerHostPerMonth"]:
-                    raise ApiError(429, "You've used all your redos for this month.")
+                if grant_seconds is None:
+                    if ev_use.get("redos", 0) >= cfg.limits["redosPerEvent"]:
+                        raise ApiError(429, "This event has used all its redos.")
+                    if host_use.get("redos", 0) >= cfg.limits["redosPerHostPerMonth"]:
+                        raise ApiError(429, "You've used all your redos for this month.")
                 todo = [clip_index]
                 new_job = {"mode": "redo", "redoClip": clip_index, "countsVideo": False, "countsRedo": True}
                 host_use["redos"] = host_use.get("redos", 0) + 1
                 ev_use["redos"] = ev_use.get("redos", 0) + 1
                 wt["redosUsed"] = wt.get("redosUsed", 0) + 1
             else:  # failed: try again, counted like a new video until it fails again
-                if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
-                    raise ApiError(429, "This event has already used its Flow videos.")
-                if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
-                    raise ApiError(429, "You've used all your Flow videos for this month.")
+                if grant_seconds is None:
+                    if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
+                        raise ApiError(429, "This event has already used its Flow videos.")
+                    if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
+                        raise ApiError(429, "You've used all your Flow videos for this month.")
                 todo = [c["index"] for c in clips if c.get("status") != "ready"]
                 new_job = {"mode": "create", "redoClip": None, "countsVideo": True, "countsRedo": False}
                 host_use["videos"] = host_use.get("videos", 0) + 1
@@ -374,29 +378,32 @@ class Service:
         return {"id": wid, "status": "queued"}
 
     # -------------------------------------------------------------- the meter
-    def _meter_source(self, cfg: Config, eid: str, uid: str, tx=None) -> tuple[str, float]:
-        """Which seconds this video draws on. An event with paid seconds uses those; otherwise
-        it's the host's one free allowance, which follows the account across events."""
+    def _meter_source(self, cfg: Config, eid: str, uid: str, tx=None, grant_seconds: float | None = None) -> tuple[str, float]:
+        """Which seconds this video draws on. An event with paid seconds uses those. Otherwise it's
+        the host's grant if they have one, and if not, their one free allowance. A grant and the
+        free allowance follow the account across events."""
         features = self.db.collection("features").document(eid)
         data = _dict(features.get(transaction=tx) if tx is not None else features.get())
         paid = data.get("flowSeconds")
         if isinstance(paid, (int, float)) and not isinstance(paid, bool) and paid > 0:
             return f"meter-event-{eid}", float(paid)
+        if grant_seconds is not None:
+            return f"meter-grant-{uid}", float(grant_seconds)
         return f"meter-account-{uid}", cfg.free_account_seconds
 
-    def meter(self, *, uid: str, eid: str, is_admin: bool = False) -> dict:
+    def meter(self, *, uid: str, eid: str, is_admin: bool = False, grant_seconds: float | None = None) -> dict:
         """`access` is how the app learns an invited host can use Flow: the invite list stays private."""
         cfg = self.config()
-        key, allowance = self._meter_source(cfg, eid, uid)
+        key, allowance = self._meter_source(cfg, eid, uid, None, grant_seconds)
         used = _dict(self.usage_ref(key).get()).get("secondsUsed", 0)
         return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
-                "plan": "event" if key.startswith("meter-event-") else "free",
-                "access": cfg.enabled and (is_admin or cfg.all_hosts)}
+                "plan": "event" if key.startswith("meter-event-") else "grant" if key.startswith("meter-grant-") else "free",
+                "access": cfg.enabled and (is_admin or cfg.all_hosts or grant_seconds is not None)}
 
     # -------------------------------------------------------------- POST /label
-    def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool) -> dict:
+    def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool, grant_seconds: float | None = None) -> dict:
         """Turn the burned-in label on or off. Re-joins the saved clips: nothing goes to the AI service."""
-        self._require_access(self.config(), is_admin)
+        self._require_access(self.config(), is_admin or grant_seconds is not None)
         now = self.d.now()
 
         def tx_label(tx):

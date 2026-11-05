@@ -68,6 +68,24 @@ def test_only_a_verified_invited_email_counts():
     assert not ok({"email": "host@example.com", "email_verified": True}, "host@example.com")
 
 
+def test_grants_need_a_verified_email_valid_seconds_and_time_left():
+    from datetime import datetime, timezone
+    from walkthrough.runtime import active_grant_seconds as grant
+    me = {"email": "Client@Example.com", "email_verified": True}
+    soon = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    now = soon.timestamp() - 100
+    assert grant(me, [{"email": " client@example.com ", "seconds": 120}], now) == 120.0
+    assert grant(me, [{"email": "client@example.com", "seconds": 120, "until": soon}], now) == 120.0
+    assert grant(me, [{"email": "client@example.com", "seconds": 120, "until": soon}], soon.timestamp()) is None
+    assert grant(me, [{"email": "client@example.com", "seconds": 120, "until": "soon"}], now) is None
+    assert grant({**me, "email_verified": False}, [{"email": "client@example.com", "seconds": 120}], now) is None
+    assert grant(me, [{"email": "other@example.com", "seconds": 120}], now) is None
+    for bad in (0, -5, "120", True, None):
+        assert grant(me, [{"email": "client@example.com", "seconds": bad}], now) is None
+    assert grant(me, "client@example.com", now) is None
+    assert grant({"email_verified": True}, [{"email": "", "seconds": 120}], now) is None
+
+
 def test_higgsfield_kling_uses_its_own_field_names(req):
     s = Session(Resp(200, {"status_url": "https://api.higgsfield.ai/requests/x/status"}))
     HiggsfieldProvider(model="kling-video/v3.0/std/image-to-video", key="K", session=s).submit(req)

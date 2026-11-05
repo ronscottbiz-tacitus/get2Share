@@ -77,7 +77,7 @@ export function parseWalkthroughConfig(d: any): WalkthroughConfig {
 /** Each photo after the first adds one clip. */
 export const flowSeconds = (photos: number, clipSeconds: number) => Math.max(0, photos - 1) * clipSeconds;
 
-export interface FlowMeter { allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event'; access?: boolean }
+export interface FlowMeter { allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' | 'grant'; access?: boolean }
 
 export function useWalkthroughConfig(active: boolean): WalkthroughConfig {
   const [config, setConfig] = useState<WalkthroughConfig>(OFF_CONFIG);

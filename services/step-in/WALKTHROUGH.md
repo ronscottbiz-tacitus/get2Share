@@ -141,6 +141,18 @@ Spending is in `walkthroughUsage/global-YYYY-MM` (`reservedUsd`, `spentUsd`). Wh
 
 In Firebase, create the document `config/flowInvites` with an array field `emails`, one string per host. Each invited host signs in with Google using that email. Apps can't read this document, so the list stays private. Remove an email to end that host's access. Admins don't need an invite, and `allHosts: true` opens Flow to everyone.
 
+## Giving someone more seconds
+
+For your demo account, or a client or partner trying Flow. In Firebase, create the document `config/flowGrants` with an array field `grants`. Each item is a map:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `email` | string | The Google email they sign in with |
+| `seconds` | int64 | Their total AI seconds. Raise it to give more. |
+| `until` | timestamp | Optional. Access ends at this time. Leave it out for no end date. |
+
+A grant gives that account Flow on any event they host, with its own seconds, separate from free seconds. The per-event and per-host video and redo limits don't apply, but the monthly budget does. Remove the item, or let `until` pass, and the grant ends right away. Used seconds are in `walkthroughUsage/meter-grant-<uid>`. Apps can't read this document. An event with its own `flowSeconds` draws on those instead.
+
 ## The meter
 
 Every generated second comes off a meter, redos included. Seconds for clips the host didn't get come back. Switching the label on or off re-joins saved clips, so it costs nothing and uses no seconds.

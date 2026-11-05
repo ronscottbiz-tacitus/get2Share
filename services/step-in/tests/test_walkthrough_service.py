@@ -690,3 +690,67 @@ def test_a_failed_delete_does_not_hurt_the_video(world):
     world.provider.discard = boom
     wid = preview(world)
     assert world.doc("ev1", wid)["status"] == "preview"
+
+
+# ------------------------------------------------------------------ grants
+def grant_create(world, rid, grant, eid="ev1", photos=10):
+    return world.svc.create(uid="host1", is_admin=False, eid=eid, event={}, photo_ids=[f"p{i}" for i in range(photos)], preset_id=None,
+                            aspect="9:16", accepted_notice=True, notice_version=2, request_id=rid, grant_seconds=grant)
+
+
+def test_a_grant_gives_access_and_its_own_seconds(world):
+    ready(world, allHosts=False, enabled=True)
+    world.add_event("ev1", count=12)
+    assert world.svc.meter(uid="host1", eid="ev1", grant_seconds=1000)["access"] is True
+    r = grant_create(world, "a", 1000)
+    world.svc.run("ev1", r["id"])
+    assert world.svc.meter(uid="host1", eid="ev1", grant_seconds=1000) == {
+        "allowanceSeconds": 1000.0, "usedSeconds": 45, "remainingSeconds": 955.0, "plan": "grant", "access": True}
+    assert world.usage("meter-account-host1") == {}
+
+
+def test_no_grant_means_no_access_on_admin_only(world):
+    ready(world, allHosts=False, enabled=True)
+    world.add_event("ev1", count=12)
+    with pytest.raises(ApiError) as e:
+        grant_create(world, "a", None)
+    assert e.value.status == 403
+
+
+def test_a_grant_skips_the_video_limits_but_not_its_seconds(world):
+    ready(world, limits={"videosPerEvent": 1, "videosPerHostPerMonth": 1})
+    world.add_event("ev1", count=12)
+    for rid in ("a", "b"):
+        world.svc.run("ev1", grant_create(world, rid, 90)["id"])
+    with pytest.raises(ApiError) as e:
+        grant_create(world, "c", 90, photos=3)
+    assert e.value.status == 429 and "seconds" in e.value.message
+
+
+def test_a_grant_still_stops_at_the_monthly_budget(world):
+    ready(world, budget={"monthlyUsd": 1}, prices={"fake": {"720p": 0.1}})
+    world.add_event("ev1", count=12)
+    with pytest.raises(ApiError) as e:
+        grant_create(world, "a", 1000)
+    assert e.value.status == 429 and "seconds" not in e.value.message
+
+
+def test_a_redo_uses_the_grant(world):
+    ready(world, limits={"redosPerEvent": 0, "redosPerHostPerMonth": 0})
+    world.add_event("ev1", count=12)
+    wid = grant_create(world, "a", 1000, photos=3)["id"]
+    world.svc.run("ev1", wid)
+    world.svc.redo(uid="host1", is_admin=False, eid="ev1", wid=wid, clip_index=0, grant_seconds=1000)
+    world.svc.run("ev1", wid)
+    assert world.usage("meter-grant-host1")["secondsUsed"] == 15
+
+
+def test_a_redo_after_the_grant_ends_comes_off_free_seconds(world):
+    ready(world)
+    world.add_event("ev1", count=12)
+    wid = grant_create(world, "a", 1000)["id"]
+    world.svc.run("ev1", wid)
+    world.svc.redo(uid="host1", is_admin=True, eid="ev1", wid=wid, clip_index=0)
+    world.svc.run("ev1", wid)
+    assert world.usage("meter-grant-host1")["secondsUsed"] == 45
+    assert world.usage("meter-account-host1")["secondsUsed"] == 5

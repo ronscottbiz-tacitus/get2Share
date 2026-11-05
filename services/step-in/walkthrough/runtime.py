@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 from stepin import firebase_io as fb
 
@@ -42,13 +43,33 @@ def email_is_invited(claims: dict, emails) -> bool:
     return email in {str(e).strip().lower() for e in emails}
 
 
-def is_invited(id_token: str) -> bool:
-    """config/flowInvites: { emails: [...] }. No client can read it (see firestore.rules)."""
+def active_grant_seconds(claims: dict, grants, now: float) -> float | None:
+    """config/flowGrants: { grants: [{ email, seconds, until? }] }. Same verified-email bar as an
+    invite. A grant past its `until`, or one with bad values, counts as no grant."""
+    email = (claims.get("email") or "").strip().lower()
+    if not email or not claims.get("email_verified") or not isinstance(grants, (list, tuple)):
+        return None
+    for g in grants:
+        if not isinstance(g, dict) or str(g.get("email") or "").strip().lower() != email:
+            continue
+        seconds, until = g.get("seconds"), g.get("until")
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0:
+            continue
+        if until is not None and (not hasattr(until, "timestamp") or until.timestamp() <= now):
+            continue
+        return float(seconds)
+    return None
+
+
+def flow_access(id_token: str) -> tuple[bool, float | None]:
+    """(is invited, grant seconds or None). No client can read either list (see firestore.rules)."""
     from firebase_admin import auth
-    snap = fb.db().collection("config").document("flowInvites").get()
-    if not snap.exists:
-        return False
-    return email_is_invited(auth.verify_id_token(id_token, app=fb.app()), (snap.to_dict() or {}).get("emails"))
+    claims = auth.verify_id_token(id_token, app=fb.app())
+    config = fb.db().collection("config")
+    invites = config.document("flowInvites").get()
+    grants = config.document("flowGrants").get()
+    return (email_is_invited(claims, (invites.to_dict() or {}).get("emails")) if invites.exists else False,
+            active_grant_seconds(claims, (grants.to_dict() or {}).get("grants"), time.time()) if grants.exists else None)
 
 
 def _run_tx(fn):

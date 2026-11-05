@@ -5,8 +5,8 @@ from typing import Callable
 
 
 def build_api(service_factory: Callable, verify: Callable, *, origins: list[str], origin_regex: str | None = None):
-    """verify(id_token, event_id) -> (uid, event, is_admin), raising PermissionError with a
-    message the app can show."""
+    """verify(id_token, event_id) -> (uid, event, is_admin) or (uid, event, is_admin, grant_seconds),
+    raising PermissionError with a message the app can show."""
     from fastapi import FastAPI, Header, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
@@ -22,7 +22,7 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         if not token:
             raise HTTPException(401, "Sign in first.")
         try:
-            return verify(token, event_id)
+            return (*verify(token, event_id), None)[:4]
         except PermissionError as e:
             raise HTTPException(403, str(e))
 
@@ -61,32 +61,32 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
 
     @web.post("/create")
     def create(req: Create, authorization: str = Header(default="")):
-        uid, event, is_admin = signed_in(authorization, req.eventId)
+        uid, event, is_admin, grant = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().create(
             uid=uid, is_admin=is_admin, eid=req.eventId, event=event, photo_ids=req.photoIds, preset_id=req.presetId,
             aspect=req.aspect, accepted_notice=req.acceptedNotice, notice_version=req.noticeVersion,
-            request_id=req.requestId, show_label=req.showLabel))
+            request_id=req.requestId, show_label=req.showLabel, grant_seconds=grant))
 
     @web.post("/redo")
     def redo(req: Redo, authorization: str = Header(default="")):
-        uid, _, is_admin = signed_in(authorization, req.eventId)
+        uid, _, is_admin, grant = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().redo(
-            uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, clip_index=req.clipIndex))
+            uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, clip_index=req.clipIndex, grant_seconds=grant))
 
     @web.post("/label")
     def label(req: Label, authorization: str = Header(default="")):
-        uid, _, is_admin = signed_in(authorization, req.eventId)
+        uid, _, is_admin, grant = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().set_label(
-            uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, show=req.show))
+            uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, show=req.show, grant_seconds=grant))
 
     @web.post("/meter")
     def meter(req: Meter, authorization: str = Header(default="")):
-        uid, _, is_admin = signed_in(authorization, req.eventId)
-        return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin))
+        uid, _, is_admin, grant = signed_in(authorization, req.eventId)
+        return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin, grant_seconds=grant))
 
     @web.post("/approve")
     def approve(req: One, authorization: str = Header(default="")):
-        uid, _, _ = signed_in(authorization, req.eventId)
+        uid, _, _, _ = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().approve(uid=uid, eid=req.eventId, wid=req.walkthroughId))
 
     @web.post("/unpublish")
