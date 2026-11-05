@@ -114,6 +114,11 @@ const card = (page) => page.getByRole('heading', { name: /^Flow/i });
   await shot(page, '00b-landing-flow-player-phone');
   check('landing: Flow player says it is a sample', (await page.getByText(/AI-generated sample to show the idea/).count()) === 1);
   check('landing: no page errors', errs.length === 0, errs.join(' | '));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('landing: new headline and copy', /You never get it/.test(text) && /Now you Get2/.test(text) && /Get in the shot/.test(text) && /Walk back through the night/.test(text));
+  check('landing: early access link', ((await page.getByRole('link', { name: 'Ask for early access' }).getAttribute('href')) || '').startsWith('mailto:ron@get2studio.com'));
+  check('landing: nothing wider than a phone', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await ctx.close(); }
 { const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   const page = await ctx.newPage();
@@ -226,6 +231,7 @@ for (const [name, ls, aspect] of [['14-gallery-card-phone', {}, '9:16'], ['16-ga
   await page.getByText('Flow video').click();
   await page.waitForTimeout(900);
   await shot(page, name.replace('gallery-card', 'player').replace('14', '15').replace('16', '17'));
+  check(`${name}: guest link to make their own`, (await page.getByRole('link', { name: 'Make one for your next event' }).count()) === 1);
   check(`${name}: player shows video, label and save`, (await page.locator('video').count()) === 1 && (await page.getByText(LABEL, { exact: true }).count()) >= 1 && (await page.getByRole('button', { name: 'Save to this device' }).count()) === 1);
   check(`${name}: no page errors`, errs.length === 0, errs.join(' | '));
   await ctx.close();

@@ -66,15 +66,15 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
             )}
           </div>
           <h1
-            aria-label="Finally, you get to be in the picture. And get one too."
-            className="mt-[18px] font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/10.2))] leading-[1.04] tracking-[-0.02em] text-white"
+            aria-label="You're in the group photo. You never get it. Now you get to."
+            className="mt-[18px] font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/11.8))] leading-[1.04] tracking-[-0.02em] text-white"
           >
-            <span aria-hidden="true" className="block">Finally,</span>
+            <span aria-hidden="true" className="block">You're in the</span>
+            <span aria-hidden="true" className="block">group photo.</span>
+            <span aria-hidden="true" className="block">You never get it.</span>
             <span aria-hidden="true" className="block">
-              you <span className="text-g2-blue">Get2</span> be
+              Now you <span className="text-g2-blue">Get2.</span>
             </span>
-            <span aria-hidden="true" className="block">in the picture.</span>
-            <span aria-hidden="true" className="block">And get one too.</span>
           </h1>
           <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
             Every photo from tonight, on your phone.

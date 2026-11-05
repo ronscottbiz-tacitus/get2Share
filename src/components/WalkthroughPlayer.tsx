@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Check, Download, Loader2, Play } from 'lucide-react';
 import { canShareFiles, downloadBlob, shareFiles } from '../savePhotos';
 import { useBackToClose } from '../useBackToClose';
-import { Walkthrough, WALKTHROUGH_LABEL, walkthroughFile } from '../walkthrough';
+import { FLOW_ACCESS_LINK, Walkthrough, WALKTHROUGH_LABEL, walkthroughFile } from '../walkthrough';
 import CloseButton from './CloseButton';
 
 /** The label that always goes next to a Walkthrough video. */
@@ -114,6 +114,9 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
       </div>
       <div className="px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] border-t border-white/[0.08] bg-g2-panel flex flex-col gap-3 items-center">
         <WalkthroughLabel className="text-center text-[13px]" />
+        <a href={FLOW_ACCESS_LINK} className="block text-center text-[13px] font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
+          Make one for your next event
+        </a>
         {canSave && (
           <button
             type="button"

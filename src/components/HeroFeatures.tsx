@@ -5,6 +5,7 @@ import FlickBird from './FlickBird';
 import VideoBird from './VideoBird';
 import { useBackToClose } from '../useBackToClose';
 import { useMediaReady } from '../deferredMedia';
+import { FLOW_ACCESS_LINK } from '../walkthrough';
 
 // The Flow loop is the old AI concept clip, not something the app made, so its badge and player say
 // so. The Flick loop is an AI scene followed by the real app's borrowed-camera countdown.
@@ -74,7 +75,7 @@ function FlowPlayer({ onClose }: { onClose: () => void }) {
       <div className="relative mt-auto px-5 pt-16 pb-[max(1.5rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-black/90 via-black/50 to-transparent">
         <p className="font-mono text-[10px] font-bold tracking-[0.12em] uppercase text-g2-blue-light">Early access</p>
         <p className="mt-1 font-expanded font-black text-2xl text-white">Flow</p>
-        <p className="mt-1 text-sm text-white/80 max-w-sm">Your party photos become one moving video. You approve it before guests see it.</p>
+        <p className="mt-1 text-sm text-white/80 max-w-sm">Your photos become one moving video. AI fills in the moments between, and you approve it before anyone sees it.</p>
         <p className="mt-2 text-[11px] text-white/55">AI-generated sample to show the idea. Not real guests.</p>
       </div>
     </div>
@@ -88,7 +89,7 @@ export default function HeroFeatures() {
   return (
     <section className="mt-5" aria-labelledby="hero-features-title">
       <h2 id="hero-features-title" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">
-        Why Get2Share
+        Flick it. Flow it. Keep it.
       </h2>
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
         <article className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] flex flex-col">
@@ -100,16 +101,18 @@ export default function HeroFeatures() {
             <h3 className="flex items-center gap-1.5 font-expanded font-black text-[17px] leading-tight text-white">
               <FlickBird flying className="w-[30px] h-[24px] shrink-0" /> Flick
             </h3>
+            <p className="mt-1.5 text-[13px] font-bold leading-snug text-white">Get in the shot.</p>
             <p className="mt-1 text-[12.5px] leading-snug text-g2-secondary">
-              You're always in the group photo you never get. Borrow a guest's camera, snap the flick, and it lands in everyone's album.
+              Borrow a friend's camera from your phone, run into the picture, and everyone gets the flick.
             </p>
           </div>
         </article>
 
+        <article className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 transition-colors flex flex-col">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 text-left cursor-pointer transition-colors flex flex-col"
+          className="text-left cursor-pointer flex flex-col flex-1"
         >
           <span className="relative block w-full aspect-[4/5] bg-black">
             <CardLoop card={FLOW.card} poster={FLOW.poster} still={still} />
@@ -121,12 +124,17 @@ export default function HeroFeatures() {
               <span className="font-expanded font-black text-[17px] leading-tight text-white">Flow</span>
             </span>
             <span className="mt-1.5 inline-block font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-g2-blue-light">Early access</span>
+            <span className="block mt-1.5 text-[13px] font-bold leading-snug text-white">Walk back through the night.</span>
             <span className="block mt-1 text-[12.5px] leading-snug text-g2-secondary">
-              Your party photos become one moving video. You approve it before guests see it.
+              Your photos become one moving video. AI fills in the moments between, and you approve it before anyone sees it.
             </span>
             <span className="sr-only"> Play the AI-generated sample.</span>
           </span>
         </button>
+        <a href={FLOW_ACCESS_LINK} className="block px-3 pb-3 text-[12.5px] font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
+          Ask for early access
+        </a>
+        </article>
       </div>
       {open && <FlowPlayer onClose={() => setOpen(false)} />}
     </section>
