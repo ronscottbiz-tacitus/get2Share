@@ -103,7 +103,7 @@ export default function HeroFeatures() {
             </h3>
             <p className="mt-1.5 text-[13px] font-bold leading-snug text-white">Get in the shot.</p>
             <p className="mt-1 text-[12.5px] leading-snug text-g2-secondary">
-              Borrow a friend's camera from your phone, run into the picture, and everyone gets the flick.
+              Your friend holds the camera. You see the view and tap the shutter from your phone, and everyone gets the flick.
             </p>
           </div>
         </article>
