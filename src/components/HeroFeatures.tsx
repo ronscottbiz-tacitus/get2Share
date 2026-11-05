@@ -7,12 +7,12 @@ import { useBackToClose } from '../useBackToClose';
 import { useMediaReady } from '../deferredMedia';
 import { FLOW_ACCESS_LINK } from '../walkthrough';
 
-// The Flow loop is the old AI concept clip, not something the app made, so its badge and player say
-// so. The Flick loop is an AI scene with the real borrowed-camera screen placed on G2's phone.
+// The Flow loop was made with the real Flow tool from AI-generated photos of people who don't exist,
+// so its badge and player say so. The Flick loop is an AI scene with the real borrowed-camera screen placed on G2's phone.
 const FLOW = {
-  card: '/media/pro-swim-card.mp4',
-  full: '/media/pro-swim.mp4',
-  poster: '/media/pro-swim-poster.webp',
+  card: '/media/flow-night-card.mp4',
+  full: '/media/flow-night.mp4',
+  poster: '/media/flow-night-poster.webp',
 };
 const FLICK = { card: '/media/flick-card-v2.mp4', poster: '/media/flick-poster-v2.webp' };
 
@@ -76,7 +76,7 @@ function FlowPlayer({ onClose }: { onClose: () => void }) {
         <p className="font-mono text-[10px] font-bold tracking-[0.12em] uppercase text-g2-blue-light">Early access</p>
         <p className="mt-1 font-expanded font-black text-2xl text-white">Flow</p>
         <p className="mt-1 text-sm text-white/80 max-w-sm">Your photos become one moving video. AI fills in the moments between, and you approve it before anyone sees it.</p>
-        <p className="mt-2 text-[11px] text-white/55">AI-generated sample to show the idea. Not real guests.</p>
+        <p className="mt-2 text-[11px] text-white/55">Made with Flow from AI-generated photos. Not real guests.</p>
       </div>
     </div>
   );
