@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Check, Loader2, Monitor, RefreshCw, Smartphone, Trash2,
+  AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Loader2, Monitor, RefreshCw, Smartphone, Trash2,
   Clapperboard,
 } from 'lucide-react';
 import { useEvent } from '../EventContext';
@@ -29,7 +29,11 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   const [meter, setMeter] = useState<FlowMeter | null>(null);
   // An invited host's access comes from the cloud job, since the invite list is private.
   const canMake = canMakeWalkthrough(config, isEventHost) || (isEventHost && config.enabled && meter?.access === true);
-  const stamp = `${rows[0]?.id ?? ''}:${rows[0]?.status ?? ''}:${rows[0]?.redosUsed ?? 0}`;
+  const stamp = rows.map((w) => `${w.id}:${w.status}:${w.redosUsed ?? 0}`).join();
+  // The newest Flow opens by itself; a tap opens another. Opening one closes the others.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const newest = rows[0]?.id ?? null;
+  useEffect(() => { setOpenId(null); }, [newest]);
   useEffect(() => {
     if (!isEventHost || !config.enabled) return;
     let on = true;
@@ -39,9 +43,10 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
 
   // A host can always manage a video they have, even with the feature off.
   if (!canMake && rows.length === 0) return null;
-  const current = rows[0] ?? null;
-  // A refused or failed video doesn't use up the event's video, so the host can start over.
-  const canStartOver = canMake && (!current || current.status === 'blocked' || current.status === 'failed');
+  const shownId = openId !== null && rows.some((w) => w.id === openId) ? openId : newest;
+  // The cloud job makes one video per event at a time.
+  const making = rows.some((w) => walkthroughBusy(w));
+  const outOfSeconds = !!meter && meter.remainingSeconds < flowSeconds(config.minPhotos, config.clipSeconds);
 
   return (
     <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
@@ -54,17 +59,56 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
 
       {canMake && meter && <MeterBar meter={meter} />}
 
-      {current ? <Status w={current} meter={meter} config={config} canMake={canMake} /> : (
+      {rows.length === 0 && (
         <p className="text-[13px] leading-relaxed text-g2-secondary">
           Pick a few photos and AI turns them into a short, silent video that moves from one to the next. You check it before anyone else sees it.
         </p>
       )}
+      {rows.length === 1 && <Status key={rows[0].id} w={rows[0]} meter={meter} config={config} canMake={canMake} />}
+      {rows.length > 1 && (
+        <ul className="space-y-2">
+          {rows.map((w) => {
+            const open = w.id === shownId;
+            return (
+              <li key={w.id} className="rounded-xl border border-white/10 overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => setOpenId(open ? '' : w.id)}
+                  className="w-full p-2 pr-3 flex items-center gap-3 text-left cursor-pointer hover:bg-white/5 transition-colors"
+                >
+                  <span className="w-10 h-12 shrink-0 rounded-md overflow-hidden bg-black/60 flex items-center justify-center">
+                    {w.posterUrl
+                      ? <img src={w.posterUrl} alt="" className="w-full h-full object-cover" />
+                      : <VideoBird className="w-[22px] h-4" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-bold text-white">{w.seconds}-second Flow</span>
+                    <span className={`block mt-0.5 text-[12px] truncate ${w.status === 'published' ? 'text-g2-blue-light' : 'text-g2-tertiary'}`}>{flowStatusText(w)}</span>
+                  </span>
+                  <ChevronDown className={`w-4 h-4 shrink-0 text-g2-tertiary transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+                </button>
+                {open && (
+                  <div className="p-3 pt-1">
+                    <Status key={w.id} w={w} meter={meter} config={config} canMake={canMake} />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-      {canStartOver && (
-        <button type="button" onClick={() => setStudioOpen(true)} className={`w-full ${primary}`}>
-          <Clapperboard className="w-[18px] h-[18px]" aria-hidden="true" />
-          {current ? 'Pick different photos' : 'Make a Flow'}
-        </button>
+      {canMake && (
+        <div className="space-y-1.5">
+          <button type="button" disabled={making || outOfSeconds} onClick={() => setStudioOpen(true)} className={`w-full ${rows.length ? secondary : primary}`}>
+            <Clapperboard className="w-[18px] h-[18px]" aria-hidden="true" />
+            {rows.length ? 'Make another Flow' : 'Make a Flow'}
+          </button>
+          {making
+            ? <p className="text-center text-[12px] text-g2-tertiary">You can start another when this one's done.</p>
+            : outOfSeconds && <p className="text-center text-[12px] text-g2-tertiary">There aren't enough AI video seconds left for a new Flow.</p>}
+        </div>
       )}
 
       <AnimatePresence>
@@ -72,6 +116,14 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
       </AnimatePresence>
     </div>
   );
+}
+
+/** One line for a Flow in the list. */
+function flowStatusText(w: Walkthrough): string {
+  if (walkthroughBusy(w)) return 'Being made';
+  if (w.status === 'published') return 'In the gallery and on TVs';
+  if (w.status === 'preview') return 'Only you can see this';
+  return w.status === 'blocked' ? "The AI service wouldn't make this one" : "This one didn't finish";
 }
 
 /** Seconds of AI video left: each second made, including redos, comes off this. */
@@ -94,7 +146,7 @@ function MeterBar({ meter, adding = 0 }: { meter: FlowMeter; adding?: number }) 
 }
 
 // ------------------------------------------------------------------ one video's state
-function Status({ w, meter, config, canMake }: { w: Walkthrough; meter: FlowMeter | null; config: WalkthroughConfig; canMake: boolean }) {
+function Status({ w, meter, config, canMake }: { key?: string; w: Walkthrough; meter: FlowMeter | null; config: WalkthroughConfig; canMake: boolean }) {
   const { event } = useEvent();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');

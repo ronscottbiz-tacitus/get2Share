@@ -112,7 +112,7 @@ const card = (page) => page.getByRole('heading', { name: /^Flow/i });
   await page.getByRole('button', { name: /Flow/ }).first().click();
   await page.waitForTimeout(500);
   await shot(page, '00b-landing-flow-player-phone');
-  check('landing: Flow player says it is a sample', (await page.getByText(/AI-generated sample to show the idea/).count()) === 1);
+  check('landing: Flow player says it is a sample', (await page.getByText(/Made with Flow from AI-generated photos/).count()) === 1);
   check('landing: no page errors', errs.length === 0, errs.join(' | '));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
@@ -146,10 +146,19 @@ const card = (page) => page.getByRole('heading', { name: /^Flow/i });
   await shot(page, '03b-studio-meter-phone');
   await ctx.close(); }
 { const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-meter-left': '5' });
-  await page.getByRole('button', { name: 'Make a Flow' }).click();
-  await page.waitForTimeout(400);
+  check('too few seconds: button is off', await page.getByRole('button', { name: 'Make a Flow' }).isDisabled());
   check('too few seconds: says so', (await page.getByText(/enough AI video seconds/).count()) === 1);
-  check('too few seconds: nothing to pick', (await page.getByRole('button', { name: /^Photo by/ }).count()) === 0);
+  await ctx.close(); }
+{ const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-meter-left': '500', 'h-wt': 'preview', 'h-wt-more': '1' });
+  const rows = page.getByRole('button', { name: /-second Flow/ });
+  check('two Flows: both listed, newest open', (await rows.count()) === 2 && (await rows.nth(0).getAttribute('aria-expanded')) === 'true');
+  await rows.nth(1).click();
+  await page.waitForTimeout(300);
+  check('two Flows: tapping the older one opens it', (await rows.nth(1).getAttribute('aria-expanded')) === 'true' && (await page.getByRole('button', { name: 'Take it down' }).count()) === 1);
+  check('two Flows: can make another', await page.getByRole('button', { name: 'Make another Flow' }).isEnabled());
+  await ctx.close(); }
+{ const { ctx, page } = await open('/host/ev1', { ...hostAll, 'h-meter-left': '500', 'h-wt': 'generating', 'h-wt-more': '1' });
+  check('one being made: another has to wait', await page.getByRole('button', { name: 'Make another Flow' }).isDisabled());
   await ctx.close(); }
 { const config = JSON.stringify({ enabled: true, allHosts: true, photos: { min: 3, max: 4 } });
   const { ctx, page } = await open('/host/ev1', { 'h-host': '1', 'h-wt-config': config, 'h-meter-left': '500' });

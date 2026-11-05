@@ -79,6 +79,14 @@ const walkthroughRows = () => {
     blocked: "The AI service wouldn't animate these photos, often because of faces or its content rules. This didn't use up your limit. Try different photos.",
     failed: "The video didn't finish. This didn't use up your limit. Try again in a few minutes.",
   };
+  // h-wt-more=1: an older Flow that's already approved, under the current one.
+  const older = localStorage.getItem('h-wt-more') ? [{
+    id: 'wt0', status: 'published', aspect, seconds: 30, photoIds: ['p1', 'p2'], redosUsed: 0,
+    clips: [{ index: 0, startPhotoId: 'p1', endPhotoId: 'p2', status: 'ready' }],
+    videoUrl: localStorage.getItem('h-wt-url') || '/media/none.mp4',
+    posterUrl: localStorage.getItem('h-wt-poster') || svg('#0c0d10', '#b0187a', 720, 1280),
+    createdAt: ts(now - 7200000), updatedAt: ts(now - 7200000),
+  }] : [];
   return [{
     id: 'wt1', status, aspect, seconds: 15, photoIds: ['p1', 'p2', 'p4', 'p5'], redosUsed: Number(localStorage.getItem('h-wt-redos') || 0),
     clips: [0, 1, 2].map((index) => ({ index, startPhotoId: 'p1', endPhotoId: 'p2', status: clipStatus(index) })),
@@ -87,7 +95,7 @@ const walkthroughRows = () => {
     error: message[status] || null,
     redoNotice: localStorage.getItem('h-wt-notice'),
     createdAt: ts(now - 600000), updatedAt: ts(localStorage.getItem('h-wt-slow') ? Date.now() - 20 * 60000 : Date.now()),
-  }];
+  }, ...older];
 };
 const docSnap = (path: string) => {
   let data = path === 'events/ev1/sessions/guest1' ? sessionDoc() : DOCS[path];
