@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import CloseButton from './CloseButton';
+import FlickBird from './FlickBird';
 import VideoBird from './VideoBird';
 import { useBackToClose } from '../useBackToClose';
 import { useMediaReady } from '../deferredMedia';
@@ -96,7 +97,9 @@ export default function HeroFeatures() {
             <AiBadge className="absolute bottom-2 left-2" />
           </div>
           <div className="p-3">
-            <h3 className="font-expanded font-black text-[17px] leading-tight text-white">Flick</h3>
+            <h3 className="flex items-center gap-1.5 font-expanded font-black text-[17px] leading-tight text-white">
+              <FlickBird flying className="w-[30px] h-[24px] shrink-0" /> Flick
+            </h3>
             <p className="mt-1 text-[12.5px] leading-snug text-g2-secondary">
               You're always in the group photo you never get. Borrow a guest's camera, snap the flick, and it lands in everyone's album.
             </p>

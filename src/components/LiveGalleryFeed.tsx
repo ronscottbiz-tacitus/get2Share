@@ -1,3 +1,4 @@
+import FlickBird from './FlickBird';
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Download, Heart, Image as ImageIcon, Users, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
@@ -552,7 +553,7 @@ export default function LiveGalleryFeed({
                 className="justify-self-end mr-5 flex flex-col items-center gap-1 text-g2-secondary hover:text-white disabled:opacity-50 cursor-pointer"
               >
                 <span className="w-12 h-12 rounded-xl border border-white/20 bg-white/5 flex items-center justify-center">
-                  <Users className="w-5 h-5" aria-hidden="true" />
+                  <FlickBird className="w-[30px] h-[24px]" />
                 </span>
                 <span className="text-[11px] font-semibold">Flick</span>
               </button>

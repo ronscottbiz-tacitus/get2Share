@@ -77,3 +77,24 @@
   .video-bird-flying .video-bird-body { animation: video-bird-bob 0.9s ease-in-out infinite; }
   .video-bird-flying .video-bird-rec { animation: video-bird-rec 1.4s linear infinite; }
 }
+
+/* Flick's camera sways under the bird. */
+.flick-bird-camera { transform-box: view-box; transform-origin: 45px 42px; }
+@keyframes flick-bird-sway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+@media (prefers-reduced-motion: no-preference) {
+  .video-bird-flying .flick-bird-camera { animation: flick-bird-sway 1.8s ease-in-out infinite; }
+}
+
+/* Group Shot's icon: three people trade places, then hold for a moment. Their resting spots keep it
+   a clear group for anyone who has asked for less motion. */
+.group-icon-a { transform: translate(10px, 15px) scale(0.72); }
+.group-icon-b { transform: translate(38px, 15px) scale(0.72); }
+.group-icon-c { transform: translate(24px, 23px) scale(1); }
+@keyframes group-icon-a { 0%, 20% { transform: translate(10px, 15px) scale(0.72); } 33%, 53% { transform: translate(24px, 23px) scale(1); } 66%, 86% { transform: translate(38px, 15px) scale(0.72); } 100% { transform: translate(10px, 15px) scale(0.72); } }
+@keyframes group-icon-b { 0%, 20% { transform: translate(38px, 15px) scale(0.72); } 33%, 53% { transform: translate(10px, 15px) scale(0.72); } 66%, 86% { transform: translate(24px, 23px) scale(1); } 100% { transform: translate(38px, 15px) scale(0.72); } }
+@keyframes group-icon-c { 0%, 20% { transform: translate(24px, 23px) scale(1); } 33%, 53% { transform: translate(38px, 15px) scale(0.72); } 66%, 86% { transform: translate(10px, 15px) scale(0.72); } 100% { transform: translate(24px, 23px) scale(1); } }
+@media (prefers-reduced-motion: no-preference) {
+  .group-icon-a { animation: group-icon-a 5s ease-in-out infinite; }
+  .group-icon-b { animation: group-icon-b 5s ease-in-out infinite; }
+  .group-icon-c { animation: group-icon-c 5s ease-in-out infinite; }
+}

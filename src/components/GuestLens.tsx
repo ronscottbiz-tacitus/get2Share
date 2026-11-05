@@ -1,3 +1,4 @@
+import FlickBird from './FlickBird';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Camera, Check, Users } from 'lucide-react';
@@ -133,7 +134,9 @@ function Picker({ sessionId, onPick, onClose }: {
         <div className="w-10 h-1 rounded-full bg-white/15 self-center" />
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">Flick: borrow a camera</p>
+            <p className="flex items-center gap-1.5 font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-blue-light">
+              <FlickBird flying className="w-[26px] h-[20px] shrink-0" /> Flick: borrow a camera
+            </p>
             <h2 id="borrow-title" className="mt-0.5 font-expanded font-black text-[22px] leading-tight text-white">
               Whose camera?
             </h2>

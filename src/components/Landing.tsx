@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ArrowRight, Camera, Play, Timer } from 'lucide-react';
+import { ArrowRight, Camera, Play } from 'lucide-react';
+import GroupShotIcon from './GroupShotIcon';
 import Get2ShareLockup from './Get2ShareLockup';
 import HeroFeatures from './HeroFeatures';
 import { LastEvent, normalizeJoinCode } from '../eventLinks';
@@ -15,7 +16,7 @@ interface LandingProps {
 }
 
 const PROMISES = [
-  { icon: Timer, title: 'Group Shot moments', body: 'The host counts down. Every phone fires together.' },
+  { icon: GroupShotIcon, title: 'Group Shot moments', body: 'The host counts down. Every phone fires together.' },
 ];
 
 /** share.get2.one with no event: join one by code, or host your own. */
@@ -81,7 +82,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           {PROMISES.map(({ icon: Icon, title, body }) => (
             <li key={title} className="flex gap-3 items-start">
               <span className="w-9 h-9 shrink-0 rounded-[10px] bg-g2-panel border border-white/[0.08] flex items-center justify-center text-g2-blue-light">
-                <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
+                <Icon className="w-[26px] h-[20px]" />
               </span>
               <div>
                 <p className="text-sm font-bold text-white">{title}</p>
