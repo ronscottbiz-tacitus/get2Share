@@ -8,7 +8,7 @@ import { useMediaReady } from '../deferredMedia';
 import { FLOW_ACCESS_LINK } from '../walkthrough';
 
 // The Flow loop is the old AI concept clip, not something the app made, so its badge and player say
-// so. The Flick loop is an AI scene followed by the real app's borrowed-camera countdown.
+// so. The Flick loop is an AI scene with the real borrowed-camera screen placed on G2's phone.
 const FLOW = {
   card: '/media/pro-swim-card.mp4',
   full: '/media/pro-swim.mp4',
