@@ -14,7 +14,7 @@ const FLOW = {
   full: '/media/pro-swim.mp4',
   poster: '/media/pro-swim-poster.webp',
 };
-const FLICK = { card: '/media/flick-card.mp4', poster: '/media/flick-poster.webp' };
+const FLICK = { card: '/media/flick-card-v2.mp4', poster: '/media/flick-poster-v2.webp' };
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
