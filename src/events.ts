@@ -2,6 +2,7 @@ import {
   collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc, writeBatch, Timestamp,
 } from 'firebase/firestore';
 import { db, deletePhotoFile } from './firebase';
+import { deleteWalkthrough } from './walkthrough';
 import { newCode } from './spotPairing';
 
 // Everything for one event lives under events/{eventId}. These helpers are the
@@ -240,6 +241,12 @@ export function expiryOf(ev: { expireAt?: Timestamp | null } | null | undefined)
  *  event to confirm you host it, so the event itself goes last. */
 export async function deleteEvent(ev: EventWithId, progress: (msg: string) => void = () => {}) {
   const eid = ev.id;
+  // Flow videos first: only the cloud job can remove them, and it checks the event still exists.
+  const flows = await getDocs(collection(db, 'events', eid, 'walkthroughs'));
+  if (!flows.empty) {
+    progress('Removing Flow videos…');
+    await Promise.all(flows.docs.map((d) => deleteWalkthrough(eid, d.id)));
+  }
   const photos = await getDocs(paths.photos(eid));
   let n = 0;
   for (const d of photos.docs) {

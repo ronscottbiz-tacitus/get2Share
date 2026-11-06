@@ -36,7 +36,7 @@ function BatteryBadge({ level, charging }: { level?: number | null; charging?: b
   const Icon = charging ? BatteryCharging : level < 15 ? BatteryLow : level < 60 ? BatteryMedium : BatteryFull;
   return (
     <span
-      className={`absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-full border ${tone}`}
+      className={`flex items-center gap-1 text-[10px] font-bold bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-full border ${tone}`}
       title={charging ? 'Plugged in' : level < 30 ? 'Plug this device in' : 'On battery'}
     >
       <Icon className="w-3.5 h-3.5" aria-hidden="true" />
@@ -95,10 +95,13 @@ export default function ShareSpotTile({ spot, shot, liveness, focused, onFire, o
 
         <ShotOverlay shot={shot} />
 
-        <span className="absolute top-2 left-2 max-w-[55%] truncate text-[10px] font-bold bg-black/60 backdrop-blur-md text-g2-blue-light px-2 py-0.5 rounded-full border border-g2-blue/20">
-          {spot.nickname}
+        {/* These wrap instead of overlapping when the tile is narrow. */}
+        <span className="absolute top-2 inset-x-2 flex flex-wrap items-center justify-between gap-1">
+          <span className="max-w-full truncate text-[10px] font-bold bg-black/60 backdrop-blur-md text-g2-blue-light px-2 py-0.5 rounded-full border border-g2-blue/20">
+            {spot.nickname}
+          </span>
+          <BatteryBadge level={info?.batteryLevel ?? null} charging={(info as any)?.charging ?? null} />
         </span>
-        <BatteryBadge level={info?.batteryLevel ?? null} charging={(info as any)?.charging ?? null} />
 
         <span
           className={`absolute bottom-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur-md transition-opacity ${
@@ -112,23 +115,25 @@ export default function ShareSpotTile({ spot, shot, liveness, focused, onFire, o
         </span>
       </button>
 
-      <div className="p-3 bg-black/40 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={`Remove ${spot.nickname}`}
-          title="Remove this Share Spot"
-          className="p-1.5 shrink-0 text-g2-muted hover:text-red-300 hover:bg-red-500/10 rounded-lg cursor-pointer transition-colors"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-        <span
-          className={`flex-1 min-w-0 truncate text-[10px] font-mono ${offline ? 'text-amber-300' : 'text-g2-muted'}`}
-          aria-live="polite"
-        >
-          {status}
-        </span>
-        <ShutterButton shot={shot} onFire={onFire} disabled={offline} />
+      <div className="p-3 bg-black/40 space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove ${spot.nickname}`}
+            title="Remove this Share Spot"
+            className="p-1.5 shrink-0 text-g2-muted hover:text-red-300 hover:bg-red-500/10 rounded-lg cursor-pointer transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+          <span
+            className={`flex-1 min-w-0 truncate text-[10px] font-mono ${offline ? 'text-amber-300' : 'text-g2-muted'}`}
+            aria-live="polite"
+          >
+            {status}
+          </span>
+        </div>
+        <ShutterButton shot={shot} onFire={onFire} disabled={offline} fullWidth />
       </div>
     </div>
   );

@@ -53,7 +53,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           <Get2ShareLockup className="text-[22px]" />
           <button
             onClick={onHost}
-            className="h-11 px-4 rounded-full border border-white/10 text-g2-secondary hover:text-white hover:border-white/25 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer"
+            className="h-11 px-4 rounded-full border border-white/10 text-g2-secondary hover:text-white hover:border-white/25 font-mono text-xs font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer"
           >
             Sign in
           </button>
@@ -159,7 +159,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
                 setCode(normalizeJoinCode(e.target.value));
                 setError('');
               }}
-              className="flex-1 min-w-0 h-[52px] px-4 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-white placeholder-g2-muted font-mono text-lg tracking-[0.12em] uppercase focus:outline-none transition-colors"
+              className="flex-1 min-w-0 h-[52px] px-4 bg-g2-page border border-white/30 focus:border-g2-blue rounded-lg text-white placeholder-g2-tertiary font-mono text-lg tracking-[0.12em] uppercase focus:outline-none transition-colors"
             />
             <button
               type="submit"

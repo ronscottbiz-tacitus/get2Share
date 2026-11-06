@@ -975,7 +975,7 @@ export default function HostDashboard({
                 <span className="flex items-center gap-1.5">
                   <Laptop className="w-4 h-4 text-g2-blue-light" /> Share Spots ({tripods.length})
                 </span>
-                <span className="text-[10px] text-g2-muted font-medium">Any spare phone or tablet on a stand</span>
+                <span className="ml-3 text-right text-[10px] text-g2-muted font-medium normal-case tracking-normal">Any spare phone or tablet on a stand</span>
               </h3>
 
               <AddShareSpot />

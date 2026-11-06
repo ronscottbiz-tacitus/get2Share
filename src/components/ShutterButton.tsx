@@ -42,9 +42,11 @@ interface ShutterButtonProps {
   size?: 'sm' | 'md';
   label?: string;
   disabled?: boolean;
+  /** Fill the width it's given, for narrow tiles. */
+  fullWidth?: boolean;
 }
 
-export function ShutterButton({ shot, onFire, variant = 'blue', size = 'sm', label, disabled = false }: ShutterButtonProps) {
+export function ShutterButton({ shot, onFire, variant = 'blue', size = 'sm', label, disabled = false, fullWidth = false }: ShutterButtonProps) {
   const phase = shot?.phase ?? 'idle';
   const busy = isShotBusy(shot);
   const failed = phase === 'noresponse' || phase === 'error';
@@ -63,7 +65,9 @@ export function ShutterButton({ shot, onFire, variant = 'blue', size = 'sm', lab
             ? 'bg-white hover:bg-g2-secondary text-g2-page'
             : 'bg-g2-blue hover:bg-g2-blue-hover text-white shadow-md shadow-g2-blue/20';
 
-  const sizing = size === 'md' ? 'text-xs py-2.5 px-5 rounded-xl min-w-[150px]' : 'text-xs px-3 py-1.5 rounded-xl min-w-[124px]';
+  const sizing = fullWidth
+    ? 'text-xs px-2 py-2 rounded-xl w-full min-w-0 whitespace-nowrap'
+    : size === 'md' ? 'text-xs py-2.5 px-5 rounded-xl min-w-[150px]' : 'text-xs px-3 py-1.5 rounded-xl min-w-[124px]';
 
   const Icon =
     phase === 'saved' ? Check : failed ? AlertCircle : busy ? Loader2 : Camera;

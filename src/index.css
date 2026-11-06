@@ -32,6 +32,9 @@
 }
 
 @layer base {
+  html, body {
+    overflow-x: clip;
+  }
   body {
     background-color: var(--color-g2-page);
     color: var(--color-g2-text);
