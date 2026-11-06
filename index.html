@@ -39,22 +39,30 @@
         if (m) document.getElementById('app-manifest').setAttribute('href', m);
       })();
     </script>
-    <!-- Vercel Web Analytics. Join codes, host event IDs and anything after "?" (pairing/screen codes) are replaced before sending. -->
+    <!-- Vercel Web Analytics and Speed Insights. Join codes, host event IDs and anything after "?" (pairing/screen codes) are replaced before sending. -->
     <script>
-      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-      window.va('beforeSend', function (event) {
-        try {
-          var u = new URL(event.url);
-          u.pathname = u.pathname
-            .replace(/^\/e\/[^/]+/, '/e/[code]')
-            .replace(/^\/host\/[^/]+/, '/host/[event]');
-          u.search = '';
-          u.hash = '';
-          return Object.assign({}, event, { url: u.toString() });
-        } catch (e) { return null; }
-      });
+      (function () {
+        function scrub(event) {
+          try {
+            var u = new URL(event.url);
+            u.pathname = u.pathname
+              .replace(/^\/e\/[^/]+/, '/e/[code]')
+              .replace(/^\/host\/[^/]+/, '/host/[event]');
+            u.search = '';
+            u.hash = '';
+            var out = Object.assign({}, event, { url: u.toString() });
+            if (out.route) out.route = u.pathname;
+            return out;
+          } catch (e) { return null; }
+        }
+        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+        window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+        window.va('beforeSend', scrub);
+        window.si('beforeSend', scrub);
+      })();
     </script>
     <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/_vercel/speed-insights/script.js" data-sdkn="@vercel/speed-insights" data-sdkv="2.1.0"></script>
   </head>
   <body>
     <div id="root"></div>
