@@ -74,6 +74,9 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
             Every photo from the party lands on everyone's phone. No app to download.
           </p>
+          <a href="#event-code" onClick={(e) => { e.preventDefault(); document.getElementById('event-code')?.focus(); }} className="mt-2 inline-block text-[13px] font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
+            At an event? Enter your code
+          </a>
         </section>
 
         <HeroFeatures />
@@ -138,7 +141,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           </button>
         )}
 
-        <form onSubmit={submit} className="bg-g2-panel border border-white/[0.08] rounded-xl p-4 flex flex-col gap-2.5">
+        <form onSubmit={submit} className="scroll-mt-4 bg-g2-panel border border-white/[0.08] rounded-xl p-4 flex flex-col gap-2.5">
           <label
             htmlFor="event-code"
             className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary"
