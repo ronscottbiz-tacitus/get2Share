@@ -12,7 +12,7 @@
       // On the landing page, start the Flick card's image right away (it's the biggest thing on a phone's first screen).
       if ((location.pathname.replace(/\/+$/, '') || '/') === '/') {
         var l = document.createElement('link');
-        l.rel = 'preload'; l.as = 'image'; l.href = '/media/flick-poster.webp'; l.setAttribute('fetchpriority', 'high');
+        l.rel = 'preload'; l.as = 'image'; l.href = '/media/flick-poster-v3.webp'; l.setAttribute('fetchpriority', 'high');
         document.head.appendChild(l);
       }
     </script>

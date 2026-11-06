@@ -5,7 +5,7 @@ import FlickBird from './FlickBird';
 import VideoBird from './VideoBird';
 import { useBackToClose } from '../useBackToClose';
 import { useMediaReady } from '../deferredMedia';
-import { FLOW_ACCESS_LINK } from '../walkthrough';
+import { FLOW_ACCESS_LINK } from '../flowAccess';
 
 // Both loops are AI samples, so their badges and players say so. Flow was made with the real tool from
 // AI-generated photos; Flick is an AI scene with the real borrowed-camera screen placed on G2's phone.
@@ -16,7 +16,7 @@ const FEATURES: Record<FeatureId, {
   flick: {
     name: 'Flick',
     card: '/media/flick-card-v2.mp4',
-    poster: '/media/flick-poster-v2.webp',
+    poster: '/media/flick-poster-v3.webp',
     full: '/media/flick-full.mp4',
     fullPoster: '/media/flick-full-poster.webp',
     blurb: 'Your friend holds the camera. You see the view and tap the shutter from your phone, and everyone gets the flick.',
@@ -25,7 +25,7 @@ const FEATURES: Record<FeatureId, {
   flow: {
     name: 'Flow',
     card: '/media/flow-night-card.mp4',
-    poster: '/media/flow-night-poster.webp',
+    poster: '/media/flow-night-poster-v2.webp',
     full: '/media/flow-night.mp4',
     fullPoster: '/media/flow-night-full-poster.webp',
     blurb: 'Your photos become one moving video. AI fills in the moments between, and you approve it before anyone sees it.',

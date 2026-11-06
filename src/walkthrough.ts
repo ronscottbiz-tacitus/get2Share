@@ -21,7 +21,7 @@ export const WALKTHROUGH_LABEL = "AI-generated video. Some moments and details a
 /** What a host must accept before creating. Bump NOTICE_VERSION (here and in config.py) if it changes. */
 export const WALKTHROUGH_NOTICE = "These photos go to an outside AI service, which may use them to improve its AI. The AI can add or change people's faces and moments. I have permission from everyone pictured, and none of them are kids.";
 /** Until Flow is open to every host, people who want it ask here. */
-export const FLOW_ACCESS_LINK = `mailto:ron@get2studio.com?subject=${encodeURIComponent('Flow early access')}&body=${encodeURIComponent("I'd like to try Flow at my next event.")}`;
+export { FLOW_ACCESS_LINK } from './flowAccess';
 
 export const NOTICE_VERSION = 2;
 

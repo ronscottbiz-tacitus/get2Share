@@ -99,11 +99,11 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           >
             <span className="relative w-[60px] h-[84px] shrink-0 rounded-lg overflow-hidden bg-black">
               {stillOnly || !mediaReady ? (
-                <img src="/media/g2-cwalk-loop-poster.webp" alt="" className="w-full h-full object-cover" />
+                <img src="/media/g2-cwalk-thumb.webp" alt="" width="60" height="84" className="w-full h-full object-cover" />
               ) : (
                 <video
                   src="/media/g2-cwalk-loop.mp4"
-                  poster="/media/g2-cwalk-loop-poster.webp"
+                  poster="/media/g2-cwalk-thumb.webp"
                   autoPlay
                   muted
                   loop
