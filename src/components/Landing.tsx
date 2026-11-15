@@ -48,7 +48,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
 
   return (
     <main className="min-h-dvh bg-g2-page text-g2-text flex flex-col px-5 pt-4 pb-5 font-sans">
-      <div className="w-full max-w-md mx-auto flex flex-col flex-1">
+      <div className="w-full max-w-md lg:max-w-6xl mx-auto flex flex-col flex-1">
         <header className="flex justify-between items-center h-12">
           <Get2ShareLockup className="text-[22px]" />
           <button
@@ -59,10 +59,12 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           </button>
         </header>
 
-        <section className="mt-6 landing-rise">
+        {/* Phones: one column (hero, showcase, join). Wide screens: hero and join on the left, showcase on the right. */}
+        <div className="flex flex-col flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:grid-rows-[auto_auto] lg:gap-x-16 lg:content-center lg:py-10">
+        <section className="mt-6 lg:mt-0 lg:col-start-1 lg:row-start-1 lg:self-end landing-rise">
           <h1
             aria-label="You're in the group photo. You never get it. Now you get to."
-            className="font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/11.8))] leading-[1.04] tracking-[-0.02em] text-white"
+            className="font-expanded font-black text-[length:min(34px,calc((100vw_-_44px)/11.8))] lg:text-[length:min(50px,4vw)] leading-[1.04] tracking-[-0.02em] text-white"
           >
             <span aria-hidden="true" className="block">You're in the</span>
             <span aria-hidden="true" className="block">group photo.</span>
@@ -71,14 +73,15 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
               Now you <span className="text-g2-blue">Get2.</span>
             </span>
           </h1>
-          <p className="mt-3.5 text-[15px] leading-relaxed text-g2-secondary">
+          <p className="mt-3.5 lg:mt-5 text-[15px] lg:text-lg leading-relaxed text-g2-secondary lg:max-w-[30rem]">
             Every photo from the party lands on everyone's phone. No app to download.
           </p>
-          <a href="#event-code" onClick={(e) => { e.preventDefault(); document.getElementById('event-code')?.focus(); }} className="mt-2 inline-block text-[13px] font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
+          <a href="#event-code" onClick={(e) => { e.preventDefault(); document.getElementById('event-code')?.focus(); }} className="mt-2 inline-block lg:hidden text-[13px] font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
             At an event? Enter your code
           </a>
         </section>
 
+        <div className="flex flex-col lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
         <HeroFeatures />
 
         <ul className="mt-5 flex flex-col gap-3.5">
@@ -126,7 +129,11 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           </button>
         )}
 
-        <div className="flex-1 min-h-6" />
+        </div>
+
+        <div className="flex-1 min-h-6 lg:hidden" />
+
+        <div className="flex flex-col lg:col-start-1 lg:row-start-2 lg:self-start lg:mt-8 lg:max-w-[30rem]">
 
         {lastEvent && (
           <button
@@ -185,6 +192,8 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           <Camera className="w-[18px] h-[18px]" aria-hidden="true" />
           Host your own event
         </button>
+        </div>
+        </div>
 
         <p className="mt-4 text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
           A Get2 product · share.get2.one

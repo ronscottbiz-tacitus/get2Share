@@ -135,24 +135,24 @@ export default function HeroFeatures() {
     />
   );
   return (
-    <section className="mt-5" aria-labelledby="hero-features-title">
+    <section className="mt-5 lg:mt-0" aria-labelledby="hero-features-title">
       <h2 id="hero-features-title" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">
         Flick it. Flash it. Flow it.
       </h2>
-      <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+      <div className="mt-2.5 lg:mt-3 grid grid-cols-2 gap-2.5 lg:gap-4">
         <article className="rounded-xl overflow-hidden bg-g2-panel border border-white/[0.08] hover:border-g2-blue/60 transition-colors flex flex-col">
           <button type="button" onClick={() => setOpen('flick')} className="text-left cursor-pointer flex flex-col flex-1">
             <span className="relative block w-full aspect-[4/5] bg-black">
               {video('flick')}
               <AiBadge className="absolute bottom-2 left-2" />
             </span>
-            <span className="block p-3">
+            <span className="block p-3 lg:p-4">
               <span className="flex items-center gap-1.5">
                 <FlickBird flying className="w-[30px] h-[24px] shrink-0" />
-                <span className="font-expanded font-black text-[17px] leading-tight text-white">Flick</span>
+                <span className="font-expanded font-black text-[17px] lg:text-xl leading-tight text-white">Flick</span>
               </span>
-              <span className="block mt-1.5 text-[13px] font-bold leading-snug text-white">Get in the shot.</span>
-              <span className="block mt-1 text-[12.5px] leading-snug text-g2-secondary">{FEATURES.flick.blurb}</span>
+              <span className="block mt-1.5 text-[13px] lg:text-[15px] font-bold leading-snug text-white">Get in the shot.</span>
+              <span className="block mt-1 text-[12.5px] lg:text-sm leading-snug text-g2-secondary">{FEATURES.flick.blurb}</span>
               <span className="sr-only"> Play the AI-generated sample.</span>
             </span>
           </button>
@@ -164,18 +164,18 @@ export default function HeroFeatures() {
               {video('flow')}
               <AiBadge className="absolute bottom-2 left-2" />
             </span>
-            <span className="block p-3">
+            <span className="block p-3 lg:p-4">
               <span className="flex items-center gap-1.5">
                 <VideoBird flying className="w-[30px] h-[22px] shrink-0" />
-                <span className="font-expanded font-black text-[17px] leading-tight text-white">Flow</span>
+                <span className="font-expanded font-black text-[17px] lg:text-xl leading-tight text-white">Flow</span>
               </span>
               <span className="mt-1.5 inline-block font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-g2-blue-light">Early access</span>
-              <span className="block mt-1.5 text-[13px] font-bold leading-snug text-white">Walk back through the night.</span>
-              <span className="block mt-1 text-[12.5px] leading-snug text-g2-secondary">{FEATURES.flow.blurb}</span>
+              <span className="block mt-1.5 text-[13px] lg:text-[15px] font-bold leading-snug text-white">Walk back through the night.</span>
+              <span className="block mt-1 text-[12.5px] lg:text-sm leading-snug text-g2-secondary">{FEATURES.flow.blurb}</span>
               <span className="sr-only"> Play the AI-generated sample.</span>
             </span>
           </button>
-          <a href={FLOW_ACCESS_LINK} className="block px-3 pb-3 text-[12.5px] font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
+          <a href={FLOW_ACCESS_LINK} className="block px-3 pb-3 lg:px-4 lg:pb-4 text-[12.5px] lg:text-sm font-bold text-g2-blue-light hover:text-white underline underline-offset-2">
             Ask for early access
           </a>
         </article>
