@@ -929,37 +929,20 @@ export default function HostDashboard({
                   )}
                 </div>
 
-                {/* Captive Wi-Fi Router Portal */}
-                <div className="border border-white/5 rounded-xl overflow-hidden">
-                  <button
-                    onClick={() => toggleTip('wifi')}
-                    className="w-full bg-black/20 hover:bg-black/40 p-3 flex justify-between items-center text-xs font-bold text-g2-secondary cursor-pointer"
-                  >
-                    <span>Venue Wi-Fi splash page</span>
-                    {openTipId === 'wifi' ? <ChevronUp className="w-4 h-4 text-g2-muted" /> : <ChevronDown className="w-4 h-4 text-g2-muted" />}
-                  </button>
-                  {openTipId === 'wifi' && (
-                    <div className="p-3.5 bg-black/40 text-[11px] text-g2-tertiary leading-relaxed border-t border-white/5 space-y-1.5">
-                      <p>You can force-open the event web app when guests connect to the venue router's guest Wi-Fi.</p>
-                      <p>In your router settings, configure the <strong>Splash/Landing Page redirect</strong> to target: <span className="text-g2-blue-light font-mono">{joinLink}</span></p>
-                      <p>Once connected, iOS & Android natively trigger a sliding viewport showing your event page instantly.</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Native Calendar Geofence */}
+                {/* Calendar invite */}
                 <div className="border border-white/5 rounded-xl overflow-hidden">
                   <button
                     onClick={() => toggleTip('calendar')}
                     className="w-full bg-black/20 hover:bg-black/40 p-3 flex justify-between items-center text-xs font-bold text-g2-secondary cursor-pointer"
                   >
-                    <span>Calendar invite with location</span>
+                    <span>Calendar invite with the link</span>
                     {openTipId === 'calendar' ? <ChevronUp className="w-4 h-4 text-g2-muted" /> : <ChevronDown className="w-4 h-4 text-g2-muted" />}
                   </button>
                   {openTipId === 'calendar' && (
                     <div className="p-3.5 bg-black/40 text-[11px] text-g2-tertiary leading-relaxed border-t border-white/5 space-y-1.5">
-                      <p>Send calendar invitations (`.ics` files) with the venue address in the location field.</p>
-                      <p>Add the event URL link in the description. When guests step within the geofence perimeter of the coordinates, iOS and Android automatically deliver an arrival push alert linking straight to the web app!</p>
+                      <p>Send a calendar invite for your event, with the venue address as the location.</p>
+                      <p className="text-g2-muted">Paste this link in the description: <span className="text-g2-blue-light font-mono">{joinLink}</span></p>
+                      <p>When the reminder goes off, guests already have the link on their phone and can join with one tap.</p>
                     </div>
                   )}
                 </div>
