@@ -9,7 +9,7 @@ import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
-import { ALBUM_DAYS, deleteEvent, eventPhase, formatDay, formatWhen, joinUrl, paths, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput } from '../events';
+import { ALBUM_DAYS, blockGuest, deleteEvent, eventPhase, expiryOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -97,6 +97,12 @@ export default function HostDashboard({
   const [savedMetadataSuccess, setSavedMetadataSuccess] = useState(false);
 
   const [openTipId, setOpenTipId] = useState<string | null>(null);
+  // Removing or blocking a guest: who the dialog is about, and the blocked list.
+  const [removeTarget, setRemoveTarget] = useState<{ sessionId: string; nickname: string } | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState('');
+  const [guestNote, setGuestNote] = useState('');
+  const [blockedGuests, setBlockedGuests] = useState<{ uid: string; nickname: string }[]>([]);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   const joinLink = joinUrl(event.joinCode);
@@ -158,6 +164,16 @@ export default function HostDashboard({
     });
 
     return () => unsubscribe();
+  }, [isHost, eventId]);
+
+  // Devices this event's hosts have blocked — host only
+  useEffect(() => {
+    if (!isHost) return;
+    return onSnapshot(
+      paths.blocked(eventId),
+      (snap) => setBlockedGuests(snap.docs.map((d) => ({ uid: d.id, nickname: (d.data() as any).nickname || 'Guest' }))),
+      (err) => console.error('Error listening to blocked guests:', err)
+    );
   }, [isHost, eventId]);
 
   // Sync Host's local lensState based on active session's real-time changes
@@ -288,36 +304,65 @@ export default function HostDashboard({
     }
   };
 
-  // Prune Stale Guest Sessions (>15 mins inactive)
+  // Clear idle guests from the list (15+ minutes without the app open). They are not
+  // removed from the event: they show up again as soon as they open it.
   const handlePruneStaleSessions = async () => {
     const cutoff = Date.now() - 15 * 60 * 1000;
-    const staleSessions = sessions.filter((s) => !s.lastActive || s.lastActive < cutoff);
+    const staleSessions = sessions.filter((s) => s.role === 'guest' && (!s.lastActive || s.lastActive < cutoff));
 
     if (staleSessions.length === 0) {
-      alert('Everyone has been active in the last 15 minutes.');
+      setGuestNote('Nobody is idle: everyone has had the app open in the last 15 minutes.');
       return;
     }
 
-    if (!window.confirm(`Remove ${staleSessions.length} guests who haven't been active for 15+ minutes?`)) return;
+    if (!window.confirm(`Clear ${staleSessions.length} idle ${staleSessions.length === 1 ? 'guest' : 'guests'} from this list? They stay in the event and reappear when they open it again.`)) return;
 
     try {
       await Promise.all(staleSessions.map((s) => deleteDoc(paths.session(eventId, s.sessionId))));
-      alert(`Removed ${staleSessions.length} inactive guests.`);
+      setGuestNote(`Cleared ${staleSessions.length} idle ${staleSessions.length === 1 ? 'guest' : 'guests'} from the list.`);
     } catch (e) {
-      console.error('Failed pruning stale sessions:', e);
+      console.error('Failed clearing idle sessions:', e);
       handleFirestoreError(e, OperationType.DELETE, 'sessions');
     }
   };
 
-  // Kick / Remove specific guest session
-  const handleKickGuestSession = async (guestSessionId: string, guestNickname: string) => {
-    if (!window.confirm(`Remove ${guestNickname} from the event? They'll need to rejoin.`)) return;
-
+  // Remove a guest (they can rejoin) or block their device (they can't).
+  const handleRemoveGuest = async (mode: 'remove' | 'block' | 'blockHide') => {
+    if (!removeTarget || removeBusy) return;
+    const { sessionId: guestUid, nickname: guestNickname } = removeTarget;
+    setRemoveBusy(true);
+    setRemoveError('');
     try {
-      await deleteDoc(paths.session(eventId, guestSessionId));
+      if (mode === 'remove') {
+        await removeGuest(eventId, guestUid);
+        setGuestNote(`${guestNickname} was removed. They can join again with the code.`);
+      } else {
+        const hidden = await blockGuest(eventId, guestUid, guestNickname, sessionId, {
+          hidePhotos: mode === 'blockHide',
+          expireAt: expiryOf(event).expireAt ?? null,
+        });
+        setGuestNote(
+          mode === 'blockHide'
+            ? `${guestNickname} is blocked, and ${hidden} of their ${hidden === 1 ? 'photo is' : 'photos are'} hidden from the gallery.`
+            : `${guestNickname} is blocked. Their photos stay in the gallery.`
+        );
+      }
+      setRemoveTarget(null);
     } catch (e) {
-      console.error('Failed kicking guest session:', e);
-      handleFirestoreError(e, OperationType.DELETE, `sessions/${guestSessionId}`);
+      console.error('Failed removing guest:', e);
+      setRemoveError("That didn't work. Check your connection and try again.");
+    } finally {
+      setRemoveBusy(false);
+    }
+  };
+
+  const handleUnblockGuest = async (uid: string, guestNickname: string) => {
+    try {
+      await unblockGuest(eventId, uid);
+      setGuestNote(`${guestNickname} is unblocked and can join again with the code.`);
+    } catch (e) {
+      console.error('Failed unblocking guest:', e);
+      setGuestNote("Couldn't unblock them. Check your connection and try again.");
     }
   };
 
@@ -1006,9 +1051,9 @@ export default function HostDashboard({
                   <button
                     onClick={handlePruneStaleSessions}
                     className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 text-g2-secondary font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
-                    title="Remove sessions inactive for >15 minutes"
+                    title="Clear guests who haven't had the app open for 15 minutes from this list. They stay in the event."
                   >
-                    <UserX className="w-3 h-3 text-red-400" /> Remove inactive
+                    <UserX className="w-3 h-3 text-red-400" /> Clear idle guests
                   </button>
                 </div>
               </div>
@@ -1070,13 +1115,15 @@ export default function HostDashboard({
                           <div>
                             <p className="text-xs font-bold text-white flex items-center gap-2">
                               {guest.nickname}
-                              <button
-                                onClick={() => handleKickGuestSession(guest.sessionId, guest.nickname)}
-                                className="p-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-md text-[10px] font-bold transition-colors cursor-pointer"
-                                title="Remove guest" aria-label={`Remove ${guest.nickname}`}
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
+                              {!(event.hostUids || []).includes(guest.sessionId) && (
+                                <button
+                                  onClick={() => { setRemoveError(''); setRemoveTarget({ sessionId: guest.sessionId, nickname: guest.nickname }); }}
+                                  className="p-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-md text-[10px] font-bold transition-colors cursor-pointer"
+                                  title="Remove or block this guest" aria-label={`Remove or block ${guest.nickname}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
                             </p>
                             <p className="text-[10px] text-g2-muted font-mono mt-0.5">
                               Active: {new Date(guest.lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -1150,6 +1197,33 @@ export default function HostDashboard({
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {guestNote && (
+                <p className="text-[11px] text-g2-secondary flex items-start justify-between gap-3" aria-live="polite">
+                  <span>{guestNote}</span>
+                  <button onClick={() => setGuestNote('')} className="text-g2-muted hover:text-white cursor-pointer shrink-0" aria-label="Dismiss">
+                    <X className="w-3 h-3" />
+                  </button>
+                </p>
+              )}
+
+              {blockedGuests.length > 0 && (
+                <div className="border-t border-white/5 pt-3 space-y-2">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-g2-muted">Blocked ({blockedGuests.length})</p>
+                  {blockedGuests.map((b) => (
+                    <div key={b.uid} className="flex items-center justify-between gap-3 bg-black/30 border border-white/5 px-3 py-2 rounded-lg">
+                      <span className="text-xs text-g2-secondary truncate">{b.nickname}</span>
+                      <button
+                        onClick={() => handleUnblockGuest(b.uid, b.nickname)}
+                        className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 text-g2-secondary font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors shrink-0"
+                      >
+                        Unblock
+                      </button>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-g2-muted">A block is for that phone or browser. Someone determined could still join from another device.</p>
                 </div>
               )}
             </div>
@@ -1331,6 +1405,56 @@ export default function HostDashboard({
           </div>
         </div>
       </div>
+
+      {/* Remove or block a guest */}
+      {removeTarget && (
+        <div
+          className="fixed inset-0 z-[70] bg-g2-page/80 flex items-center justify-center p-4 font-sans"
+          role="dialog" aria-modal="true" aria-label={`Remove or block ${removeTarget.nickname}`}
+          onClick={() => { if (!removeBusy) setRemoveTarget(null); }}
+        >
+          <div className="glass-card border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="text-sm font-extrabold text-white">Remove {removeTarget.nickname}?</h3>
+              <p className="text-[11px] text-g2-tertiary mt-1">Their phone goes back to the join screen.</p>
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={() => handleRemoveGuest('remove')}
+                disabled={removeBusy}
+                className="w-full text-left bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-3.5 py-2.5 cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                <span className="block text-xs font-bold text-white">Remove</span>
+                <span className="block text-[11px] text-g2-tertiary">They can join again with the code. Their photos stay.</span>
+              </button>
+              <button
+                onClick={() => handleRemoveGuest('block')}
+                disabled={removeBusy}
+                className="w-full text-left bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl px-3.5 py-2.5 cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                <span className="block text-xs font-bold text-red-300">Block, keep their photos</span>
+                <span className="block text-[11px] text-g2-tertiary">That phone can't join this event again.</span>
+              </button>
+              <button
+                onClick={() => handleRemoveGuest('blockHide')}
+                disabled={removeBusy}
+                className="w-full text-left bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl px-3.5 py-2.5 cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                <span className="block text-xs font-bold text-red-300">Block, hide their photos</span>
+                <span className="block text-[11px] text-g2-tertiary">Also takes their photos out of the gallery.</span>
+              </button>
+            </div>
+            {removeError && <p className="text-[11px] text-red-400" aria-live="polite">{removeError}</p>}
+            <button
+              onClick={() => setRemoveTarget(null)}
+              disabled={removeBusy}
+              className="w-full text-xs font-bold text-g2-secondary hover:text-white py-2 cursor-pointer disabled:opacity-50"
+            >
+              {removeBusy ? 'Working…' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
