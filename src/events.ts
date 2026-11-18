@@ -28,6 +28,8 @@ export interface EventDoc {
   lensSharing?: boolean;
   /** When guests can save other people's photos to their devices (see savePhotos.ts). Unset = any time. */
   albumSaving?: 'party' | 'after' | 'host';
+  /** Co-hosts may make and redo Flow videos (spending the event's AI seconds). Off unless the owner turns it on. */
+  flowCohosts?: boolean;
 }
 
 export interface EventWithId extends EventDoc {
@@ -305,6 +307,11 @@ export async function acceptHostInvite(
     console.error('Accepting the co-host invite failed:', err);
     return { result: 'failed', eventName: inv.eventName };
   }
+}
+
+/** Owner: let co-hosts make and redo Flow videos, or keep that to the owner. */
+export async function setFlowCohosts(eid: string, on: boolean) {
+  await updateDoc(paths.event(eid), { flowCohosts: on });
 }
 
 /** Owner: take a co-host off the event. */

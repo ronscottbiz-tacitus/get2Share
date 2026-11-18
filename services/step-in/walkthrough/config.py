@@ -49,11 +49,28 @@ DEFAULT_PRICES = {
     "veo": {"720p": 0.50, "480p": 0.50},
 }
 
+# Every style ends with the same guard: the AI moves the camera, it doesn't change the people.
+_KEEP = "Keep every person, face and object exactly as they are. Do not add people, text or logos."
+
 DEFAULT_PROMPT = (
     "A slow, smooth, handheld camera move through a real party, travelling from the first "
-    "frame to the last frame. Keep every person, face and object exactly as they are. "
-    "Do not add people, text or logos."
+    "frame to the last frame. " + _KEEP
 )
+
+# The looks a host can choose (same ids and names as FLOW_STYLES in src/walkthrough.ts).
+# Glide is the original look; its words are `prompt` above, so an old config still works.
+DEFAULT_STYLE = "glide"
+DEFAULT_STYLES = {
+    "glide": DEFAULT_PROMPT,
+    "groove": (
+        "A lively, energetic handheld camera move through a real party, travelling quickly from the "
+        "first frame to the last frame with a rhythmic, bouncing feel, as if moving to the music. " + _KEEP
+    ),
+    "glow": (
+        "A very slow, gentle, floating camera move through a real celebration, drifting from the "
+        "first frame to the last frame and lingering on faces, soft and warm. " + _KEEP
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -85,6 +102,7 @@ class Config:
     monthly_budget_usd: float = DEFAULT_MONTHLY_BUDGET_USD
     prices: dict = field(default_factory=lambda: dict(DEFAULT_PRICES))
     prompt: str = DEFAULT_PROMPT
+    styles: dict = field(default_factory=lambda: dict(DEFAULT_STYLES))
     slowdown: tuple = ()     # per clip; a clip with no entry plays at normal speed
     hold_start: float = 0.0  # still (non-AI) seconds on the first photo
     hold_end: float = 0.0    # still (non-AI) seconds on the last photo
@@ -97,6 +115,11 @@ class Config:
     def preset(self, preset_id: str | None) -> Preset | None:
         wanted = preset_id or self.default_preset
         return next((p for p in self.presets if p.id == wanted), None)
+
+    def style_prompt(self, style_id: str | None) -> str | None:
+        """The words sent to the AI for a style. No style means Glide. None when the style isn't one we have."""
+        wanted = style_id or DEFAULT_STYLE
+        return self.prompt if wanted == DEFAULT_STYLE else self.styles.get(wanted)
 
     def price_per_second(self, provider: str, resolution: str) -> float | None:
         """None when no price is known: the caller must refuse, never guess zero."""
@@ -156,7 +179,16 @@ def parse_config(data: dict | None) -> Config:
     min_photos = int(_number(photos_in.get("min"), MIN_PHOTOS, 2, MAX_PRESET_PHOTOS))
     max_photos = max(min_photos, int(_number(photos_in.get("max"), MAX_PHOTOS, 2, MAX_PRESET_PHOTOS)))
 
+    # styles: { glide, groove, glow } can each be reworded. Glide falls back to the older `prompt`.
+    styles_in = d.get("styles") if isinstance(d.get("styles"), dict) else {}
+    styles = {k: (styles_in[k] if isinstance(styles_in.get(k), str) and styles_in[k].strip() else v)
+              for k, v in DEFAULT_STYLES.items()}
+    if not (isinstance(styles_in.get(DEFAULT_STYLE), str) and styles_in[DEFAULT_STYLE].strip()):
+        if isinstance(d.get("prompt"), str) and d.get("prompt").strip():
+            styles[DEFAULT_STYLE] = d["prompt"]
+
     return Config(
+        styles=styles,
         min_photos=min_photos,
         max_photos=max_photos,
         clip_seconds=float(_number(d.get("clipSeconds"), CLIP_SECONDS, 1, 30)),
@@ -171,7 +203,7 @@ def parse_config(data: dict | None) -> Config:
         limits=limits,
         monthly_budget_usd=float(_number(budget_in.get("monthlyUsd"), DEFAULT_MONTHLY_BUDGET_USD)),
         prices=prices,
-        prompt=d.get("prompt") if isinstance(d.get("prompt"), str) and d.get("prompt").strip() else DEFAULT_PROMPT,
+        prompt=styles[DEFAULT_STYLE],
         slowdown=tuple(float(_number(x, 1.0, 1.0, 4.0)) for x in raw_slow),
         hold_start=float(_number(hold.get("startSeconds"), 0.0, 0.0, 5.0)),
         hold_end=float(_number(hold.get("endSeconds"), 0.0, 0.0, 5.0)),

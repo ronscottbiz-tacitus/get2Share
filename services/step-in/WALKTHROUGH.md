@@ -132,6 +132,7 @@ Everything is optional except `enabled`. A missing document means off for everyo
 | `slowdown` | none | Per clip, like `[1.5, 1, 1]`. Plays that clip slower. The cost doesn't change. Up to 4. |
 | `hold.startSeconds`, `hold.endSeconds`, `hold.zoom` | 0, 0, off | Non-AI seconds on the first and last photo, with an optional slow zoom. Up to 5 seconds each. |
 | `prompt` | a careful default | What the AI is asked to do. |
+| `styles` | Glide, Groove, Glow | A map `{ glide, groove, glow }` of what the AI is asked to do for each style a host can pick. Leave one out to keep its default. Glide falls back to `prompt`. |
 
 This document is readable by anyone signed in, as with `config/stepIn`, so don't put anything private in it.
 
@@ -182,3 +183,9 @@ python -m pytest tests            # about 6 minutes, needs ffmpeg and tesseract.
 ```
 
 Screens, from the repo root, with the harness running (see `harness/README.md`): `node harness/walkthrough-shots.mjs <out-dir>`.
+
+## Who can make a Flow
+
+Making or redoing a Flow spends AI seconds, so only the event's owner (or a Get2Share admin) can do it.
+The owner can let co-hosts do it too with the switch under Co-hosts in the Host Console, which sets
+`flowCohosts: true` on the event. Any host can still preview, approve, take down or delete a Flow.

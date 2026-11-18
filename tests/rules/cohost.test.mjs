@@ -93,6 +93,14 @@ await check('a removed co-host cannot get back in with the used invite', assertF
 await check('a removed co-host cannot get back in with just their old claim', assertFails(accept(account('sam'), 'sam', { claimInvite: false })));
 await check('the owner can clear the old claim', assertSucceeds(deleteDoc(claim(account('owner'), 'sam'))));
 
+// --- Who can make Flow videos ---
+await check('a co-host cannot let co-hosts make Flow videos', assertFails(updateDoc(event(account('cohost')), { flowCohosts: true })));
+await check('the switch must be on or off', assertFails(updateDoc(event(account('owner')), { flowCohosts: 'yes' })));
+await check('the owner can let co-hosts make Flow videos', assertSucceeds(updateDoc(event(account('owner')), { flowCohosts: true })));
+await check('a co-host cannot turn it back off', assertFails(updateDoc(event(account('cohost')), { flowCohosts: false })));
+await check('a co-host can still change other settings', assertSucceeds(updateDoc(event(account('cohost')), { autoApproval: true })));
+await check('the owner can turn it back off', assertSucceeds(updateDoc(event(account('owner')), { flowCohosts: false })));
+
 // --- Cancelling ---
 await check('a co-host cannot cancel an invite', assertFails(deleteDoc(invite(account('cohost'), OLD))));
 await check('the owner can cancel an invite', assertSucceeds(deleteDoc(invite(account('owner'), OLD))));

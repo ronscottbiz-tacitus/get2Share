@@ -10,7 +10,13 @@ def verify(token, event_id):
         raise PermissionError("Only hosts can make Walkthrough videos.")
     if token == "expired":
         raise PermissionError("Your sign-in expired. Reload the page and try again.")
-    return ("admin1" if token == "admin" else "host1"), {"name": "Party"}, token == "admin"
+    if token == "cohost":
+        return "cohost1", {"name": "Party", "ownerUid": "host1"}, False
+    if token == "cohost-allowed":
+        return "cohost1", {"name": "Party", "ownerUid": "host1", "flowCohosts": True}, False
+    if token == "invited-cohost":  # invited to Flow (so is_admin is true), but not a real admin
+        return "cohost1", {"name": "Party", "ownerUid": "host1"}, True, None, False
+    return ("admin1" if token == "admin" else "host1"), {"name": "Party", "ownerUid": "host1"}, token == "admin"
 
 
 @pytest.fixture
@@ -66,3 +72,57 @@ def test_cors_allows_the_site_and_vercel_previews_only(api):
                        ("https://evil.example", False)):
         r = client.options("/create", headers={**ask, "Origin": origin})
         assert (r.headers.get("access-control-allow-origin") == origin) is ok
+
+
+# ---- Spending AI seconds is for the owner, unless the owner lets co-hosts in ----
+
+REDO = {"eventId": "ev1", "walkthroughId": "w", "clipIndex": 0}
+
+
+@pytest.mark.parametrize("path,body", [("/create", BODY), ("/redo", REDO)])
+def test_a_cohost_cannot_spend_flow_time(api, path, body):
+    _, client = api
+    r = client.post(path, json=body, headers={"Authorization": "Bearer cohost"})
+    assert r.status_code == 403 and "owner" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("path,body", [("/create", BODY), ("/redo", REDO)])
+def test_an_invite_to_flow_does_not_make_a_cohost_the_owner(api, path, body):
+    _, client = api
+    r = client.post(path, json=body, headers={"Authorization": "Bearer invited-cohost"})
+    assert r.status_code == 403 and "owner" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("path,body", [("/create", BODY), ("/redo", REDO)])
+def test_a_cohost_can_spend_once_the_owner_allows_it(api, path, body):
+    _, client = api
+    r = client.post(path, json=body, headers={"Authorization": "Bearer cohost-allowed"})
+    assert not (r.status_code == 403 and "owner" in r.json().get("detail", ""))
+
+
+def test_a_cohost_can_still_see_the_meter(api):
+    _, client = api
+    r = client.post("/meter", json={"eventId": "ev1"}, headers={"Authorization": "Bearer cohost"})
+    assert r.status_code == 200
+
+
+def test_the_style_reaches_the_job(api):
+    world, client = api
+    r = client.post("/create", json={**BODY, "requestId": "style1", "styleId": "groove"}, headers={"Authorization": "Bearer admin"})
+    assert r.status_code == 200, r.text
+    wid = r.json()["id"]
+    assert world.svc.wt_ref("ev1", wid).get().to_dict()["styleId"] == "groove"
+    assert "energetic" in world.svc.job_ref("ev1", wid).get().to_dict()["prompt"]
+
+
+def test_no_style_means_glide(api):
+    world, client = api
+    r = client.post("/create", json={**BODY, "requestId": "style2"}, headers={"Authorization": "Bearer admin"})
+    assert r.status_code == 200, r.text
+    assert world.svc.wt_ref("ev1", r.json()["id"]).get().to_dict()["styleId"] == "glide"
+
+
+def test_an_unknown_style_is_refused(api):
+    _, client = api
+    r = client.post("/create", json={**BODY, "requestId": "style3", "styleId": "sparkle"}, headers={"Authorization": "Bearer admin"})
+    assert r.status_code == 400 and "style" in r.json()["detail"]

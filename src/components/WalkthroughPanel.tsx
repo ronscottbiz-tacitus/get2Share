@@ -8,7 +8,7 @@ import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 import { useBackToClose } from '../useBackToClose';
 import {
-  approveWalkthrough, canMakeWalkthrough, clipsDone, createWalkthrough, deleteWalkthrough, FlowMeter, flowSeconds, getFlowMeter,
+  approveWalkthrough, canMakeWalkthrough, canSpendFlow, clipsDone, createWalkthrough, deleteWalkthrough, FLOW_STYLES, FlowMeter, flowSeconds, FlowStyleId, flowStyleName, getFlowMeter,
   redoWalkthroughClip, setFlowLabel, unpublishWalkthrough, useHostWalkthroughs, useWalkthroughConfig, Walkthrough, WalkthroughAspect, walkthroughBusy,
   WalkthroughConfig, WALKTHROUGH_NOTICE, walkthroughSlow,
 } from '../walkthrough';
@@ -29,6 +29,8 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   const [meter, setMeter] = useState<FlowMeter | null>(null);
   // An invited host's access comes from the cloud job, since the invite list is private.
   const canMake = canMakeWalkthrough(config, isEventHost) || (isEventHost && config.enabled && meter?.access === true);
+  // Making and redoing spend AI seconds: the owner's call, unless they let co-hosts do it.
+  const canSpend = canSpendFlow(event);
   const stamp = rows.map((w) => `${w.id}:${w.status}:${w.redosUsed ?? 0}`).join();
   // The newest Flow opens by itself; a tap opens another. Opening one closes the others.
   const [openId, setOpenId] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
           Pick a few photos and AI turns them into a short, silent video that moves from one to the next. You check it before anyone else sees it.
         </p>
       )}
-      {rows.length === 1 && <Status key={rows[0].id} w={rows[0]} meter={meter} config={config} canMake={canMake} />}
+      {rows.length === 1 && <Status key={rows[0].id} w={rows[0]} meter={meter} config={config} canMake={canMake} canSpend={canSpend} />}
       {rows.length > 1 && (
         <ul className="space-y-2">
           {rows.map((w) => {
@@ -90,7 +92,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
                 </button>
                 {open && (
                   <div className="p-3 pt-1">
-                    <Status key={w.id} w={w} meter={meter} config={config} canMake={canMake} />
+                    <Status key={w.id} w={w} meter={meter} config={config} canMake={canMake} canSpend={canSpend} />
                   </div>
                 )}
               </li>
@@ -99,7 +101,13 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
         </ul>
       )}
 
-      {canMake && (
+      {canMake && !canSpend && (
+        <p className="text-[12px] leading-relaxed text-g2-tertiary">
+          Only this event's owner can make or redo Flow videos. The owner can let co-hosts do it in the Host Console, under Co-hosts.
+        </p>
+      )}
+
+      {canMake && canSpend && (
         <div className="space-y-1.5">
           <button type="button" disabled={making || outOfSeconds} onClick={() => setStudioOpen(true)} className={`w-full ${rows.length ? secondary : primary}`}>
             <Clapperboard className="w-[18px] h-[18px]" aria-hidden="true" />
@@ -146,7 +154,7 @@ function MeterBar({ meter, adding = 0 }: { meter: FlowMeter; adding?: number }) 
 }
 
 // ------------------------------------------------------------------ one video's state
-function Status({ w, meter, config, canMake }: { key?: string; w: Walkthrough; meter: FlowMeter | null; config: WalkthroughConfig; canMake: boolean }) {
+function Status({ w, meter, config, canMake, canSpend }: { key?: string; w: Walkthrough; meter: FlowMeter | null; config: WalkthroughConfig; canMake: boolean; canSpend: boolean }) {
   const { event } = useEvent();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -178,7 +186,7 @@ function Status({ w, meter, config, canMake }: { key?: string; w: Walkthrough; m
           {w.error || "The video didn't finish."}
         </p>
         <div className="flex gap-2">
-          {w.status === 'failed' && canMake && (
+          {w.status === 'failed' && canMake && canSpend && (
             <button type="button" disabled={!!busy} className={`flex-1 ${secondary}`}
               onClick={() => act('retry', () => redoWalkthroughClip(event.id, w.id, failedClip?.index ?? 0))}>
               {busy === 'retry' ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="w-4 h-4" aria-hidden="true" />}
@@ -219,7 +227,7 @@ function Status({ w, meter, config, canMake }: { key?: string; w: Walkthrough; m
             {busy === 'approve' ? <Loader2 className="w-[18px] h-[18px] animate-spin" aria-hidden="true" /> : <Check className="w-[18px] h-[18px]" aria-hidden="true" />}
             Approve and share with guests
           </button>
-          {canMake && (
+          {canMake && canSpend && (
             <div className="space-y-1.5">
               <p className="text-[12px] text-g2-tertiary">
                 {canRedo ? `Don't like a part? Redo just that clip. It uses ${config.clipSeconds} seconds.` : 'Not enough seconds left for a redo.'}
@@ -307,6 +315,7 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
     [photos],
   );
   const [aspect, setAspect] = useState<WalkthroughAspect>('9:16');
+  const [style, setStyle] = useState<FlowStyleId>('glide');
   const [picked, setPicked] = useState<string[]>([]);
   const [reordered, setReordered] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -346,7 +355,7 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
     setSending(true);
     setError('');
     try {
-      await createWalkthrough({ eventId: event.id, photoIds: picked, aspect, requestId: requestId.current, showLabel });
+      await createWalkthrough({ eventId: event.id, photoIds: picked, aspect, requestId: requestId.current, showLabel, styleId: style });
       onClose();
     } catch (e: any) {
       setError(e?.message || 'The video service is unavailable right now.');
@@ -386,6 +395,16 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
             <Choice active={aspect === '9:16'} onClick={() => setAspect('9:16')}><Smartphone className="w-4 h-4" aria-hidden="true" /> Vertical</Choice>
             <Choice active={aspect === '16:9'} onClick={() => setAspect('16:9')}><Monitor className="w-4 h-4" aria-hidden="true" /> Horizontal</Choice>
           </div>
+        </fieldset>
+
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-bold text-g2-secondary mb-2">Style</legend>
+          <div className="flex flex-wrap gap-2">
+            {FLOW_STYLES.map((s) => (
+              <Choice key={s.id} active={style === s.id} onClick={() => setStyle(s.id)}>{s.name}</Choice>
+            ))}
+          </div>
+          <p className="text-[12px] text-g2-tertiary" aria-live="polite">{FLOW_STYLES.find((s) => s.id === style)?.blurb}</p>
         </fieldset>
 
         <div>

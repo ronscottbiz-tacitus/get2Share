@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import media
-from .config import ASPECTS, LABEL, NOTICE_VERSION, Config, Preset, month_key, parse_config, size_for
+from .config import ASPECTS, DEFAULT_STYLE, LABEL, NOTICE_VERSION, Config, Preset, month_key, parse_config, size_for
 from .providers import (
     ClipRequest, ContentRejected, GenerationFailed, Provider, ProviderError, ProviderFailed, ProviderNotReady,
     TransientProviderError, selected_name,
@@ -146,9 +146,13 @@ class Service:
     # -------------------------------------------------------------- POST /create
     def create(self, *, uid: str, is_admin: bool, eid: str, event: dict, photo_ids: list[str], preset_id: str | None,
                aspect: str, accepted_notice: bool, notice_version: int, request_id: str, show_label: bool = True,
-               grant_seconds: float | None = None) -> dict:
+               grant_seconds: float | None = None, style_id: str | None = None) -> dict:
         cfg = self.config()
         self._require_access(cfg, is_admin or grant_seconds is not None)
+        style = style_id or DEFAULT_STYLE
+        prompt = cfg.style_prompt(style)
+        if not prompt:
+            raise ApiError(400, "Pick a style: Glide, Groove or Glow.")
         if accepted_notice is not True or notice_version != NOTICE_VERSION:
             raise ApiError(400, "Accept the notice about the outside AI service first.")
         if aspect not in ASPECTS:
@@ -196,6 +200,7 @@ class Service:
             "photoIds": photo_ids,
             "presetId": preset.id,
             "aspect": aspect,
+            "styleId": style,
             "resolution": cfg.resolution,
             "clipSeconds": preset.clip_seconds,
             "seconds": seconds,
@@ -228,7 +233,7 @@ class Service:
             "countsVideo": True,
             "provider": provider,
             "model": cfg.model,
-            "prompt": cfg.prompt,
+            "prompt": prompt,
             "clipUsd": clip_usd,
             "holdStart": cfg.hold_start,
             "holdEnd": cfg.hold_end,
