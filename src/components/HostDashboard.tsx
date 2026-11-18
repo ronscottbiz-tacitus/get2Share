@@ -3,7 +3,7 @@ import { ALBUM_SAVING_OPTIONS, AlbumSaving, albumSavingOf } from '../savePhotos'
 import {
   Shield, Check, X, Camera, Info, QrCode, Sliders, Smartphone, Laptop,
   Battery, AlertCircle, Trash2, HelpCircle, ExternalLink, Images, RefreshCw, ChevronDown, ChevronUp, Radio,
-  Lock, Edit3, Save, CheckCircle2, UserX, Image as ImageIcon, Clock
+  Lock, Edit3, Save, CheckCircle2, UserX, Image as ImageIcon, Clock, EyeOff, Undo2
 } from 'lucide-react';
 import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
@@ -81,6 +81,9 @@ export default function HostDashboard({
   const [deleting, setDeleting] = useState(false);
   const [deleteMsg, setDeleteMsg] = useState('');
   const [galleryLimit, setGalleryLimit] = useState(24);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [hiddenLimit, setHiddenLimit] = useState(24);
+  const [restoringAll, setRestoringAll] = useState(false);
   const [endInput, setEndInput] = useState(() => (event.endsAt ? toLocalInput(new Date(event.endsAt.toMillis())) : ''));
   const [timingBusy, setTimingBusy] = useState(false);
   const [timingMsg, setTimingMsg] = useState('');
@@ -343,7 +346,7 @@ export default function HostDashboard({
         });
         setGuestNote(
           mode === 'blockHide'
-            ? `${guestNickname} is blocked, and ${hidden} of their ${hidden === 1 ? 'photo is' : 'photos are'} hidden from the gallery.`
+            ? `${guestNickname} is blocked, and ${hidden} of their ${hidden === 1 ? 'photo is' : 'photos are'} hidden from the gallery. Restore them any time under Hidden photos.`
             : `${guestNickname} is blocked. Their photos stay in the gallery.`
         );
       }
@@ -400,6 +403,31 @@ export default function HostDashboard({
     } catch (e) {
       console.error('Reject failed:', e);
       handleFirestoreError(e, OperationType.UPDATE, `photos/${id}`);
+    }
+  };
+
+  // Bring a hidden photo back into the gallery.
+  const handleRestorePhoto = async (id: string) => {
+    try {
+      await updateDoc(paths.photo(eventId, id), { status: 'approved' });
+    } catch (e) {
+      console.error('Restore failed:', e);
+      handleFirestoreError(e, OperationType.UPDATE, `photos/${id}`);
+    }
+  };
+
+  const handleRestoreAllHidden = async () => {
+    const hidden = photos.filter((p) => p.status === 'rejected');
+    if (hidden.length === 0 || restoringAll) return;
+    if (!window.confirm(`Put all ${hidden.length} hidden ${hidden.length === 1 ? 'photo' : 'photos'} back in the gallery?`)) return;
+    setRestoringAll(true);
+    try {
+      await Promise.all(hidden.map((p) => updateDoc(paths.photo(eventId, p.id), { status: 'approved' })));
+    } catch (e) {
+      console.error('Restore all failed:', e);
+      handleFirestoreError(e, OperationType.UPDATE, 'photos');
+    } finally {
+      setRestoringAll(false);
     }
   };
 
@@ -536,6 +564,7 @@ export default function HostDashboard({
   const pendingPhotos = photos.filter((p) => p.status === 'pending');
   const flaggedPhotos = photos.filter((p) => p.flagged === true && p.status !== 'rejected');
   const approvedPhotos = photos.filter((p) => p.status === 'approved');
+  const hiddenPhotos = photos.filter((p) => p.status === 'rejected');
   const tripods = sessions.filter((s) => s.role === 'tripod');
 
   // Share Spots only send previews while this console is open; one can be focused for speed.
@@ -1276,24 +1305,27 @@ export default function HostDashboard({
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleDeletePhoto(photo.id)}
-                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Delete photo" aria-label="Delete photo"
+                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Delete for everyone. This can't be undone." aria-label="Delete photo"
                         >
                           <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
                         </button>
                         <button
                           onClick={() => handleRejectPhoto(photo.id)}
-                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Decline" aria-label="Decline"
+                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Hide from the gallery. You can restore it under Hidden photos." aria-label="Hide photo"
                         >
-                          <X className="w-4 h-4" />
+                          <EyeOff className="w-4 h-4" />
+                          <span>Hide</span>
                         </button>
                         <button
                           onClick={() => handleApprovePhoto(photo.id)}
-                          className="bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-500/30 text-emerald-400 font-bold p-2.5 rounded-xl text-xs cursor-pointer"
+                          className="bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-500/30 text-emerald-400 font-bold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer"
                           title="Clear report and approve" aria-label="Clear report and approve"
                         >
                           <Check className="w-4 h-4" />
+                          <span>Approve</span>
                         </button>
                       </div>
                     </div>
@@ -1314,24 +1346,27 @@ export default function HostDashboard({
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleDeletePhoto(photo.id)}
-                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Delete photo" aria-label="Delete photo"
+                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Delete for everyone. This can't be undone." aria-label="Delete photo"
                         >
                           <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
                         </button>
                         <button
                           onClick={() => handleRejectPhoto(photo.id)}
-                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Decline" aria-label="Decline"
+                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Hide from the gallery. You can restore it under Hidden photos." aria-label="Hide photo"
                         >
-                          <X className="w-4 h-4" />
+                          <EyeOff className="w-4 h-4" />
+                          <span>Hide</span>
                         </button>
                         <button
                           onClick={() => handleApprovePhoto(photo.id)}
-                          className="bg-g2-blue hover:bg-g2-blue-hover text-white font-extrabold p-2.5 rounded-xl text-xs cursor-pointer transition-all duration-300 shadow-md shadow-g2-blue/20"
+                          className="bg-g2-blue hover:bg-g2-blue-hover text-white font-extrabold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-all duration-300 shadow-md shadow-g2-blue/20"
                           title="Approve" aria-label="Approve"
                         >
                           <Check className="w-4 h-4" />
+                          <span>Approve</span>
                         </button>
                       </div>
                     </div>
@@ -1402,6 +1437,78 @@ export default function HostDashboard({
                 </>
               )}
             </div>
+
+            {/* Hidden photos: turned down in review, or hidden when their guest was blocked */}
+            {hiddenPhotos.length > 0 && (
+              <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHiddenOpen((o) => !o)}
+                    aria-expanded={hiddenOpen}
+                    className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors"
+                  >
+                    <EyeOff className="w-4 h-4 text-g2-blue-light" /> Hidden photos ({hiddenPhotos.length})
+                    {hiddenOpen ? <ChevronUp className="w-4 h-4 text-g2-muted" /> : <ChevronDown className="w-4 h-4 text-g2-muted" />}
+                  </button>
+                  {hiddenOpen && (
+                    <button
+                      type="button"
+                      onClick={handleRestoreAllHidden}
+                      disabled={restoringAll}
+                      className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 text-g2-secondary font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Undo2 className="w-3 h-3" /> {restoringAll ? 'Restoring…' : 'Restore all'}
+                    </button>
+                  )}
+                </div>
+                {hiddenOpen && (
+                  <>
+                    <p className="text-[11px] text-g2-tertiary">
+                      Guests can't see these. They were turned down in review, or hidden when their guest was blocked. Restore puts a photo back in the gallery.
+                    </p>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                      {hiddenPhotos.slice(0, hiddenLimit).map((photo) => (
+                        <div key={photo.id} className="relative aspect-square rounded-lg overflow-hidden bg-black/40 border border-white/5">
+                          <img src={photo.url} alt={`Hidden photo from ${photo.nickname}`} loading="lazy" className="w-full h-full object-cover opacity-60" />
+                          <span className="absolute left-1 top-1 max-w-[85%] truncate text-[9px] font-mono font-bold bg-black/70 text-white px-1.5 py-0.5 rounded">
+                            {photo.nickname.replace(/\s*\((Tripod|Photo Spot|Share Spot|Group Shot)\)$/, '')}
+                          </span>
+                          <div className="absolute inset-x-1 bottom-1 flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleRestorePhoto(photo.id)}
+                              aria-label={`Restore photo from ${photo.nickname}`}
+                              className="flex-1 flex items-center justify-center gap-1 py-1 rounded-md bg-g2-blue text-white text-[10px] font-bold cursor-pointer hover:opacity-90"
+                            >
+                              <Undo2 className="w-3 h-3" /> Restore
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePhoto(photo.id)}
+                              aria-label={`Delete photo from ${photo.nickname}`}
+                              title="Delete for everyone"
+                              className="p-1.5 rounded-md bg-black/70 text-g2-secondary hover:text-red-300 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {hiddenPhotos.length > hiddenLimit && (
+                      <button
+                        type="button"
+                        onClick={() => setHiddenLimit((n) => n + 24)}
+                        className="w-full h-10 rounded-xl border border-white/10 text-g2-secondary hover:text-white hover:bg-white/5 text-xs font-bold cursor-pointer transition-colors"
+                      >
+                        Show more ({hiddenPhotos.length - hiddenLimit} more)
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1441,7 +1548,7 @@ export default function HostDashboard({
                 className="w-full text-left bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl px-3.5 py-2.5 cursor-pointer disabled:opacity-50 transition-colors"
               >
                 <span className="block text-xs font-bold text-red-300">Block, hide their photos</span>
-                <span className="block text-[11px] text-g2-tertiary">Also takes their photos out of the gallery.</span>
+                <span className="block text-[11px] text-g2-tertiary">Also takes their photos out of the gallery. You can restore them later under Hidden photos.</span>
               </button>
             </div>
             {removeError && <p className="text-[11px] text-red-400" aria-live="polite">{removeError}</p>}
