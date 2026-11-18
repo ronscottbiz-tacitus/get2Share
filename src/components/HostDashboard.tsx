@@ -1305,24 +1305,27 @@ export default function HostDashboard({
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleDeletePhoto(photo.id)}
-                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Delete photo" aria-label="Delete photo"
+                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Delete for everyone. This can't be undone." aria-label="Delete photo"
                         >
                           <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
                         </button>
                         <button
                           onClick={() => handleRejectPhoto(photo.id)}
-                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Decline" aria-label="Decline"
+                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Hide from the gallery. You can restore it under Hidden photos." aria-label="Hide photo"
                         >
-                          <X className="w-4 h-4" />
+                          <EyeOff className="w-4 h-4" />
+                          <span>Hide</span>
                         </button>
                         <button
                           onClick={() => handleApprovePhoto(photo.id)}
-                          className="bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-500/30 text-emerald-400 font-bold p-2.5 rounded-xl text-xs cursor-pointer"
+                          className="bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-500/30 text-emerald-400 font-bold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer"
                           title="Clear report and approve" aria-label="Clear report and approve"
                         >
                           <Check className="w-4 h-4" />
+                          <span>Approve</span>
                         </button>
                       </div>
                     </div>
@@ -1343,24 +1346,27 @@ export default function HostDashboard({
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleDeletePhoto(photo.id)}
-                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Delete photo" aria-label="Delete photo"
+                          className="bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-400 font-bold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Delete for everyone. This can't be undone." aria-label="Delete photo"
                         >
                           <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
                         </button>
                         <button
                           onClick={() => handleRejectPhoto(photo.id)}
-                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary p-2.5 rounded-xl text-xs cursor-pointer transition-colors"
-                          title="Decline" aria-label="Decline"
+                          className="bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 text-g2-tertiary px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-colors"
+                          title="Hide from the gallery. You can restore it under Hidden photos." aria-label="Hide photo"
                         >
-                          <X className="w-4 h-4" />
+                          <EyeOff className="w-4 h-4" />
+                          <span>Hide</span>
                         </button>
                         <button
                           onClick={() => handleApprovePhoto(photo.id)}
-                          className="bg-g2-blue hover:bg-g2-blue-hover text-white font-extrabold p-2.5 rounded-xl text-xs cursor-pointer transition-all duration-300 shadow-md shadow-g2-blue/20"
+                          className="bg-g2-blue hover:bg-g2-blue-hover text-white font-extrabold px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex flex-col items-center gap-0.5 min-w-[3.25rem] cursor-pointer transition-all duration-300 shadow-md shadow-g2-blue/20"
                           title="Approve" aria-label="Approve"
                         >
                           <Check className="w-4 h-4" />
+                          <span>Approve</span>
                         </button>
                       </div>
                     </div>
