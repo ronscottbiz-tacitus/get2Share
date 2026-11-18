@@ -1,6 +1,9 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-18: the owner invites co-hosts with a one-time link, good for 24 hours.
+//   events/{eid}/hostInvites/{token} and hostClaims/{uid}; accepting adds you to hostUids.
+//   An event may have the owner plus up to 10 co-hosts. Additive.
 // Version 2026-11-17: hosts can block a guest's device. events/{eid}/blocked/{uid}: a blocked
 //   uid can't join again as a guest. Additive.
 // Version 2026-11-03: Walkthrough videos. events/{eid}/walkthroughs: hosts read all, members
@@ -24,6 +27,8 @@ rules_version = '2';
 //   events/{eventId}                  name, hosts, join code, settings
 //     members/{uid}                   who joined (guests and Share Spots)
 //     blocked/{uid}                   devices a host blocked; they can't join again
+//     hostInvites/{token}             one-time co-host invite links the owner made
+//     hostClaims/{uid}                who accepted an invite (their name and email, for the hosts)
 //     photos/{photoId}
 //     sessions/{uid}                  live device state (camera sharing, Share Spots)
 //     live/console                    "the Host Console is watching"
@@ -133,6 +138,20 @@ service cloud.firestore {
       return /databases/$(database)/documents/events/$(eid)/blocked/$(uid);
     }
 
+    function hostInvitePath(eid, token) {
+      return /databases/$(database)/documents/events/$(eid)/hostInvites/$(token);
+    }
+
+    function hostClaimPath(eid, uid) {
+      return /databases/$(database)/documents/events/$(eid)/hostClaims/$(uid);
+    }
+
+    // The event's owner (or an admin): the only one who adds or removes co-hosts.
+    function isEventOwner(eid) {
+      return signedIn()
+        && (isAdmin() || (exists(eventPath(eid)) && eventData(eid).ownerUid == myUid()));
+    }
+
     function isEventHost(eid) {
       return signedIn()
         && (isAdmin() || (exists(eventPath(eid)) && myUid() in eventData(eid).hostUids));
@@ -192,7 +211,7 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && (!('subtitle' in d) || (d.subtitle is string && d.subtitle.size() <= 200))
         && d.ownerUid is string
-        && d.hostUids is list && d.hostUids.size() >= 1 && d.hostUids.size() <= 10
+        && d.hostUids is list && d.hostUids.size() >= 1 && d.hostUids.size() <= 11
         && d.ownerUid in d.hostUids
         && isCode(d.joinCode)
         && d.access in ['link', 'list']
@@ -218,6 +237,22 @@ service cloud.firestore {
         && g.by is string && g.by.size() <= 128;
     }
 
+    // Accepting a co-host invite: in one write, claim the invite, record the claim, and add
+    // yourself (only yourself) to the end of hostUids. Both timestamps must be this write's,
+    // so an invite or claim from earlier can't be used again.
+    function acceptsHostInvite(eid) {
+      let claim = getAfter(hostClaimPath(eid, myUid())).data;
+      let invite = getAfter(hostInvitePath(eid, claim.token)).data;
+      return hasAccount()
+        && isValidEvent(incoming())
+        && changed().hasOnly(['hostUids'])
+        && !(myUid() in existing().hostUids)
+        && incoming().hostUids == existing().hostUids.concat([myUid()])
+        && claim.claimedAt == request.time
+        && invite.claimedBy == myUid()
+        && invite.claimedAt == request.time;
+    }
+
     match /events/{eid} {
       allow get: if canSee(eid);
       // "My events": a host lists the events they host.
@@ -234,17 +269,19 @@ service cloud.firestore {
                     && incoming().status == 'live'
                     && getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid;
 
-      allow update: if isEventHost(eid)
-                    && isValidEvent(incoming())
-                    && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
-                                          'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
-                                          'groupShot', 'lensSharing', 'albumSaving'])
-                    && incoming().ownerUid == existing().ownerUid
-                    // Only the owner (or an admin) changes who the hosts are.
-                    && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())
-                    // A new join code must point back at this event.
-                    && (!('joinCode' in changed())
-                        || getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid);
+      allow update: if (isEventHost(eid)
+                        && isValidEvent(incoming())
+                        && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
+                                              'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
+                                              'groupShot', 'lensSharing', 'albumSaving'])
+                        && incoming().ownerUid == existing().ownerUid
+                        // Only the owner (or an admin) changes who the hosts are.
+                        && (!('hostUids' in changed()) || existing().ownerUid == myUid() || isAdmin())
+                        // A new join code must point back at this event.
+                        && (!('joinCode' in changed())
+                            || getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid))
+                    // Someone accepting a co-host invite adds themselves, and nothing else.
+                    || acceptsHostInvite(eid);
 
       allow delete: if isAdmin() || (signedIn() && existing().ownerUid == myUid());
     }
@@ -332,6 +369,59 @@ service cloud.firestore {
                     && (!('loved' in incoming()) || (incoming().loved is list && incoming().loved.size() <= 500));
 
       allow delete: if isOwner(mid) || isEventHost(eid);
+    }
+
+    // ---------- Co-host invites ----------
+
+    // The owner makes a one-time link. Whoever opens it within 24 hours, signed in with
+    // Google, becomes a co-host (see acceptsHostInvite). The token is the secret: reading
+    // one invite only shows the event's name, so the invite screen can say what it is for.
+    match /events/{eid}/hostInvites/{token} {
+      allow get: if signedIn();
+      allow list: if isEventHost(eid);
+
+      allow create: if isEventOwner(eid)
+                    && hasAccount()
+                    && isValidId(token) && token.size() >= 20
+                    && incoming().keys().hasOnly(['createdBy', 'createdAt', 'eventName', 'claimedBy', 'expireAt'])
+                    && incoming().keys().hasAll(['createdBy', 'createdAt', 'eventName', 'claimedBy'])
+                    && incoming().createdBy == myUid()
+                    && incoming().createdAt == request.time
+                    && incoming().eventName is string && incoming().eventName.size() <= 80
+                    && incoming().claimedBy == null
+                    && isOptionalTime(incoming(), 'expireAt');
+
+      // Claim it: once, for yourself, within 24 hours, with a real account.
+      allow update: if hasAccount()
+                    && existing().claimedBy == null
+                    && request.time < existing().createdAt + duration.value(24, 'h')
+                    && changed().hasOnly(['claimedBy', 'claimedAt'])
+                    && incoming().claimedBy == myUid()
+                    && incoming().claimedAt == request.time;
+
+      // The owner cancels a link (or clears old ones).
+      allow delete: if isEventOwner(eid);
+    }
+
+    // Who accepted: written with the claim, so the hosts can see co-hosts by name.
+    // The email must be the one on the account, not something typed in.
+    match /events/{eid}/hostClaims/{uid} {
+      allow get: if isOwner(uid) || isEventHost(eid);
+      allow list: if isEventHost(eid);
+
+      allow create, update: if isOwner(uid)
+                            && hasAccount()
+                            && incoming().keys().hasOnly(['token', 'claimedAt', 'name', 'email', 'expireAt'])
+                            && incoming().keys().hasAll(['token', 'claimedAt', 'name', 'email'])
+                            && isValidId(incoming().token)
+                            && incoming().claimedAt == request.time
+                            && incoming().name is string && incoming().name.size() <= 80
+                            && incoming().email == request.auth.token.email
+                            && isOptionalTime(incoming(), 'expireAt')
+                            && getAfter(hostInvitePath(eid, incoming().token)).data.claimedBy == myUid()
+                            && getAfter(hostInvitePath(eid, incoming().token)).data.claimedAt == request.time;
+
+      allow delete: if isOwner(uid) || isEventOwner(eid);
     }
 
     // ---------- Blocked guests ----------

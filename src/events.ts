@@ -1,5 +1,5 @@
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch, Timestamp,
+  arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch, Timestamp,
 } from 'firebase/firestore';
 import { db, deletePhotoFile } from './firebase';
 import { newCode } from './spotPairing';
@@ -97,6 +97,10 @@ export const paths = {
   events: () => collection(db, 'events'),
   joinCode: (code: string) => doc(db, 'joinCodes', code),
   member: (eid: string, uid: string) => doc(db, 'events', eid, 'members', uid),
+  hostInvites: (eid: string) => collection(db, 'events', eid, 'hostInvites'),
+  hostInvite: (eid: string, token: string) => doc(db, 'events', eid, 'hostInvites', token),
+  hostClaims: (eid: string) => collection(db, 'events', eid, 'hostClaims'),
+  hostClaim: (eid: string, uid: string) => doc(db, 'events', eid, 'hostClaims', uid),
   blocked: (eid: string) => collection(db, 'events', eid, 'blocked'),
   blockedGuest: (eid: string, uid: string) => doc(db, 'events', eid, 'blocked', uid),
   photos: (eid: string) => collection(db, 'events', eid, 'photos'),
@@ -112,7 +116,7 @@ export const paths = {
 };
 
 export * from './eventLinks';
-import { EVENT_PATH_PREFIX } from './eventLinks';
+import { EVENT_PATH_PREFIX, HOST_PATH } from './eventLinks';
 
 export function joinUrl(code: string) {
   return `${window.location.origin}${EVENT_PATH_PREFIX}${code}`;
@@ -202,6 +206,111 @@ export async function isMemberOf(eid: string, uid: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---------- Co-hosts ----------
+
+/** The owner plus up to this many co-hosts (mirrors hostUids' limit in firestore.rules). */
+export const MAX_COHOSTS = 10;
+export const HOST_INVITE_HOURS = 24;
+export const HOST_INVITE_MS = HOST_INVITE_HOURS * 60 * 60 * 1000;
+export const COHOST_PARAM = 'cohost';
+
+export interface HostInvite {
+  createdBy: string;
+  createdAt: Timestamp | null;
+  eventName: string;
+  claimedBy: string | null;
+  claimedAt?: Timestamp | null;
+}
+
+export interface HostClaim { token: string; name: string; email: string }
+
+function newInviteToken() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+}
+
+/** The link the owner sends: /host?cohost=EVENTID.TOKEN */
+export function hostInviteUrl(eid: string, token: string) {
+  return `${window.location.origin}${HOST_PATH}?${COHOST_PARAM}=${eid}.${token}`;
+}
+
+export function parseHostInvite(value: string | null): { eventId: string; token: string } | null {
+  const m = /^([A-Za-z0-9_-]{1,128})\.([A-Za-z0-9_-]{20,64})$/.exec(value || '');
+  return m ? { eventId: m[1], token: m[2] } : null;
+}
+
+/** When an invite stops working. A link made a moment ago has no server time yet: count from now. */
+export function hostInviteExpiry(inv: Pick<HostInvite, 'createdAt'>) {
+  return (inv.createdAt ? inv.createdAt.toMillis() : Date.now()) + HOST_INVITE_MS;
+}
+
+/** Owner: make a one-time co-host link. Returns its token. */
+export async function createHostInvite(ev: EventWithId, ownerUid: string): Promise<string> {
+  const token = newInviteToken();
+  await setDoc(paths.hostInvite(ev.id, token), {
+    createdBy: ownerUid,
+    createdAt: serverTimestamp(),
+    eventName: ev.name.slice(0, 80),
+    claimedBy: null,
+    ...expiryOf(ev),
+  });
+  return token;
+}
+
+export async function cancelHostInvite(eid: string, token: string) {
+  await deleteDoc(paths.hostInvite(eid, token));
+}
+
+export type AcceptInviteResult = 'joined' | 'already' | 'gone' | 'used' | 'expired' | 'failed';
+
+/** Accept a co-host link as the signed-in account. One write: claim the invite, record who
+ *  claimed it, and join the event's hosts. */
+export async function acceptHostInvite(
+  eid: string, token: string, me: { uid: string; name: string; email: string }
+): Promise<{ result: AcceptInviteResult; eventName?: string }> {
+  let inv: HostInvite | null = null;
+  try {
+    const snap = await getDoc(paths.hostInvite(eid, token));
+    inv = snap.exists() ? (snap.data() as HostInvite) : null;
+  } catch {
+    return { result: 'failed' };
+  }
+  // Already a host of this event (the owner opening their own link, or a second tap).
+  try {
+    const ev = await getDoc(paths.event(eid));
+    if (ev.exists() && ((ev.data() as EventDoc).hostUids || []).includes(me.uid)) {
+      return { result: 'already', eventName: (ev.data() as EventDoc).name };
+    }
+  } catch { /* not readable = not a host yet */ }
+  if (!inv) return { result: 'gone' };
+  if (inv.claimedBy) return { result: 'used', eventName: inv.eventName };
+  if (Date.now() >= hostInviteExpiry(inv)) return { result: 'expired', eventName: inv.eventName };
+  try {
+    const batch = writeBatch(db);
+    batch.update(paths.hostInvite(eid, token), { claimedBy: me.uid, claimedAt: serverTimestamp() });
+    batch.set(paths.hostClaim(eid, me.uid), {
+      token,
+      claimedAt: serverTimestamp(),
+      name: (me.name || '').slice(0, 80),
+      email: me.email,
+    });
+    batch.update(paths.event(eid), { hostUids: arrayUnion(me.uid) });
+    await batch.commit();
+    return { result: 'joined', eventName: inv.eventName };
+  } catch (err) {
+    console.error('Accepting the co-host invite failed:', err);
+    return { result: 'failed', eventName: inv.eventName };
+  }
+}
+
+/** Owner: take a co-host off the event. */
+export async function removeCohost(eid: string, uid: string) {
+  await updateDoc(paths.event(eid), { hostUids: arrayRemove(uid) });
+  await deleteDoc(paths.hostClaim(eid, uid)).catch(() => {});
 }
 
 // ---------- Removing and blocking guests ----------
@@ -343,6 +452,10 @@ export async function deleteEvent(ev: EventWithId, progress: (msg: string) => vo
   await Promise.all(members.docs.map((d) => deleteDoc(d.ref)));
   const blocked = await getDocs(paths.blocked(eid)).catch(() => null);
   if (blocked) await Promise.all(blocked.docs.map((d) => deleteDoc(d.ref)));
+  for (const col of [paths.hostInvites(eid), paths.hostClaims(eid)]) {
+    const docs = await getDocs(col).catch(() => null);
+    if (docs) await Promise.all(docs.docs.map((d) => deleteDoc(d.ref).catch(() => {})));
+  }
   if (ev.joinCode) await deleteDoc(paths.joinCode(ev.joinCode)).catch(() => {});
   progress('Removing the event…');
   await deleteDoc(paths.event(eid));

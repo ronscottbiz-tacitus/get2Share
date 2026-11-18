@@ -20,6 +20,7 @@ import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
+import CoHostsPanel from './CoHostsPanel';
 import WalkthroughPanel from './WalkthroughPanel';
 import HostCameraButton from './HostCameraButton';
 import GroupShotButton from './GroupShotButton';
@@ -977,6 +978,8 @@ export default function HostDashboard({
                 {deleteMsg && <p className="text-[11px] text-g2-secondary" aria-live="polite">{deleteMsg}</p>}
               </div>
             )}
+
+            <CoHostsPanel uid={sessionId} isAdmin={isAdmin} />
 
             {/* Proximity Onboarding Cards */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">

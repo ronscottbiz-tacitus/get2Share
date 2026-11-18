@@ -14,7 +14,7 @@ import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebas
 import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  EVENT_PATH_PREFIX, EventWithId, HOST_PATH, deviceBlockedFrom, eventPhase, isMemberOf, joinEvent, normalizeJoinCode, paths,
+  EVENT_PATH_PREFIX, COHOST_PARAM, EventWithId, HOST_PATH, acceptHostInvite, deviceBlockedFrom, eventPhase, parseHostInvite, isMemberOf, joinEvent, normalizeJoinCode, paths,
   findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf,
 } from './events';
 import { EventContext } from './EventContext';
@@ -129,6 +129,39 @@ export default function App() {
     const c = normalizeJoinCode(new URLSearchParams(window.location.search).get('screen') || '');
     return c.length === 6 ? c : null;
   });
+
+  // A co-host invite link opens /host?cohost=EVENTID.TOKEN. Once they're signed in with
+  // Google, accept it and open that event's Host Console.
+  const [pendingCohost, setPendingCohost] = useState(() =>
+    parseHostInvite(new URLSearchParams(window.location.search).get(COHOST_PARAM))
+  );
+  const [cohostNotice, setCohostNotice] = useState('');
+  const acceptingCohost = useRef(false);
+  useEffect(() => {
+    if (!pendingCohost || route.kind !== 'host' || !hasAccount || !authUser || acceptingCohost.current) return;
+    acceptingCohost.current = true;
+    const { eventId, token } = pendingCohost;
+    (async () => {
+      const { result, eventName } = await acceptHostInvite(eventId, token, {
+        uid: authUser.uid, name: authUser.displayName || '', email: authUser.email || '',
+      });
+      acceptingCohost.current = false;
+      setPendingCohost(null);
+      if (result === 'joined' || result === 'already') {
+        setHostView('console');
+        navigate(`${HOST_PATH}/${eventId}`, true);
+        return;
+      }
+      window.history.replaceState(null, '', HOST_PATH);
+      const what = eventName ? `The co-host invite for "${eventName}"` : 'That co-host invite';
+      setCohostNotice(
+        result === 'used' ? `${what} has already been used. Ask the event's owner for a new link.`
+        : result === 'expired' ? `${what} has expired. Ask the event's owner for a new link.`
+        : result === 'gone' ? "That co-host invite isn't valid any more. Ask the event's owner for a new link."
+        : `${what} couldn't be accepted. Check your connection, or ask the event's owner for a new link.`
+      );
+    })();
+  }, [pendingCohost, route.kind, hasAccount, authUser, navigate]);
 
   // "Save my photos": link this phone's guest identity to a Google account.
   const [showKeepsake, setShowKeepsake] = useState(false);
@@ -828,7 +861,9 @@ export default function App() {
         ? "That event isn't one you host. Ask its owner to add you as a co-host."
         : route.kind === 'hostEvent'
           ? 'Sign in to open that event.'
-          : undefined;
+          : pendingCohost
+            ? (hasAccount ? 'Accepting your co-host invite…' : 'Sign in with Google to accept your co-host invite.')
+            : cohostNotice || undefined;
     return shell(
       <HostHome
         hasAccount={hasAccount}
