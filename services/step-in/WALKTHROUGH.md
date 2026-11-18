@@ -132,7 +132,7 @@ Everything is optional except `enabled`. A missing document means off for everyo
 | `slowdown` | none | Per clip, like `[1.5, 1, 1]`. Plays that clip slower. The cost doesn't change. Up to 4. |
 | `hold.startSeconds`, `hold.endSeconds`, `hold.zoom` | 0, 0, off | Non-AI seconds on the first and last photo, with an optional slow zoom. Up to 5 seconds each. |
 | `prompt` | a careful default | What the AI is asked to do. |
-| `styles` | Glide, Groove, Glow | A map `{ glide, groove, glow }` of what the AI is asked to do for each style a host can pick. Leave one out to keep its default. Glide falls back to `prompt`. |
+| `styles` | Glide, Groove, Glow | A map `{ glide, groove, glow }` of what the AI is asked to do for each style a host can pick. Leave one out to keep its default. Glide falls back to `prompt`. The words only nudge the look; most of a style is how the clips are cut together afterwards (`STYLE_EDITS` in `walkthrough/config.py`): Groove plays 1.25x faster with a quick push in on each clip, Glow plays at 0.8x with a warm tint and rests 0.6 seconds on each photo. That editing uses no AI seconds. |
 
 This document is readable by anyone signed in, as with `config/stepIn`, so don't put anything private in it.
 

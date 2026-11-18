@@ -179,3 +179,94 @@ def test_label_can_be_left_off(frames, tmp_path):
     media.check_final(str(out), "16:9", "720p", 5.0)
     bottom = lambda p: frame_at(str(p), tmp_path / "f.png", 0.1).convert("L").crop((0, 620, 1280, 700)).tobytes()
     assert bottom(out) != bottom(with_label)
+
+
+# ---- Style editing: dissolves, the warm tint, the push in ----
+
+def mean_rgb(image):
+    img = Image.open(image).convert("RGB").resize((1, 1))
+    return img.getpixel((0, 0))
+
+
+def test_a_dissolve_shortens_the_video_by_the_overlaps(frames, tmp_path):
+    made, _ = clips(frames, tmp_path, seconds=3.0)
+    segs = [media.Segment(c, 3.0) for c in made]
+    out = str(tmp_path / "fade.mp4")
+    media.join_segments(segs, out, "9:16", "720p", crossfade=0.6)
+    expected = media.joined_seconds(segs, 0.6)
+    assert expected == pytest.approx(9.0 - 2 * 0.6)
+    media.check_final(out, "9:16", "720p", expected, tolerance=0.25)
+
+
+def test_a_dissolve_blends_two_clips(frames, tmp_path):
+    made, _ = clips(frames[:3], tmp_path, seconds=3.0)
+    segs = [media.Segment(c, 3.0) for c in made]
+    cut, fade = str(tmp_path / "cut.mp4"), str(tmp_path / "fade.mp4")
+    media.join_segments(segs, cut, "9:16", "720p", label=False)
+    media.join_segments(segs, fade, "9:16", "720p", label=False, crossfade=1.0)
+    # Halfway through the dissolve the picture is a mix of the first clip's end and the second's start.
+    frame_at(fade, tmp_path / "mid.jpg", at=2.5)
+    frame_at(cut, tmp_path / "end1.jpg", at=2.9)
+    frame_at(cut, tmp_path / "start2.jpg", at=3.1)
+    mid, a, b = mean_rgb(tmp_path / "mid.jpg"), mean_rgb(tmp_path / "end1.jpg"), mean_rgb(tmp_path / "start2.jpg")
+    assert all(min(x, y) - 25 <= m <= max(x, y) + 25 for m, x, y in zip(mid, a, b))
+
+
+def test_a_dissolve_copes_with_a_short_clip_and_speed_changes(frames, tmp_path):
+    made, _ = clips(frames, tmp_path, seconds=2.6)  # shorter than the 3 seconds asked for
+    segs = [media.Segment(c, 3.0, 1.25) for c in made]
+    out = str(tmp_path / "slow-fade.mp4")
+    media.join_segments(segs, out, "9:16", "720p", crossfade=0.6)
+    media.check_final(out, "9:16", "720p", media.joined_seconds(segs, 0.6), tolerance=0.25)
+
+
+def test_the_warm_tint_warms_the_picture(tmp_path):
+    grey = tmp_path / "grey.jpg"
+    Image.new("RGB", (720, 1280), "#808080").save(grey)
+    clip = str(tmp_path / "grey.mp4")
+    media.hold_clip(str(grey), clip, 2.0, 720, 1280)
+    plain, warm = str(tmp_path / "plain.mp4"), str(tmp_path / "warm.mp4")
+    media.join_segments([media.Segment(clip, 2.0)], plain, "9:16", "720p", label=False)
+    media.join_segments([media.Segment(clip, 2.0)], warm, "9:16", "720p", label=False, warm=True)
+    frame_at(plain, tmp_path / "plain.jpg", at=1.0)
+    frame_at(warm, tmp_path / "warm.jpg", at=1.0)
+    (r0, _, b0), (r1, _, b1) = mean_rgb(tmp_path / "plain.jpg"), mean_rgb(tmp_path / "warm.jpg")
+    assert r1 > r0 and b1 < b0
+
+
+def test_the_push_in_starts_close_and_ends_on_the_full_picture(tmp_path):
+    # A white picture with a black border: pushed in, the border is cropped away.
+    img = Image.new("RGB", (720, 1280), "black")
+    img.paste(Image.new("RGB", (640, 1200), "white"), (40, 40))
+    still = tmp_path / "border.jpg"
+    img.save(still)
+    clip = str(tmp_path / "border.mp4")
+    media.hold_clip(str(still), clip, 2.0, 720, 1280)
+    out = str(tmp_path / "punch.mp4")
+    media.join_segments([media.Segment(clip, 2.0)], out, "9:16", "720p", label=False, punch=True)
+    media.check_final(out, "9:16", "720p", 2.0, tolerance=0.25)
+    frame_at(out, tmp_path / "first.jpg", at=0.0)
+    frame_at(out, tmp_path / "later.jpg", at=1.5)
+    assert sum(mean_rgb(tmp_path / "first.jpg")) > sum(mean_rgb(tmp_path / "later.jpg")) + 20
+
+
+def test_a_plain_join_is_unchanged_by_the_new_options(frames, tmp_path):
+    made, _ = clips(frames, tmp_path, seconds=3.0)
+    segs = [media.Segment(c, 3.0) for c in made]
+    out = str(tmp_path / "plain.mp4")
+    media.join_segments(segs, out, "9:16", "720p")
+    media.check_final(out, "9:16", "720p", media.joined_seconds(segs), tolerance=0.25)
+
+
+def test_lingering_rests_on_the_last_frame_of_each_clip(frames, tmp_path):
+    made, _ = clips(frames[:3], tmp_path, seconds=3.0)
+    segs = [media.Segment(c, 3.0) for c in made]
+    out = str(tmp_path / "linger.mp4")
+    media.join_segments(segs, out, "9:16", "720p", label=False, linger=0.6)
+    expected = media.joined_seconds(segs, linger=0.6)
+    assert expected == pytest.approx(2 * 3.6)
+    media.check_final(out, "9:16", "720p", expected, tolerance=0.25)
+    # The rest between the two clips is one still picture.
+    frame_at(out, tmp_path / "rest-a.jpg", at=3.1)
+    frame_at(out, tmp_path / "rest-b.jpg", at=3.5)
+    assert all(abs(x - y) <= 3 for x, y in zip(mean_rgb(tmp_path / "rest-a.jpg"), mean_rgb(tmp_path / "rest-b.jpg")))

@@ -126,3 +126,15 @@ def test_an_unknown_style_is_refused(api):
     _, client = api
     r = client.post("/create", json={**BODY, "requestId": "style3", "styleId": "sparkle"}, headers={"Authorization": "Bearer admin"})
     assert r.status_code == 400 and "style" in r.json()["detail"]
+
+
+def test_the_style_sets_how_the_video_is_cut(api):
+    world, client = api
+    r = client.post("/create", json={**BODY, "requestId": "cut-glow", "styleId": "glow"}, headers={"Authorization": "Bearer admin"})
+    assert r.status_code == 200, r.text
+    wid = r.json()["id"]
+    wt, job = world.svc.wt_ref("ev1", wid).get().to_dict(), world.svc.job_ref("ev1", wid).get().to_dict()
+    assert job["edit"] == {"crossfade": 0.0, "warm": True, "punch": False, "linger": 0.6}
+    assert all(c["slowdown"] == 1.25 for c in wt["clips"])
+    # Four photos: three 5-second clips slowed to 6.25 seconds each, each resting 0.6 seconds on its last photo.
+    assert wt["seconds"] == pytest.approx(3 * (6.25 + 0.6))

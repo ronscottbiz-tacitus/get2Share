@@ -95,3 +95,18 @@ def test_styles_can_be_reworded_in_config():
     cfg = parse_config({"prompt": "Old.", "styles": {"glide": "New glide.", "groove": "New groove.", "glow": "  ", "sparkle": "No."}})
     assert cfg.style_prompt("glide") == "New glide." and cfg.style_prompt("groove") == "New groove."
     assert "floating" in cfg.style_prompt("glow") and cfg.style_prompt("sparkle") is None
+
+
+def test_every_style_tells_the_ai_to_leave_expressions_alone():
+    from walkthrough.config import parse_config
+    cfg = parse_config({})
+    for style in ("glide", "groove", "glow"):
+        assert "do not make anyone smile, laugh" in cfg.style_prompt(style)
+
+
+def test_each_style_is_cut_differently():
+    from walkthrough.config import style_edit
+    glide, groove, glow = style_edit("glide"), style_edit("groove"), style_edit("glow")
+    assert glide == {"speed": 1.0, "linger": 0.0, "crossfade": 0.0, "warm": False, "punch": False} == style_edit(None) == style_edit("sparkle")
+    assert groove["speed"] > 1 and groove["punch"] and not groove["linger"]
+    assert glow["speed"] < 1 and glow["linger"] > 0 and glow["warm"]

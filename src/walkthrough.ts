@@ -27,11 +27,12 @@ export const NOTICE_VERSION = 2;
 
 export type WalkthroughAspect = '9:16' | '16:9';
 
-/** The looks a host can pick. Same ids as DEFAULT_STYLES in walkthrough/config.py, which holds the AI's words. */
+/** The looks a host can pick. Same ids as DEFAULT_STYLES in walkthrough/config.py, which holds the
+ *  AI's words and how each style is cut together (speed, a push in, a warm tint, resting on photos). */
 export const FLOW_STYLES = [
-  { id: 'glide', name: 'Glide', blurb: 'Smooth and steady. The camera drifts from one photo to the next.' },
-  { id: 'groove', name: 'Groove', blurb: 'Upbeat and rhythmic. Quicker moves with some bounce.' },
-  { id: 'glow', name: 'Glow', blurb: 'Slow, soft and warm. Lingers on faces.' },
+  { id: 'glide', name: 'Glide', blurb: 'Smooth and steady. The camera moves from one photo to the next.' },
+  { id: 'groove', name: 'Groove', blurb: 'Faster, with a quick push in on every photo. Comes out a little shorter.' },
+  { id: 'glow', name: 'Glow', blurb: 'Slower and warmer, resting on each photo. Comes out a little longer.' },
 ] as const;
 export type FlowStyleId = typeof FLOW_STYLES[number]['id'];
 export const flowStyleName = (id: string | null | undefined) =>

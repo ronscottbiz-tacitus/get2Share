@@ -100,26 +100,75 @@ class Segment:
         return self.seconds * self.slowdown
 
 
-def join_segments(segments: list[Segment], out: str, aspect: str, resolution: str, label: bool = True) -> None:
+# A warm tint for the Glow style: a little more red and less blue, a touch more colour.
+WARM_FILTER = "colorbalance=rm=0.09:gm=0.01:bm=-0.08:rh=0.05:bh=-0.06,eq=saturation=1.07"
+PUNCH_SECONDS = 0.4   # the Groove style's push in at the start of each clip
+PUNCH_ZOOM = 0.14     # how far in it starts (1.14x), easing back to the full picture
+
+
+def joined_seconds(segments: list[Segment], crossfade: float = 0.0, linger: float = 0.0) -> float:
+    """How long the joined video is. Each segment rests `linger` seconds on its last frame, and
+    each dissolve overlaps two segments, so it shortens the total."""
+    return (sum(s.output_seconds + max(0.0, linger) for s in segments)
+            - max(0.0, crossfade) * max(0, len(segments) - 1))
+
+
+def _punch_filter(w: int, h: int) -> str:
+    """Start pushed in and ease out to the full picture over the first moments of a clip."""
+    frames = max(1, round(PUNCH_SECONDS * FPS))
+    step = PUNCH_ZOOM / frames
+    return (f"zoompan=z='if(lt(on,{frames}),{1 + PUNCH_ZOOM:.3f}-{step:.5f}*on,1)':d=1:s={w}x{h}:fps={FPS}:"
+            "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)',")
+
+
+def join_segments(segments: list[Segment], out: str, aspect: str, resolution: str, label: bool = True, *,
+                  crossfade: float = 0.0, warm: bool = False, punch: bool = False, linger: float = 0.0) -> None:
     """Re-encodes every segment to one MP4 that phones and TVs can play: H.264 in yuv420p,
     no audio track, the index at the front (faststart), and, unless the host turned it off, the
-    label burned into every frame."""
+    label burned into every frame.
+
+    crossfade, warm, punch and linger are a style's editing (see STYLE_EDITS in config.py). With
+    none of them this is a plain cut from one segment to the next."""
     if not segments:
         raise MediaError("Nothing to join.")
     w, h = size_for(aspect, resolution)
+    # A dissolve can't be longer than the pieces it joins.
+    linger = max(0.0, linger)
+    crossfade = max(0.0, min(crossfade, min(s.output_seconds + linger for s in segments) / 2 - 0.05))
+    if len(segments) < 2:
+        crossfade = 0.0
     with tempfile.TemporaryDirectory() as td:
         inputs: list[str] = []
         parts: list[str] = []
         for i, s in enumerate(segments):
             inputs += ["-i", s.path]
             speed = f"setpts={s.slowdown:.4f}*PTS," if s.slowdown != 1.0 else ""
+            zoom = _punch_filter(w, h) if punch else ""
+            # A dissolve needs every piece to be exactly its length: pad with the last frame, then trim.
+            # Resting on the last frame works the same way, with the rest added to the length.
+            length = s.output_seconds + linger
+            exact = (f",tpad=stop_mode=clone:stop_duration={linger + 2:.3f},trim=duration={length:.3f},setpts=PTS-STARTPTS"
+                     if crossfade or linger else "")
             parts.append(
                 f"[{i}:v]trim=duration={s.seconds:.3f},setpts=PTS-STARTPTS,{speed}fps={FPS},"
-                f"scale={w}:{h}:force_original_aspect_ratio=increase:out_range=tv,crop={w}:{h},setsar=1,format=yuv420p[v{i}]"
+                f"scale={w}:{h}:force_original_aspect_ratio=increase:out_range=tv,crop={w}:{h},setsar=1,"
+                f"{zoom}format=yuv420p{exact}[v{i}]"
             )
-        chain = "".join(f"[v{i}]" for i in range(len(segments)))
+        if crossfade:
+            # Chain the dissolves: each starts where the video so far ends, less the overlap.
+            steps, last, at = [], "v0", segments[0].output_seconds + linger
+            for i in range(1, len(segments)):
+                name = f"x{i}"
+                steps.append(f"[{last}][v{i}]xfade=transition=fade:duration={crossfade:.3f}:offset={at - crossfade:.3f}[{name}]")
+                at += segments[i].output_seconds + linger - crossfade
+                last = name
+            joining = ";".join(steps) + f";[{last}]format=yuv420p[cut]"
+        else:
+            chain = "".join(f"[v{i}]" for i in range(len(segments)))
+            joining = f"{chain}concat=n={len(segments)}:v=1:a=0[cut]"
+        look = f"[cut]{WARM_FILTER},format=yuv420p[joined]" if warm else "[cut]null[joined]"
         tail = f"[joined]{label_filter(w, h, td)}[final]" if label else "[joined]null[final]"
-        graph = ";".join(parts) + f";{chain}concat=n={len(segments)}:v=1:a=0[joined];{tail}"
+        graph = ";".join(parts) + f";{joining};{look};{tail}"
         _run([
             "ffmpeg", "-y", "-loglevel", "error", *inputs,
             "-filter_complex", graph, "-map", "[final]", "-an",

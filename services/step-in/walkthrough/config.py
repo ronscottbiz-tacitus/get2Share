@@ -50,7 +50,9 @@ DEFAULT_PRICES = {
 }
 
 # Every style ends with the same guard: the AI moves the camera, it doesn't change the people.
-_KEEP = "Keep every person, face and object exactly as they are. Do not add people, text or logos."
+_KEEP = ("Keep every person, face and object exactly as they are. Keep each person's expression as it is "
+         "in the photos: do not make anyone smile, laugh, talk or change their look. "
+         "Do not add people, text or logos.")
 
 DEFAULT_PROMPT = (
     "A slow, smooth, handheld camera move through a real party, travelling from the first "
@@ -71,6 +73,27 @@ DEFAULT_STYLES = {
         "first frame to the last frame and lingering on faces, soft and warm. " + _KEEP
     ),
 }
+
+
+# The AI is given a first and a last frame and a few seconds to get between them, so its words
+# only change the look a little. The rest of a style is how we cut the clips together afterwards
+# (walkthrough/media.py), which costs no AI seconds:
+#   speed      over 1 plays the clips faster, under 1 slower
+#   linger     seconds each clip rests on the photo it ends on
+#   crossfade  seconds each clip dissolves into the next (0 = a straight cut). Unused for now:
+#              a clip ends on the photo the next one starts from, so a dissolve there doesn't show.
+#   warm       a warm colour tint
+#   punch      a quick push in at the start of each clip
+STYLE_EDITS = {
+    "glide": {"speed": 1.0, "linger": 0.0, "crossfade": 0.0, "warm": False, "punch": False},
+    "groove": {"speed": 1.25, "linger": 0.0, "crossfade": 0.0, "warm": False, "punch": True},
+    "glow": {"speed": 0.8, "linger": 0.6, "crossfade": 0.0, "warm": True, "punch": False},
+}
+
+
+def style_edit(style_id: str | None) -> dict:
+    """How a style is cut together. An unknown style gets Glide's plain cut."""
+    return dict(STYLE_EDITS.get(style_id or DEFAULT_STYLE, STYLE_EDITS[DEFAULT_STYLE]))
 
 
 @dataclass(frozen=True)
