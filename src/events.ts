@@ -1,5 +1,5 @@
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc, writeBatch, Timestamp,
+  collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch, Timestamp,
 } from 'firebase/firestore';
 import { db, deletePhotoFile } from './firebase';
 import { newCode } from './spotPairing';
@@ -97,6 +97,8 @@ export const paths = {
   events: () => collection(db, 'events'),
   joinCode: (code: string) => doc(db, 'joinCodes', code),
   member: (eid: string, uid: string) => doc(db, 'events', eid, 'members', uid),
+  blocked: (eid: string) => collection(db, 'events', eid, 'blocked'),
+  blockedGuest: (eid: string, uid: string) => doc(db, 'events', eid, 'blocked', uid),
   photos: (eid: string) => collection(db, 'events', eid, 'photos'),
   photo: (eid: string, id: string) => doc(db, 'events', eid, 'photos', id),
   sessions: (eid: string) => collection(db, 'events', eid, 'sessions'),
@@ -202,6 +204,91 @@ export async function isMemberOf(eid: string, uid: string): Promise<boolean> {
   }
 }
 
+// ---------- Removing and blocking guests ----------
+
+/** Take a guest out of the event. Their phone goes back to the join screen; they can
+ *  rejoin with the code. Their photos stay. */
+export async function removeGuest(eid: string, uid: string) {
+  // Membership first: that is what ends their access. The rest is tidying up.
+  await deleteDoc(paths.member(eid, uid));
+  await Promise.all([
+    deleteDoc(paths.session(eid, uid)).catch(() => {}),
+    deleteDoc(paths.person(eid, uid)).catch(() => {}),
+    deleteDoc(paths.lensRequest(eid, uid)).catch(() => {}),
+  ]);
+}
+
+/** Remove a guest and stop that device from joining this event again.
+ *  hidePhotos also takes their photos out of the gallery (they are kept, not deleted).
+ *  Returns how many photos were hidden. */
+export async function blockGuest(
+  eid: string, uid: string, nickname: string, byUid: string,
+  opts: { hidePhotos: boolean; expireAt?: Timestamp | null }
+): Promise<number> {
+  // Block first, so there is no moment where they are out but could walk back in.
+  await setDoc(paths.blockedGuest(eid, uid), {
+    nickname: (nickname || 'Guest').slice(0, 64),
+    blockedAt: serverTimestamp(),
+    by: byUid,
+    ...(opts.expireAt ? { expireAt: opts.expireAt } : {}),
+  });
+  await removeGuest(eid, uid);
+  if (!opts.hidePhotos) return 0;
+  const theirs = await getDocs(query(paths.photos(eid), where('sessionId', '==', uid)));
+  const visible = theirs.docs.filter((d) => (d.data() as any).status !== 'rejected');
+  await Promise.all(visible.map((d) => updateDoc(d.ref, { status: 'rejected' })));
+  return visible.length;
+}
+
+/** Let a blocked device join again (it still has to join with the code). */
+export async function unblockGuest(eid: string, uid: string) {
+  await deleteDoc(paths.blockedGuest(eid, uid));
+}
+
+export async function isBlockedFrom(eid: string, uid: string): Promise<boolean> {
+  try {
+    return (await getDoc(paths.blockedGuest(eid, uid))).exists();
+  } catch {
+    return false;
+  }
+}
+
+// A blocked device remembers it, so "Join as someone new" (a fresh guest identity on the
+// same phone) doesn't walk around the block. Clearing the browser's data still does.
+const BLOCKED_KEY = 'get2share-blocked';
+
+function readBlockedHere(): { eventId: string; uid: string }[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(BLOCKED_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((b) => b && typeof b.eventId === 'string' && typeof b.uid === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBlockedHere(list: { eventId: string; uid: string }[]) {
+  try { localStorage.setItem(BLOCKED_KEY, JSON.stringify(list.slice(-50))); } catch { /* ignore */ }
+}
+
+/** Is this device blocked from the event, as the current guest or as an earlier one on this phone? */
+export async function deviceBlockedFrom(eid: string, uid: string): Promise<boolean> {
+  if (await isBlockedFrom(eid, uid)) {
+    const list = readBlockedHere();
+    if (!list.some((b) => b.eventId === eid && b.uid === uid)) writeBlockedHere([...list, { eventId: eid, uid }]);
+    return true;
+  }
+  const earlier = readBlockedHere().filter((b) => b.eventId === eid && b.uid !== uid);
+  let blocked = false;
+  for (const b of earlier) {
+    if (await isBlockedFrom(eid, b.uid)) { blocked = true; break; }
+  }
+  // The host unblocked them (or the event is gone): forget it here too.
+  if (!blocked && readBlockedHere().some((b) => b.eventId === eid)) {
+    writeBlockedHere(readBlockedHere().filter((b) => b.eventId !== eid));
+  }
+  return blocked;
+}
+
 /** New join link: the old one stops working; people already in stay in. */
 export async function resetJoinCode(
   eid: string, oldCode: string, name: string, expireAt?: Timestamp | null
@@ -254,6 +341,8 @@ export async function deleteEvent(ev: EventWithId, progress: (msg: string) => vo
   await Promise.all(sessions.docs.map((d) => deleteDoc(d.ref)));
   const members = await getDocs(collection(db, 'events', eid, 'members'));
   await Promise.all(members.docs.map((d) => deleteDoc(d.ref)));
+  const blocked = await getDocs(paths.blocked(eid)).catch(() => null);
+  if (blocked) await Promise.all(blocked.docs.map((d) => deleteDoc(d.ref)));
   if (ev.joinCode) await deleteDoc(paths.joinCode(ev.joinCode)).catch(() => {});
   progress('Removing the event…');
   await deleteDoc(paths.event(eid));

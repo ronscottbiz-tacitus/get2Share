@@ -1,6 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-17: hosts can block a guest's device. events/{eid}/blocked/{uid}: a blocked
+//   uid can't join again as a guest. Additive.
 // Version 2026-11-03: Walkthrough videos. events/{eid}/walkthroughs: hosts read all, members
 //   read only published, no client writes (only the cloud job). config/walkthrough readable
 //   by anyone signed in. Additive.
@@ -21,6 +23,7 @@ rules_version = '2';
 // Layout:
 //   events/{eventId}                  name, hosts, join code, settings
 //     members/{uid}                   who joined (guests and Share Spots)
+//     blocked/{uid}                   devices a host blocked; they can't join again
 //     photos/{photoId}
 //     sessions/{uid}                  live device state (camera sharing, Share Spots)
 //     live/console                    "the Host Console is watching"
@@ -124,6 +127,10 @@ service cloud.firestore {
 
     function memberPath(eid, uid) {
       return /databases/$(database)/documents/events/$(eid)/members/$(uid);
+    }
+
+    function blockedPath(eid, uid) {
+      return /databases/$(database)/documents/events/$(eid)/blocked/$(uid);
     }
 
     function isEventHost(eid) {
@@ -306,7 +313,9 @@ service cloud.firestore {
                         && eventData(eid).access == 'link'
                         && eventData(eid).status == 'live'
                         && joinOpen(eventData(eid))
-                        && incoming().joinCode == eventData(eid).joinCode)
+                        && incoming().joinCode == eventData(eid).joinCode
+                        // A host blocked this device from the event.
+                        && !exists(blockedPath(eid, mid)))
                       // Share Spots: they claimed a pairing code the host made for this event.
                       || (incoming().role == 'spot' && spotPairedTo(eid, incoming().joinCode, mid))
                       // TV screens: a host claimed the code this TV showed.
@@ -323,6 +332,30 @@ service cloud.firestore {
                     && (!('loved' in incoming()) || (incoming().loved is list && incoming().loved.size() <= 500));
 
       allow delete: if isOwner(mid) || isEventHost(eid);
+    }
+
+    // ---------- Blocked guests ----------
+
+    // A host blocks a guest's device: the doc ID is that device's uid. While it exists the
+    // device can't join as a guest (see members). Removing the doc lets them back in.
+    // Hosts can't be blocked. Reading one doc only says "this uid is blocked here";
+    // the app uses that to explain why joining failed.
+    match /events/{eid}/blocked/{uid} {
+      allow get: if signedIn();
+      allow list: if isEventHost(eid);
+
+      allow create: if isEventHost(eid)
+                    && isValidId(uid)
+                    && !(uid in eventData(eid).hostUids)
+                    && incoming().keys().hasOnly(['nickname', 'blockedAt', 'by', 'expireAt'])
+                    && incoming().keys().hasAll(['nickname', 'blockedAt', 'by'])
+                    && incoming().nickname is string
+                    && incoming().nickname.size() > 0 && incoming().nickname.size() <= 64
+                    && incoming().blockedAt == request.time
+                    && incoming().by == myUid()
+                    && isOptionalTime(incoming(), 'expireAt');
+
+      allow delete: if isEventHost(eid);
     }
 
     // ---------- Event presence ----------

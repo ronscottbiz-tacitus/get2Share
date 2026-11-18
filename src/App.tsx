@@ -14,7 +14,7 @@ import { auth, googleProvider, compressPhoto, uploadPhotoAsset } from './firebas
 import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  EVENT_PATH_PREFIX, EventWithId, HOST_PATH, eventPhase, isMemberOf, joinEvent, normalizeJoinCode, paths,
+  EVENT_PATH_PREFIX, EventWithId, HOST_PATH, deviceBlockedFrom, eventPhase, isMemberOf, joinEvent, normalizeJoinCode, paths,
   findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf,
 } from './events';
 import { EventContext } from './EventContext';
@@ -68,6 +68,8 @@ function parseRoute(pathname: string): Route {
   }
   return { kind: 'landing' };
 }
+
+const BLOCKED_MESSAGE = "The host has blocked this device from this event, so it can't join again.";
 
 type LensState = {
   activeRequester: string | null;      // Session ID of the targeted guest
@@ -311,6 +313,10 @@ export default function App() {
     setJoining(true);
     setJoinError('');
     try {
+      if (await deviceBlockedFrom(joinInfo.eventId, sessionId)) {
+        setJoinError(BLOCKED_MESSAGE);
+        return;
+      }
       await joinEvent(joinInfo.eventId, sessionId, enteredNickname, joinInfo.code, joinInfo.name, joinInfo.expireAt);
       try { localStorage.setItem('get2share-nickname', enteredNickname); } catch { /* ignore */ }
       setNickname(enteredNickname);
@@ -330,6 +336,36 @@ export default function App() {
     if (joinInfo && sessionId && membership === 'not') handleJoinEvent(pendingJoin);
     if (joinError || authError) { setPendingJoin(null); setJoining(false); }
   }, [pendingJoin, joinInfo, sessionId, membership, joinError, authError]);
+
+  // The host removed (or blocked) this guest: their membership doc disappears. Send this
+  // phone back to the join screen and say why. Hosts keep access without a membership.
+  const watchEventId = route.kind === 'event' && membership === 'member' ? joinInfo?.eventId ?? null : null;
+  useEffect(() => {
+    if (!watchEventId || !sessionId || isEventHost) return;
+    let sawMember = false;
+    let done = false;
+    const unsubscribe = onSnapshot(
+      paths.member(watchEventId, sessionId),
+      (snap) => {
+        const fromCache = snap.metadata.fromCache;
+        if (snap.exists()) { sawMember = true; return; }
+        // Only a membership that was here and is now gone on the server counts as "removed".
+        if (!sawMember || fromCache || done) return;
+        done = true;
+        (async () => {
+          const blocked = await deviceBlockedFrom(watchEventId, sessionId);
+          setSelectedPhoto(null);
+          setShowKeepsake(false);
+          setBorrowOpen(false);
+          cleanupCameraStream();
+          setJoinError(blocked ? BLOCKED_MESSAGE : 'The host removed you from this event. You can join again below.');
+          setMembership('not');
+        })();
+      },
+      (err) => console.warn('Membership listener error:', err)
+    );
+    return unsubscribe;
+  }, [watchEventId, sessionId, isEventHost]);
 
   // Once the gallery is up, fetch the photo viewer in the background so the first tap opens instantly.
   useEffect(() => {
