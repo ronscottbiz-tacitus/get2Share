@@ -33,8 +33,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import media
-from .config import (ASPECTS, DEFAULT_STYLE, LABEL, NOTICE_VERSION, Config, Preset, month_key, parse_config, size_for,
-                     style_edit)
+from .config import (ASPECTS, DEFAULT_STYLE, END_CARD_SECONDS, LABEL, NOTICE_VERSION, Config, Preset, month_key,
+                     parse_config, size_for, style_edit)
 from .providers import (
     ClipRequest, ContentRejected, GenerationFailed, Provider, ProviderError, ProviderFailed, ProviderNotReady,
     TransientProviderError, selected_name,
@@ -147,9 +147,13 @@ class Service:
     # -------------------------------------------------------------- POST /create
     def create(self, *, uid: str, is_admin: bool, eid: str, event: dict, photo_ids: list[str], preset_id: str | None,
                aspect: str, accepted_notice: bool, notice_version: int, request_id: str, show_label: bool = True,
-               grant_seconds: float | None = None, style_id: str | None = None) -> dict:
+               grant_seconds: float | None = None, style_id: str | None = None, end_card: bool | None = None) -> dict:
+        """end_card: True adds the closing card; False leaves it off, but only an event that has paid
+        for Flow time or Pro may do that (a free event gets the card anyway); None is no card at all,
+        for callers from before the card existed."""
         cfg = self.config()
         self._require_access(cfg, is_admin or grant_seconds is not None)
+        with_card = end_card is True or (end_card is False and not self.can_remove_end_card(eid))
         style = style_id or DEFAULT_STYLE
         prompt = cfg.style_prompt(style)
         if not prompt:
@@ -198,14 +202,17 @@ class Service:
             "slowdown": round(cfg.slowdown_for(i) / cut["speed"], 4),
         } for i in range(preset.clips)]
         pieces = len(clips) + (1 if cfg.hold_start else 0) + (1 if cfg.hold_end else 0)
+        card_seconds = END_CARD_SECONDS if with_card else 0.0
         seconds = round(sum(preset.clip_seconds * c["slowdown"] for c in clips) + cfg.hold_start + cfg.hold_end
-                        + cut["linger"] * pieces - cut["crossfade"] * max(0, pieces - 1), 2)
+                        + cut["linger"] * pieces - cut["crossfade"] * max(0, pieces - 1 + (1 if with_card else 0))
+                        + card_seconds, 2)
         doc = {
             "status": "queued",
             "photoIds": photo_ids,
             "presetId": preset.id,
             "aspect": aspect,
             "styleId": style,
+            "endCard": with_card,
             "resolution": cfg.resolution,
             "clipSeconds": preset.clip_seconds,
             "seconds": seconds,
@@ -241,6 +248,7 @@ class Service:
             "prompt": prompt,
             "clipUsd": clip_usd,
             "edit": {"crossfade": cut["crossfade"], "warm": cut["warm"], "punch": cut["punch"], "linger": cut["linger"]},
+            "endCard": {"seconds": END_CARD_SECONDS, "name": str((event or {}).get("name") or "")[:80]} if with_card else None,
             "holdStart": cfg.hold_start,
             "holdEnd": cfg.hold_end,
             "holdZoom": cfg.hold_zoom,
@@ -402,6 +410,13 @@ class Service:
             return f"meter-grant-{uid}", float(grant_seconds)
         return f"meter-account-{uid}", cfg.free_account_seconds
 
+    def can_remove_end_card(self, eid: str) -> bool:
+        """The closing card is how a free event pays its way. An event with paid Flow time or Pro
+        (features/{eventId}) may leave it off."""
+        data = _dict(self.db.collection("features").document(eid).get())
+        paid = data.get("flowSeconds")
+        return data.get("pro") is True or (isinstance(paid, (int, float)) and not isinstance(paid, bool) and paid > 0)
+
     def meter(self, *, uid: str, eid: str, is_admin: bool = False, grant_seconds: float | None = None) -> dict:
         """`access` is how the app learns an invited host can use Flow: the invite list stays private."""
         cfg = self.config()
@@ -409,7 +424,8 @@ class Service:
         used = _dict(self.usage_ref(key).get()).get("secondsUsed", 0)
         return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
                 "plan": "event" if key.startswith("meter-event-") else "grant" if key.startswith("meter-grant-") else "free",
-                "access": cfg.enabled and (is_admin or cfg.all_hosts or grant_seconds is not None)}
+                "access": cfg.enabled and (is_admin or cfg.all_hosts or grant_seconds is not None),
+                "canRemoveEndCard": self.can_remove_end_card(eid)}
 
     # -------------------------------------------------------------- POST /label
     def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool, grant_seconds: float | None = None) -> dict:
@@ -947,6 +963,12 @@ class Service:
             last = max(frames)
             media.hold_clip(frames[last]["path"], path, job["holdEnd"], w, h, job.get("holdZoom", False))
             segments.append(media.Segment(path, job["holdEnd"]))
+
+        card = job.get("endCard") or None
+        if card:
+            path = str(tmp / "end-card.mp4")
+            media.end_card_clip(path, w, h, float(card.get("seconds") or END_CARD_SECONDS), card.get("name") or "")
+            segments.append(media.Segment(path, float(card.get("seconds") or END_CARD_SECONDS), plain=True))
 
         final = str(tmp / "final.mp4")
         cut = job.get("edit") or {}  # videos from before styles have none: a plain cut

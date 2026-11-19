@@ -50,6 +50,8 @@ export interface Walkthrough {
   id: string;
   status: WalkthroughStatus;
   aspect: WalkthroughAspect;
+  /** Ends with the Get2Share card (the event's name and share.get2.one). */
+  endCard?: boolean;
   /** Glide, Groove or Glow. Videos from before styles have none: they're Glide. */
   styleId?: string;
   seconds: number;
@@ -93,7 +95,14 @@ export function parseWalkthroughConfig(d: any): WalkthroughConfig {
 /** Each photo after the first adds one clip. */
 export const flowSeconds = (photos: number, clipSeconds: number) => Math.max(0, photos - 1) * clipSeconds;
 
-export interface FlowMeter { allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' | 'grant'; access?: boolean }
+export interface FlowMeter {
+  allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' | 'grant'; access?: boolean;
+  /** The closing Get2Share card can be left off: the event has paid for Flow time or Pro. Free events always have it. */
+  canRemoveEndCard?: boolean;
+}
+
+/** How long the closing card runs. Same as END_CARD_SECONDS in walkthrough/config.py. */
+export const END_CARD_SECONDS = 2.5;
 
 export function useWalkthroughConfig(active: boolean): WalkthroughConfig {
   const [config, setConfig] = useState<WalkthroughConfig>(OFF_CONFIG);
@@ -184,7 +193,7 @@ async function call(path: string, body: Record<string, unknown>): Promise<any> {
 
 export const getFlowMeter = (eventId: string): Promise<FlowMeter> => call('/meter', { eventId });
 export const setFlowLabel = (eventId: string, walkthroughId: string, show: boolean) => call('/label', { eventId, walkthroughId, show });
-export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean; styleId: FlowStyleId }) =>
+export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean; styleId: FlowStyleId; endCard: boolean }) =>
   call('/create', { ...args, acceptedNotice: true, noticeVersion: NOTICE_VERSION });
 export const redoWalkthroughClip = (eventId: string, walkthroughId: string, clipIndex: number) =>
   call('/redo', { eventId, walkthroughId, clipIndex });

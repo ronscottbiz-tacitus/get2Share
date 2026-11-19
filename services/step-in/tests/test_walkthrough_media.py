@@ -270,3 +270,47 @@ def test_lingering_rests_on_the_last_frame_of_each_clip(frames, tmp_path):
     frame_at(out, tmp_path / "rest-a.jpg", at=3.1)
     frame_at(out, tmp_path / "rest-b.jpg", at=3.5)
     assert all(abs(x - y) <= 3 for x, y in zip(mean_rgb(tmp_path / "rest-a.jpg"), mean_rgb(tmp_path / "rest-b.jpg")))
+
+
+# ---- The end card ----
+
+def test_the_end_card_shows_the_name_in_brand_blue_on_black(tmp_path):
+    out = tmp_path / "card.jpg"
+    media.end_card_image(str(out), 720, 1280, "Nia's 30th")
+    img = Image.open(out).convert("RGB")
+    assert img.size == (720, 1280)
+    assert img.getpixel((5, 5)) == (0, 0, 0) or sum(img.getpixel((5, 5))) < 12
+    pixels = list(img.getdata())
+    blue = sum(1 for r, g, b in pixels if b > 200 and r < 60 and g < 130)
+    white = sum(1 for r, g, b in pixels if r > 230 and g > 230 and b > 230)
+    assert blue > 1500 and white > 1500
+
+
+def test_a_very_long_event_name_still_fits(tmp_path):
+    out = tmp_path / "long.jpg"
+    media.end_card_image(str(out), 720, 1280, "The Extremely Long And Wordy Family Reunion Of Twenty Twenty Six " * 3)
+    img = Image.open(out).convert("RGB")
+    # Nothing is drawn against the left or right edge.
+    assert all(sum(img.getpixel((x, y))) < 40 for x in (2, 717) for y in range(0, 1280, 8))
+
+
+def test_an_end_card_closes_the_video_without_the_label_or_the_style_on_it(frames, tmp_path):
+    made, _ = clips(frames[:3], tmp_path, seconds=3.0)
+    card = str(tmp_path / "card.mp4")
+    media.end_card_clip(card, 720, 1280, 2.5, "Party")
+    segs = [media.Segment(c, 3.0) for c in made] + [media.Segment(card, 2.5, plain=True)]
+    out = str(tmp_path / "with-card.mp4")
+    media.join_segments(segs, out, "9:16", "720p", warm=True, punch=True, linger=0.6)
+    expected = media.joined_seconds(segs, linger=0.6)
+    assert expected == pytest.approx(2 * 3.6 + 2.5)
+    media.check_final(out, "9:16", "720p", expected, tolerance=0.25)
+    # Near the end it is the card as drawn: black corners, no tint, no label line near the bottom.
+    frame_at(out, tmp_path / "end.jpg", at=expected - 0.5)
+    img = Image.open(tmp_path / "end.jpg").convert("RGB")
+    assert sum(img.getpixel((10, 10))) < 30
+    label_y = 1280 - round(1280 * 0.06) - 8
+    assert max(sum(img.getpixel((x, label_y))) for x in range(100, 620, 4)) < 90
+    # And the AI part before it still carries the label.
+    frame_at(out, tmp_path / "mid.jpg", at=1.5)
+    mid = Image.open(tmp_path / "mid.jpg").convert("RGB")
+    assert max(sum(mid.getpixel((x, y))) for x in range(100, 620, 2) for y in range(label_y - 12, label_y + 12)) > 500

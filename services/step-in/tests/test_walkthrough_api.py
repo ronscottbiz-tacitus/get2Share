@@ -136,5 +136,42 @@ def test_the_style_sets_how_the_video_is_cut(api):
     wt, job = world.svc.wt_ref("ev1", wid).get().to_dict(), world.svc.job_ref("ev1", wid).get().to_dict()
     assert job["edit"] == {"crossfade": 0.0, "warm": True, "punch": False, "linger": 0.6}
     assert all(c["slowdown"] == 1.25 for c in wt["clips"])
-    # Four photos: three 5-second clips slowed to 6.25 seconds each, each resting 0.6 seconds on its last photo.
-    assert wt["seconds"] == pytest.approx(3 * (6.25 + 0.6))
+    # Four photos: three 5-second clips slowed to 6.25 seconds each, each resting 0.6 seconds on its
+    # last photo, then the 2.5-second end card.
+    assert wt["seconds"] == pytest.approx(3 * (6.25 + 0.6) + 2.5)
+
+
+# ---- The end card: always on free events, removable once the event has paid ----
+
+def test_a_free_event_gets_the_end_card_even_when_asked_to_leave_it_off(api):
+    world, client = api
+    r = client.post("/create", json={**BODY, "requestId": "card1", "endCard": False}, headers={"Authorization": "Bearer admin"})
+    assert r.status_code == 200, r.text
+    wid = r.json()["id"]
+    wt, job = world.svc.wt_ref("ev1", wid).get().to_dict(), world.svc.job_ref("ev1", wid).get().to_dict()
+    assert wt["endCard"] is True and job["endCard"] == {"seconds": 2.5, "name": "Party"}
+    assert wt["seconds"] == pytest.approx(15 + 2.5)
+
+
+def test_the_end_card_is_on_unless_asked_otherwise(api):
+    world, client = api
+    r = client.post("/create", json={**BODY, "requestId": "card2"}, headers={"Authorization": "Bearer admin"})
+    assert world.svc.wt_ref("ev1", r.json()["id"]).get().to_dict()["endCard"] is True
+
+
+@pytest.mark.parametrize("features", [{"flowSeconds": 60}, {"pro": True}])
+def test_a_paid_event_can_leave_the_end_card_off(api, features):
+    world, client = api
+    world.db.collection("features").document("ev1").set(features)
+    r = client.post("/create", json={**BODY, "requestId": "card3", "endCard": False}, headers={"Authorization": "Bearer admin"})
+    assert r.status_code == 200, r.text
+    wid = r.json()["id"]
+    wt, job = world.svc.wt_ref("ev1", wid).get().to_dict(), world.svc.job_ref("ev1", wid).get().to_dict()
+    assert wt["endCard"] is False and job["endCard"] is None and wt["seconds"] == pytest.approx(15)
+
+
+def test_the_meter_says_whether_the_end_card_can_come_off(api):
+    world, client = api
+    assert client.post("/meter", json={"eventId": "ev1"}, headers=H).json()["canRemoveEndCard"] is False
+    world.db.collection("features").document("ev1").set({"flowSeconds": 60})
+    assert client.post("/meter", json={"eventId": "ev1"}, headers=H).json()["canRemoveEndCard"] is True

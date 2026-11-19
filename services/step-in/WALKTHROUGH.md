@@ -184,6 +184,13 @@ python -m pytest tests            # about 6 minutes, needs ffmpeg and tesseract.
 
 Screens, from the repo root, with the harness running (see `harness/README.md`): `node harness/walkthrough-shots.mjs <out-dir>`.
 
+## The end card
+
+Every Flow ends with a 2.5-second card: "Get2Share", the event's name and share.get2.one. It isn't
+AI, uses no AI seconds, and the AI label stops before it. A free event always gets it. An event with
+paid Flow time (`flowSeconds`) or `pro: true` in `features/{eventId}` can leave it off when making a
+Flow. It uses the same font as the label, not the brand typeface.
+
 ## Who can make a Flow
 
 Making or redoing a Flow spends AI seconds, so only the event's owner (or a Get2Share admin) can do it.
