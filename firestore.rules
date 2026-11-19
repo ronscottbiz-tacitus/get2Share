@@ -1,6 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-19: "shareFrame" on the event: the strip on shared photos. Any host can set
+//   it, but only an event with paid Flow time or Pro (features/{eid}) may turn it off. Additive.
 // Version 2026-11-18b: "flowCohosts" on the event: the owner lets co-hosts make Flow videos.
 //   Only the owner changes it; the cloud job reads it. Additive.
 // Version 2026-11-18: the owner invites co-hosts with a one-time link, good for 24 hours.
@@ -173,7 +175,15 @@ service cloud.firestore {
     function eventKeys() {
       return ['name', 'subtitle', 'ownerUid', 'hostUids', 'joinCode', 'access',
               'autoApproval', 'guestLensEnabled', 'status', 'createdAt', 'startsAt', 'endsAt', 'expireAt',
-              'groupShot', 'lensSharing', 'albumSaving', 'flowCohosts'];
+              'groupShot', 'lensSharing', 'albumSaving', 'flowCohosts', 'shareFrame'];
+    }
+
+    // features/{eid} is written only by admins and the cloud job: paid Flow time, or Pro.
+    function eventPaid(eid) {
+      let path = /databases/$(database)/documents/features/$(eid);
+      return exists(path)
+        && (get(path).data.get('pro', false) == true
+            || (get(path).data.get('flowSeconds', 0) is number && get(path).data.get('flowSeconds', 0) > 0));
     }
 
     function albumDays() {
@@ -227,7 +237,8 @@ service cloud.firestore {
         && (!('groupShot' in d) || d.groupShot == null || isValidGroupShot(d.groupShot))
         && (!('lensSharing' in d) || d.lensSharing is bool)
         && (!('albumSaving' in d) || d.albumSaving in ['party', 'after', 'host'])
-        && (!('flowCohosts' in d) || d.flowCohosts is bool);
+        && (!('flowCohosts' in d) || d.flowCohosts is bool)
+        && (!('shareFrame' in d) || d.shareFrame is bool);
     }
 
     // A Group Shot: every guest camera that opted in fires at firesAt.
@@ -276,8 +287,10 @@ service cloud.firestore {
                         && isValidEvent(incoming())
                         && changed().hasOnly(['name', 'subtitle', 'joinCode', 'access', 'autoApproval',
                                               'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
-                                              'groupShot', 'lensSharing', 'albumSaving', 'flowCohosts'])
+                                              'groupShot', 'lensSharing', 'albumSaving', 'flowCohosts', 'shareFrame'])
                         && incoming().ownerUid == existing().ownerUid
+                        // The strip on shared photos comes off only for a paid event.
+                        && (!('shareFrame' in changed()) || incoming().shareFrame == true || eventPaid(eid) || isAdmin())
                         // Only the owner (or an admin) decides whether co-hosts can spend Flow time.
                         && (!('flowCohosts' in changed()) || existing().ownerUid == myUid() || isAdmin())
                         // Only the owner (or an admin) changes who the hosts are.

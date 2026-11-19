@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download, Box, Loader2 } from 'lucide-react';
+import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download, Box, Loader2, Share2 } from 'lucide-react';
 import { canSavePhoto, canShareFiles, downloadBlob, photoFile, shareFiles } from '../savePhotos';
+import { framedPhotoFile, shareFrameOn } from '../shareFrame';
 import { updateDoc, deleteDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
 import { paths } from '../events';
@@ -136,6 +137,32 @@ export default function PhotoLightbox({
     photoFile(event.name, photo).then((f) => { if (!cancelled) setFile(f); }).catch(() => {});
     return () => { cancelled = true; };
   }, [photo.id, canSave]);
+  // Share: the copy that leaves the app. It carries the event's name in a strip under the photo,
+  // unless a paid event turned that off. It's made as soon as the photo's file arrives, because a
+  // phone only opens the share sheet straight from a tap.
+  const framing = shareFrameOn(event);
+  const [framed, setFramed] = useState<File | null>(null);
+  const [shareNote, setShareNote] = useState('');
+  useEffect(() => {
+    setFramed(null);
+    setShareNote('');
+    if (!file || !framing) return;
+    let cancelled = false;
+    framedPhotoFile(file, event.name).then((f) => { if (!cancelled) setFramed(f); }).catch(() => { if (!cancelled) setFramed(file); });
+    return () => { cancelled = true; };
+  }, [file, framing, event.name]);
+  const shareCopy = framing ? framed : file;
+  const canShare = !!file && canShareFiles([file]);
+  const handleShare = async () => {
+    setShareNote('');
+    if (!shareCopy) return;
+    try {
+      if (await shareFiles([shareCopy])) setShareNote('Shared.');
+    } catch {
+      setShareNote("Couldn't open sharing on this device. Use Save, then share it from your photos.");
+    }
+  };
+
   const handleSave = async () => {
     setSaveNote('');
     if (file && canShareFiles([file])) {
@@ -291,6 +318,23 @@ export default function PhotoLightbox({
                   Save to this device
                 </button>
                 {saveNote && <p className="mt-1.5 text-[11px] text-emerald-300" aria-live="polite">{saveNote}</p>}
+                {canShare && (
+                  <>
+                    <button
+                      onClick={handleShare}
+                      disabled={!shareCopy}
+                      className="mt-2 w-full h-12 rounded-xl bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-50 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer disabled:cursor-wait transition-colors"
+                    >
+                      {shareCopy
+                        ? <Share2 className="w-[18px] h-[18px]" aria-hidden="true" />
+                        : <Loader2 className="w-[18px] h-[18px] animate-spin" aria-hidden="true" />}
+                      {shareCopy ? 'Share' : 'Getting it ready…'}
+                    </button>
+                    <p className="mt-1.5 text-[11px] text-g2-muted" aria-live="polite">
+                      {shareNote || (framing ? "The shared copy has the event's name under the photo. Saved copies don't." : '')}
+                    </p>
+                  </>
+                )}
               </div>
             )}
 

@@ -21,6 +21,7 @@ import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
 import CoHostsPanel from './CoHostsPanel';
+import { shareFrameOn, useEventPaid } from '../shareFrame';
 import WalkthroughPanel from './WalkthroughPanel';
 import HostCameraButton from './HostCameraButton';
 import GroupShotButton from './GroupShotButton';
@@ -266,6 +267,21 @@ export default function HostDashboard({
   };
 
   // Let guests borrow each other's cameras (GuestLens). Off unless turned on here.
+  // The strip on shared photos: always on for a free event, a paid one can turn it off.
+  const eventPaid = useEventPaid(eventId, isHost);
+  const shareFrame = shareFrameOn(event);
+  const [shareFrameNote, setShareFrameNote] = useState('');
+  const handleToggleShareFrame = async () => {
+    setShareFrameNote('');
+    if (!eventPaid && shareFrame) return; // free events keep it; the rules say the same
+    try {
+      await updateDoc(paths.event(eventId), { shareFrame: !shareFrame });
+    } catch (e) {
+      console.error('Failed to change the shared-photo strip:', e);
+      setShareFrameNote("Couldn't change that. Check your connection and try again.");
+    }
+  };
+
   const handleToggleLensSharing = async () => {
     const nextVal = !lensSharing;
     setLensSharing(nextVal);
@@ -851,6 +867,35 @@ export default function HostDashboard({
                     <div
                       className={`w-5.5 h-5.5 bg-white rounded-full shadow-md transform transition-transform ${
                         lensSharing ? 'translate-x-5.5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* The strip on shared photos */}
+                <div className="flex items-center justify-between gap-3 p-3.5 bg-black/40 border border-white/5 rounded-xl">
+                  <div>
+                    <p className="text-xs font-bold text-white">Add the event name to shared photos</p>
+                    <p className="text-[10px] text-g2-muted mt-0.5">
+                      {eventPaid
+                        ? "A slim strip under photos guests share, with your event's name and share.get2.one. Saved copies stay clean."
+                        : "A slim strip under photos guests share, with your event's name and share.get2.one. Part of every free event; events with paid Flow time can turn it off."}
+                    </p>
+                    {shareFrameNote && <p className="text-[10px] text-amber-300 mt-1" aria-live="polite">{shareFrameNote}</p>}
+                  </div>
+                  <button
+                    onClick={handleToggleShareFrame}
+                    disabled={!eventPaid && shareFrame}
+                    role="switch"
+                    aria-checked={shareFrame}
+                    aria-label="Add the event name to shared photos"
+                    className={`w-12 h-6.5 rounded-full p-0.5 transition-colors relative shrink-0 ${
+                      shareFrame ? 'bg-g2-blue' : 'bg-white/10'
+                    } ${!eventPaid && shareFrame ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div
+                      className={`w-5.5 h-5.5 bg-white rounded-full shadow-md transform transition-transform ${
+                        shareFrame ? 'translate-x-5.5' : 'translate-x-0'
                       }`}
                     />
                   </button>

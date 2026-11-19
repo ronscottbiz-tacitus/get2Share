@@ -28,6 +28,9 @@ export interface EventDoc {
   lensSharing?: boolean;
   /** When guests can save other people's photos to their devices (see savePhotos.ts). Unset = any time. */
   albumSaving?: 'party' | 'after' | 'host';
+  /** Shared photos carry a strip with the event's name and share.get2.one (see shareFrame.ts).
+   *  On unless this is false, and the rules only let a paid event set it to false. */
+  shareFrame?: boolean;
   /** Co-hosts may make and redo Flow videos (spending the event's AI seconds). Off unless the owner turns it on. */
   flowCohosts?: boolean;
 }
