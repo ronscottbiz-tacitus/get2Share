@@ -79,11 +79,49 @@ BRAND_BLUE = (0, 82, 255)
 BRAND_BLUE_LIGHT = (102, 153, 255)
 SITE = "share.get2.one"
 
+# The brand's type, as in the app: Archivo Expanded Black for "Get2Share", Plus Jakarta Sans for
+# the rest. Both are open fonts (SIL OFL; licences sit beside them). They ship with this package
+# and are added to the Modal image at FONT_DIR_REMOTE (see walkthrough_app.py).
+FONT_DIR_REMOTE = "/root/walkthrough_fonts"
+FONT_DIRS = (os.environ.get("WALKTHROUGH_FONT_DIR", ""), FONT_DIR_REMOTE, str(Path(__file__).parent / "fonts"))
+LOCKUP_FONT = ("Archivo.ttf", {"wght": 900, "wdth": 125})
+TEXT_FONT = ("PlusJakartaSans.ttf", {"wght": 700})
 
-def _fit(draw, text: str, font_file: str, size: int, max_width: int):
+
+def _brand_font(spec: tuple[str, dict], size: int):
+    """A brand font at this size, or the label's font if the brand one can't be loaded: a card in
+    the plain font is better than no video."""
+    name, axes = spec
+    for folder in FONT_DIRS:
+        path = Path(folder) / name if folder else None
+        if path is None or not path.is_file():
+            continue
+        try:
+            font = ImageFont.truetype(str(path), size)
+            # Variable fonts: set each axis, in the order the file lists them.
+            font.set_variation_by_axes([axes.get(_axis_tag(a), a["default"]) for a in font.get_variation_axes()])
+            return font
+        except Exception:
+            continue
+    return ImageFont.truetype(font_path(), size)
+
+
+def _axis_tag(axis: dict) -> str:
+    """Pillow names axes in words ("Weight", "Width"); the settings above use the short tags."""
+    name = axis.get("name", "")
+    name = name.decode() if isinstance(name, bytes) else str(name)
+    return {"weight": "wght", "width": "wdth"}.get(name.strip().lower(), name)
+
+
+def _plain_latin(text: str) -> bool:
+    """True if the brand text font has these letters. Other scripts use the label's font, which covers more."""
+    return all(ord(c) < 0x250 or 0x2010 <= ord(c) <= 0x2027 or c in "€™" for c in text)
+
+
+def _fit(draw, text: str, make_font, size: int, max_width: int):
     """The text and a font it fits in: shrink a little, then cut it short with an ellipsis."""
     for s in range(size, max(10, int(size * 0.6)) - 1, -2):
-        font = ImageFont.truetype(font_file, s)
+        font = make_font(s)
         if draw.textlength(text, font=font) <= max_width:
             return text, font
     while len(text) > 1 and draw.textlength(text + "…", font=font) > max_width:
@@ -94,22 +132,28 @@ def _fit(draw, text: str, font_file: str, size: int, max_width: int):
 def end_card_image(out: str, w: int, h: int, event_name: str = "") -> None:
     """The closing card as a picture: "Get2Share" (Get2 in blue), the event's name above it and
     the site below, on black."""
-    font_file = font_path()
     short = min(w, h)
     img = Image.new("RGB", (w, h), "black")
     draw = ImageDraw.Draw(img)
-    big = ImageFont.truetype(font_file, round(short * 0.125))
+    # Archivo Expanded is wide: size the name so it always sits inside the frame.
     left, right = "Get2", "Share"
+    big = _brand_font(LOCKUP_FONT, round(short * 0.115))
+    for size in range(round(short * 0.115), 12, -2):
+        big = _brand_font(LOCKUP_FONT, size)
+        if draw.textlength(left + right, font=big) <= w * 0.8:
+            break
     lw, rw = draw.textlength(left, font=big), draw.textlength(right, font=big)
     x, y = (w - lw - rw) / 2, h / 2 - big.size * 0.62
     draw.text((x, y), left, font=big, fill=BRAND_BLUE)
     draw.text((x + lw, y), right, font=big, fill="white")
     name = " ".join((event_name or "").split())
     if name:
-        text, font = _fit(draw, name, font_file, round(short * 0.052), int(w * 0.84))
+        plain = ImageFont.truetype  # the label's font, for letters the brand font lacks
+        make = (lambda s: _brand_font(TEXT_FONT, s)) if _plain_latin(name) else (lambda s: plain(font_path(), s))
+        text, font = _fit(draw, name, make, round(short * 0.052), int(w * 0.84))
         draw.text(((w - draw.textlength(text, font=font)) / 2, y - font.size * 2.1), text, font=font, fill=(200, 200, 205))
-    site = ImageFont.truetype(font_file, round(short * 0.05))
-    draw.text(((w - draw.textlength(SITE, font=site)) / 2, y + big.size * 1.45), SITE, font=site, fill=BRAND_BLUE_LIGHT)
+    site = _brand_font(TEXT_FONT, round(short * 0.05))
+    draw.text(((w - draw.textlength(SITE, font=site)) / 2, y + big.size * 1.5), SITE, font=site, fill=BRAND_BLUE_LIGHT)
     img.save(out, "JPEG", quality=95)
 
 

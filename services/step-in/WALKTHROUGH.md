@@ -189,7 +189,9 @@ Screens, from the repo root, with the harness running (see `harness/README.md`):
 Every Flow ends with a 2.5-second card: "Get2Share", the event's name and share.get2.one. It isn't
 AI, uses no AI seconds, and the AI label stops before it. A free event always gets it. An event with
 paid Flow time (`flowSeconds`) or `pro: true` in `features/{eventId}` can leave it off when making a
-Flow. It uses the same font as the label, not the brand typeface.
+Flow. It is set in the brand's type, Archivo Expanded Black and Plus Jakarta Sans, which live in
+`walkthrough/fonts` (both open fonts; their licences are beside them) and are added to the Modal image
+by `walkthrough_app.py`. If they can't be loaded the card falls back to the label's font.
 
 ## Who can make a Flow
 

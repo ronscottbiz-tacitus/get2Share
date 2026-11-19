@@ -314,3 +314,37 @@ def test_an_end_card_closes_the_video_without_the_label_or_the_style_on_it(frame
     frame_at(out, tmp_path / "mid.jpg", at=1.5)
     mid = Image.open(tmp_path / "mid.jpg").convert("RGB")
     assert max(sum(mid.getpixel((x, y))) for x in range(100, 620, 2) for y in range(label_y - 12, label_y + 12)) > 500
+
+
+def test_the_end_card_is_set_in_the_brand_type(tmp_path):
+    from PIL import ImageDraw
+    lockup = media._brand_font(media.LOCKUP_FONT, 80)
+    text = media._brand_font(media.TEXT_FONT, 40)
+    assert "Archivo" in lockup.getname()[0] and "Jakarta" in text.getname()[0]
+    # Expanded Black is much wider than the label's font at the same size.
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    from PIL import ImageFont
+    plain = ImageFont.truetype(media.font_path(), 80)
+    assert draw.textlength("Get2Share", font=lockup) > draw.textlength("Get2Share", font=plain) * 1.1
+
+
+def test_the_brand_name_fits_both_shapes(tmp_path):
+    for w, h in ((720, 1280), (1280, 720), (480, 854)):
+        out = tmp_path / f"card-{w}.jpg"
+        media.end_card_image(str(out), w, h, "Party")
+        img = Image.open(out).convert("RGB")
+        assert all(sum(img.getpixel((x, y))) < 40 for x in (int(w * 0.04), int(w * 0.96)) for y in range(0, h, 6))
+
+
+def test_a_name_in_another_script_falls_back_to_the_wider_font(tmp_path):
+    assert media._plain_latin("Nia’s 30th – Café") and not media._plain_latin("Свадьба")
+    out = tmp_path / "cyr.jpg"
+    media.end_card_image(str(out), 720, 1280, "Свадьба")
+    assert Image.open(out).size == (720, 1280)
+
+
+def test_missing_brand_fonts_fall_back_to_the_label_font(tmp_path, monkeypatch):
+    monkeypatch.setattr(media, "FONT_DIRS", (str(tmp_path / "nowhere"),))
+    out = tmp_path / "plain.jpg"
+    media.end_card_image(str(out), 720, 1280, "Party")
+    assert Image.open(out).size == (720, 1280)
