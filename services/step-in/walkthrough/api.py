@@ -63,6 +63,7 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         requestId: str
         showLabel: bool = True
         styleId: str | None = None
+        endCard: bool = True
 
     class Redo(BaseModel):
         eventId: str
@@ -87,7 +88,8 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         return answering(lambda: service_factory().create(
             uid=uid, is_admin=is_admin, eid=req.eventId, event=event, photo_ids=req.photoIds, preset_id=req.presetId,
             aspect=req.aspect, accepted_notice=req.acceptedNotice, notice_version=req.noticeVersion,
-            request_id=req.requestId, show_label=req.showLabel, grant_seconds=grant, style_id=req.styleId))
+            request_id=req.requestId, show_label=req.showLabel, grant_seconds=grant, style_id=req.styleId,
+            end_card=req.endCard))
 
     @web.post("/redo")
     def redo(req: Redo, authorization: str = Header(default="")):

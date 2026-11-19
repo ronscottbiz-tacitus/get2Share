@@ -11,6 +11,8 @@ Setup is in WALKTHROUGH.md.
 
 Deploy:  modal deploy walkthrough_app.py
 """
+from pathlib import Path
+
 import modal
 
 APP_NAME = "get2share-walkthrough"
@@ -28,6 +30,8 @@ image = (
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("fastapi[standard]", "firebase-admin==7.7.0", "requests", "pillow")
     .add_local_python_source("stepin", "walkthrough")
+    # The brand fonts for the end card (walkthrough/media.py looks for them here).
+    .add_local_dir(Path(__file__).parent / "walkthrough" / "fonts", "/root/walkthrough_fonts")
 )
 
 

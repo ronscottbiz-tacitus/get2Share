@@ -24,6 +24,11 @@ DEFAULT_PRESETS = (
 )
 DEFAULT_PRESET = "15s"
 
+# A closing card on every Flow: the Get2Share name, the event's name and share.get2.one. It is
+# how a shared video brings people back. Not AI, so it uses no AI seconds. Free events always
+# have it; an event with paid Flow time or Pro can leave it off.
+END_CARD_SECONDS = 2.5
+
 # The host picks photos, and the photo count sets the length: each photo after the first adds a clip.
 MIN_PHOTOS = 3
 MAX_PHOTOS = 10

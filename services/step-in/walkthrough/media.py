@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from .config import LABEL, size_for
 
@@ -74,8 +74,103 @@ def hold_clip(image: str, out: str, seconds: float, w: int, h: int, zoom: bool =
     _run(cmd + ["-c:v", "libx264", "-preset", "ultrafast", out])
 
 
+# ------------------------------------------------------------------ the end card
+BRAND_BLUE = (0, 82, 255)
+BRAND_BLUE_LIGHT = (102, 153, 255)
+SITE = "share.get2.one"
+
+# The brand's type, as in the app: Archivo Expanded Black for "Get2Share", Plus Jakarta Sans for
+# the rest. Both are open fonts (SIL OFL; licences sit beside them). They ship with this package
+# and are added to the Modal image at FONT_DIR_REMOTE (see walkthrough_app.py).
+FONT_DIR_REMOTE = "/root/walkthrough_fonts"
+FONT_DIRS = (os.environ.get("WALKTHROUGH_FONT_DIR", ""), FONT_DIR_REMOTE, str(Path(__file__).parent / "fonts"))
+LOCKUP_FONT = ("Archivo.ttf", {"wght": 900, "wdth": 125})
+TEXT_FONT = ("PlusJakartaSans.ttf", {"wght": 700})
+
+
+def _brand_font(spec: tuple[str, dict], size: int):
+    """A brand font at this size, or the label's font if the brand one can't be loaded: a card in
+    the plain font is better than no video."""
+    name, axes = spec
+    for folder in FONT_DIRS:
+        path = Path(folder) / name if folder else None
+        if path is None or not path.is_file():
+            continue
+        try:
+            font = ImageFont.truetype(str(path), size)
+            # Variable fonts: set each axis, in the order the file lists them.
+            font.set_variation_by_axes([axes.get(_axis_tag(a), a["default"]) for a in font.get_variation_axes()])
+            return font
+        except Exception:
+            continue
+    return ImageFont.truetype(font_path(), size)
+
+
+def _axis_tag(axis: dict) -> str:
+    """Pillow names axes in words ("Weight", "Width"); the settings above use the short tags."""
+    name = axis.get("name", "")
+    name = name.decode() if isinstance(name, bytes) else str(name)
+    return {"weight": "wght", "width": "wdth"}.get(name.strip().lower(), name)
+
+
+def _plain_latin(text: str) -> bool:
+    """True if the brand text font has these letters. Other scripts use the label's font, which covers more."""
+    return all(ord(c) < 0x250 or 0x2010 <= ord(c) <= 0x2027 or c in "€™" for c in text)
+
+
+def _fit(draw, text: str, make_font, size: int, max_width: int):
+    """The text and a font it fits in: shrink a little, then cut it short with an ellipsis."""
+    for s in range(size, max(10, int(size * 0.6)) - 1, -2):
+        font = make_font(s)
+        if draw.textlength(text, font=font) <= max_width:
+            return text, font
+    while len(text) > 1 and draw.textlength(text + "…", font=font) > max_width:
+        text = text[:-1]
+    return text.rstrip() + "…", font
+
+
+def end_card_image(out: str, w: int, h: int, event_name: str = "") -> None:
+    """The closing card as a picture: "Get2Share" (Get2 in blue), the event's name above it and
+    the site below, on black."""
+    short = min(w, h)
+    img = Image.new("RGB", (w, h), "black")
+    draw = ImageDraw.Draw(img)
+    # Archivo Expanded is wide: size the name so it always sits inside the frame.
+    left, right = "Get2", "Share"
+    big = _brand_font(LOCKUP_FONT, round(short * 0.115))
+    for size in range(round(short * 0.115), 12, -2):
+        big = _brand_font(LOCKUP_FONT, size)
+        if draw.textlength(left + right, font=big) <= w * 0.8:
+            break
+    lw, rw = draw.textlength(left, font=big), draw.textlength(right, font=big)
+    x, y = (w - lw - rw) / 2, h / 2 - big.size * 0.62
+    draw.text((x, y), left, font=big, fill=BRAND_BLUE)
+    draw.text((x + lw, y), right, font=big, fill="white")
+    name = " ".join((event_name or "").split())
+    if name:
+        plain = ImageFont.truetype  # the label's font, for letters the brand font lacks
+        make = (lambda s: _brand_font(TEXT_FONT, s)) if _plain_latin(name) else (lambda s: plain(font_path(), s))
+        text, font = _fit(draw, name, make, round(short * 0.052), int(w * 0.84))
+        draw.text(((w - draw.textlength(text, font=font)) / 2, y - font.size * 2.1), text, font=font, fill=(200, 200, 205))
+    site = _brand_font(TEXT_FONT, round(short * 0.05))
+    draw.text(((w - draw.textlength(SITE, font=site)) / 2, y + big.size * 1.5), SITE, font=site, fill=BRAND_BLUE_LIGHT)
+    img.save(out, "JPEG", quality=95)
+
+
+def end_card_clip(out: str, w: int, h: int, seconds: float, event_name: str = "") -> None:
+    """The closing card as a short clip that fades in from black. No AI involved."""
+    image = str(Path(out).with_suffix(".jpg"))
+    end_card_image(image, w, h, event_name)
+    frames = max(1, round(seconds * FPS))
+    _run([
+        "ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-i", image,
+        "-vf", f"scale={w}:{h},fade=t=in:st=0:d=0.35,format=yuv420p", "-frames:v", str(frames), "-r", str(FPS),
+        "-c:v", "libx264", "-preset", "ultrafast", out,
+    ])
+
+
 # ------------------------------------------------------------------ the label
-def label_filter(w: int, h: int, text_dir: str) -> str:
+def label_filter(w: int, h: int, text_dir: str, until: float | None = None) -> str:
     """drawtext filter for the label: one small line, with a soft shadow instead of a box so it
     takes as little from the picture as it can. Clear of the bottom edge (TVs crop edges and phones
     keep controls there). Text comes from a file, so the apostrophe needs no escaping."""
@@ -84,8 +179,10 @@ def label_filter(w: int, h: int, text_dir: str) -> str:
     path = Path(text_dir) / "label.txt"
     path.write_text(LABEL, encoding="utf-8")
     y = h - round(h * 0.06) - size
+    # The label is about the AI footage: it stops where the (not AI) end card starts.
+    during = f":enable='lt(t,{until:.3f})'" if until is not None else ""
     return (f"drawtext=fontfile={font}:textfile={path}:expansion=none:fontsize={size}:fontcolor=white@0.9:"
-            f"shadowcolor=black@0.8:shadowx=1:shadowy=1:x=(w-text_w)/2:y={y}")
+            f"shadowcolor=black@0.8:shadowx=1:shadowy=1:x=(w-text_w)/2:y={y}{during}")
 
 
 # ------------------------------------------------------------------ joining
@@ -94,6 +191,7 @@ class Segment:
     path: str
     seconds: float         # how much of the source to use
     slowdown: float = 1.0  # 2.0 plays at half speed, so it lasts twice as long
+    plain: bool = False    # the end card: no style editing (no push in, tint or rest) and no AI label
 
     @property
     def output_seconds(self) -> float:
@@ -109,7 +207,7 @@ PUNCH_ZOOM = 0.14     # how far in it starts (1.14x), easing back to the full pi
 def joined_seconds(segments: list[Segment], crossfade: float = 0.0, linger: float = 0.0) -> float:
     """How long the joined video is. Each segment rests `linger` seconds on its last frame, and
     each dissolve overlaps two segments, so it shortens the total."""
-    return (sum(s.output_seconds + max(0.0, linger) for s in segments)
+    return (sum(s.output_seconds + (0.0 if s.plain else max(0.0, linger)) for s in segments)
             - max(0.0, crossfade) * max(0, len(segments) - 1))
 
 
@@ -134,7 +232,7 @@ def join_segments(segments: list[Segment], out: str, aspect: str, resolution: st
     w, h = size_for(aspect, resolution)
     # A dissolve can't be longer than the pieces it joins.
     linger = max(0.0, linger)
-    crossfade = max(0.0, min(crossfade, min(s.output_seconds + linger for s in segments) / 2 - 0.05))
+    crossfade = max(0.0, min(crossfade, min(s.output_seconds for s in segments) / 2 - 0.05))
     if len(segments) < 2:
         crossfade = 0.0
     with tempfile.TemporaryDirectory() as td:
@@ -143,32 +241,38 @@ def join_segments(segments: list[Segment], out: str, aspect: str, resolution: st
         for i, s in enumerate(segments):
             inputs += ["-i", s.path]
             speed = f"setpts={s.slowdown:.4f}*PTS," if s.slowdown != 1.0 else ""
-            zoom = _punch_filter(w, h) if punch else ""
+            zoom = _punch_filter(w, h) if punch and not s.plain else ""
+            tint = f"{WARM_FILTER}," if warm and not s.plain else ""
             # A dissolve needs every piece to be exactly its length: pad with the last frame, then trim.
             # Resting on the last frame works the same way, with the rest added to the length.
-            length = s.output_seconds + linger
-            exact = (f",tpad=stop_mode=clone:stop_duration={linger + 2:.3f},trim=duration={length:.3f},setpts=PTS-STARTPTS"
+            rest = 0.0 if s.plain else linger
+            length = s.output_seconds + rest
+            exact = (f",tpad=stop_mode=clone:stop_duration={rest + 2:.3f},trim=duration={length:.3f},setpts=PTS-STARTPTS"
                      if crossfade or linger else "")
             parts.append(
                 f"[{i}:v]trim=duration={s.seconds:.3f},setpts=PTS-STARTPTS,{speed}fps={FPS},"
                 f"scale={w}:{h}:force_original_aspect_ratio=increase:out_range=tv,crop={w}:{h},setsar=1,"
-                f"{zoom}format=yuv420p{exact}[v{i}]"
+                f"{zoom}{tint}format=yuv420p{exact}[v{i}]"
             )
         if crossfade:
             # Chain the dissolves: each starts where the video so far ends, less the overlap.
-            steps, last, at = [], "v0", segments[0].output_seconds + linger
+            steps, last, at = [], "v0", segments[0].output_seconds + (0.0 if segments[0].plain else linger)
             for i in range(1, len(segments)):
                 name = f"x{i}"
                 steps.append(f"[{last}][v{i}]xfade=transition=fade:duration={crossfade:.3f}:offset={at - crossfade:.3f}[{name}]")
-                at += segments[i].output_seconds + linger - crossfade
+                at += segments[i].output_seconds + (0.0 if segments[i].plain else linger) - crossfade
                 last = name
             joining = ";".join(steps) + f";[{last}]format=yuv420p[cut]"
         else:
             chain = "".join(f"[v{i}]" for i in range(len(segments)))
             joining = f"{chain}concat=n={len(segments)}:v=1:a=0[cut]"
-        look = f"[cut]{WARM_FILTER},format=yuv420p[joined]" if warm else "[cut]null[joined]"
-        tail = f"[joined]{label_filter(w, h, td)}[final]" if label else "[joined]null[final]"
-        graph = ";".join(parts) + f";{joining};{look};{tail}"
+        # The label stays off a closing card: it covers everything before the first plain segment.
+        first_plain = next((i for i, s in enumerate(segments) if s.plain), None)
+        until = None
+        if first_plain is not None:
+            until = joined_seconds(segments[:first_plain], crossfade, linger) if first_plain else 0.0
+        tail = f"[cut]{label_filter(w, h, td, until)}[final]" if label else "[cut]null[final]"
+        graph = ";".join(parts) + f";{joining};{tail}"
         _run([
             "ffmpeg", "-y", "-loglevel", "error", *inputs,
             "-filter_complex", graph, "-map", "[final]", "-an",

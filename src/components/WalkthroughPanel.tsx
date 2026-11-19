@@ -320,6 +320,9 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
   const [reordered, setReordered] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [showLabel, setShowLabel] = useState(true);
+  // The closing Get2Share card: always on a free event; a paid one may leave it off.
+  const canRemoveEndCard = meter?.canRemoveEndCard === true;
+  const [endCard, setEndCard] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const requestId = useRef(crypto.randomUUID()); // a double tap or a lost answer still makes one video
@@ -355,7 +358,7 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
     setSending(true);
     setError('');
     try {
-      await createWalkthrough({ eventId: event.id, photoIds: picked, aspect, requestId: requestId.current, showLabel, styleId: style });
+      await createWalkthrough({ eventId: event.id, photoIds: picked, aspect, requestId: requestId.current, showLabel, styleId: style, endCard: endCard || !canRemoveEndCard });
       onClose();
     } catch (e: any) {
       setError(e?.message || 'The video service is unavailable right now.');
@@ -473,6 +476,24 @@ function Studio({ photos, config, meter, onClose }: { key?: string; photos: Phot
           <span className="text-[13px] leading-relaxed text-white">
             Show a small AI label on the video
             {!showLabel && <span className="block text-amber-200">Copies people save or share won't say it's AI-generated. The note in the app stays.</span>}
+          </span>
+        </label>
+
+        <label className={`flex gap-3 items-start ${canRemoveEndCard ? 'cursor-pointer' : ''}`}>
+          <input
+            type="checkbox"
+            checked={endCard || !canRemoveEndCard}
+            disabled={!canRemoveEndCard}
+            onChange={(e) => setEndCard(e.target.checked)}
+            className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--color-g2-blue)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <span className="text-[13px] leading-relaxed text-white">
+            End with a Get2Share card
+            <span className="block text-g2-tertiary">
+              {canRemoveEndCard
+                ? "A short closing card with your event's name and share.get2.one."
+                : "A short closing card with your event's name and share.get2.one. It's part of every free Flow; events with paid Flow time can leave it off."}
+            </span>
           </span>
         </label>
 

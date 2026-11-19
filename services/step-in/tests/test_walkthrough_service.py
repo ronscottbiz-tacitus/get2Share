@@ -601,7 +601,7 @@ def test_photos_set_the_length_from_3_to_10(world):
 
 def test_free_account_gets_a_15_second_flow_and_one_redo(world):
     wid = preview(world)
-    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free", "access": True}
+    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free", "access": True, "canRemoveEndCard": False}
     redo(world, wid, 0)
     world.svc.run("ev1", wid)
     assert world.svc.meter(uid="host1", eid="ev1")["remainingSeconds"] == 0
@@ -625,7 +625,7 @@ def test_paid_seconds_belong_to_the_event(world):
     world.db.collection("features").document("ev1").set({"flowSeconds": 60})
     r = world.create(photos=[f"p{i}" for i in range(7)])
     world.svc.run("ev1", r["id"])
-    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event", "access": True}
+    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event", "access": True, "canRemoveEndCard": True}
     assert world.usage("meter-account-host1") == {}
 
 
@@ -705,7 +705,7 @@ def test_a_grant_gives_access_and_its_own_seconds(world):
     r = grant_create(world, "a", 1000)
     world.svc.run("ev1", r["id"])
     assert world.svc.meter(uid="host1", eid="ev1", grant_seconds=1000) == {
-        "allowanceSeconds": 1000.0, "usedSeconds": 45, "remainingSeconds": 955.0, "plan": "grant", "access": True}
+        "allowanceSeconds": 1000.0, "usedSeconds": 45, "remainingSeconds": 955.0, "plan": "grant", "access": True, "canRemoveEndCard": False}
     assert world.usage("meter-account-host1") == {}
 
 
