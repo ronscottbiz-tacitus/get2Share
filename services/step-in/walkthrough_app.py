@@ -58,7 +58,9 @@ def api():
         uid, event, is_admin = fb.verify_event_host(token, event_id, denied="Only hosts can make Flow videos.")
         # An invited host gets the same access as an admin to this feature, and nothing else.
         invited, grant = flow_access(token)
-        return uid, event, is_admin or invited, grant
+        # The fifth value is the real admin flag: an invite opens the feature, it doesn't make a
+        # co-host the owner (see may_spend in walkthrough/api.py).
+        return uid, event, is_admin or invited, grant, is_admin
 
     return build_api(_service, verify, origins=ALLOWED_ORIGINS, origin_regex=ALLOWED_ORIGIN_REGEX)
 

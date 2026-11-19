@@ -26,6 +26,17 @@ export { FLOW_ACCESS_LINK } from './flowAccess';
 export const NOTICE_VERSION = 2;
 
 export type WalkthroughAspect = '9:16' | '16:9';
+
+/** The looks a host can pick. Same ids as DEFAULT_STYLES in walkthrough/config.py, which holds the
+ *  AI's words and how each style is cut together (speed, a push in, a warm tint, resting on photos). */
+export const FLOW_STYLES = [
+  { id: 'glide', name: 'Glide', blurb: 'Smooth and steady. The camera moves from one photo to the next.' },
+  { id: 'groove', name: 'Groove', blurb: 'Faster, with a quick push in on every photo. Comes out a little shorter.' },
+  { id: 'glow', name: 'Glow', blurb: 'Slower and warmer, resting on each photo. Comes out a little longer.' },
+] as const;
+export type FlowStyleId = typeof FLOW_STYLES[number]['id'];
+export const flowStyleName = (id: string | null | undefined) =>
+  FLOW_STYLES.find((s) => s.id === id)?.name ?? FLOW_STYLES[0].name;
 export type WalkthroughStatus = 'queued' | 'generating' | 'joining' | 'preview' | 'published' | 'failed' | 'blocked';
 
 export interface WalkthroughClip {
@@ -39,6 +50,8 @@ export interface Walkthrough {
   id: string;
   status: WalkthroughStatus;
   aspect: WalkthroughAspect;
+  /** Glide, Groove or Glow. Videos from before styles have none: they're Glide. */
+  styleId?: string;
   seconds: number;
   clips: WalkthroughClip[];
   photoIds: string[];
@@ -99,6 +112,15 @@ export function canMakeWalkthrough(config: WalkthroughConfig, isHost: boolean): 
   const user = auth.currentUser;
   const admin = !!user && !user.isAnonymous && !!user.emailVerified && isAdminEmail(user.email);
   return isHost && config.enabled && (admin || config.allHosts);
+}
+
+/** Making or redoing a Flow spends AI seconds: that's the owner's call, unless they let co-hosts
+ *  do it (flowCohosts on the event). The cloud job enforces the same thing. */
+export function canSpendFlow(event: { ownerUid: string; flowCohosts?: boolean }): boolean {
+  const user = auth.currentUser;
+  if (!user || user.isAnonymous) return false;
+  const admin = !!user.emailVerified && isAdminEmail(user.email);
+  return admin || event.ownerUid === user.uid || event.flowCohosts === true;
 }
 
 const walkthroughsCol = (eventId: string) => collection(db, 'events', eventId, 'walkthroughs');
@@ -162,7 +184,7 @@ async function call(path: string, body: Record<string, unknown>): Promise<any> {
 
 export const getFlowMeter = (eventId: string): Promise<FlowMeter> => call('/meter', { eventId });
 export const setFlowLabel = (eventId: string, walkthroughId: string, show: boolean) => call('/label', { eventId, walkthroughId, show });
-export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean }) =>
+export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean; styleId: FlowStyleId }) =>
   call('/create', { ...args, acceptedNotice: true, noticeVersion: NOTICE_VERSION });
 export const redoWalkthroughClip = (eventId: string, walkthroughId: string, clipIndex: number) =>
   call('/redo', { eventId, walkthroughId, clipIndex });

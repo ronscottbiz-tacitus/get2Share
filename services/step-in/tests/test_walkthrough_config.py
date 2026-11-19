@@ -63,3 +63,50 @@ def test_month_key_is_utc():
 
 def test_label_words():
     assert LABEL == "AI-generated video. Some moments and details aren't real."
+
+
+# ---- Styles ----
+
+def test_three_styles_by_default_and_glide_is_the_original_prompt():
+    from walkthrough.config import DEFAULT_PROMPT, parse_config
+    cfg = parse_config({})
+    assert cfg.style_prompt(None) == DEFAULT_PROMPT == cfg.style_prompt("glide")
+    assert cfg.style_prompt("groove") and cfg.style_prompt("glow")
+    assert len({cfg.style_prompt(s) for s in ("glide", "groove", "glow")}) == 3
+    assert cfg.style_prompt("sparkle") is None
+
+
+def test_every_style_keeps_people_as_they_are():
+    from walkthrough.config import parse_config
+    cfg = parse_config({})
+    for style in ("glide", "groove", "glow"):
+        assert "exactly as they are" in cfg.style_prompt(style) and "Do not add people" in cfg.style_prompt(style)
+
+
+def test_an_older_config_prompt_still_sets_glide():
+    from walkthrough.config import parse_config
+    cfg = parse_config({"prompt": "Custom words."})
+    assert cfg.style_prompt("glide") == "Custom words." and cfg.prompt == "Custom words."
+    assert cfg.style_prompt("groove") != "Custom words."
+
+
+def test_styles_can_be_reworded_in_config():
+    from walkthrough.config import parse_config
+    cfg = parse_config({"prompt": "Old.", "styles": {"glide": "New glide.", "groove": "New groove.", "glow": "  ", "sparkle": "No."}})
+    assert cfg.style_prompt("glide") == "New glide." and cfg.style_prompt("groove") == "New groove."
+    assert "floating" in cfg.style_prompt("glow") and cfg.style_prompt("sparkle") is None
+
+
+def test_every_style_tells_the_ai_to_leave_expressions_alone():
+    from walkthrough.config import parse_config
+    cfg = parse_config({})
+    for style in ("glide", "groove", "glow"):
+        assert "do not make anyone smile, laugh" in cfg.style_prompt(style)
+
+
+def test_each_style_is_cut_differently():
+    from walkthrough.config import style_edit
+    glide, groove, glow = style_edit("glide"), style_edit("groove"), style_edit("glow")
+    assert glide == {"speed": 1.0, "linger": 0.0, "crossfade": 0.0, "warm": False, "punch": False} == style_edit(None) == style_edit("sparkle")
+    assert groove["speed"] > 1 and groove["punch"] and not groove["linger"]
+    assert glow["speed"] < 1 and glow["linger"] > 0 and glow["warm"]

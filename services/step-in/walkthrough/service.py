@@ -33,7 +33,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import media
-from .config import ASPECTS, LABEL, NOTICE_VERSION, Config, Preset, month_key, parse_config, size_for
+from .config import (ASPECTS, DEFAULT_STYLE, LABEL, NOTICE_VERSION, Config, Preset, month_key, parse_config, size_for,
+                     style_edit)
 from .providers import (
     ClipRequest, ContentRejected, GenerationFailed, Provider, ProviderError, ProviderFailed, ProviderNotReady,
     TransientProviderError, selected_name,
@@ -146,9 +147,13 @@ class Service:
     # -------------------------------------------------------------- POST /create
     def create(self, *, uid: str, is_admin: bool, eid: str, event: dict, photo_ids: list[str], preset_id: str | None,
                aspect: str, accepted_notice: bool, notice_version: int, request_id: str, show_label: bool = True,
-               grant_seconds: float | None = None) -> dict:
+               grant_seconds: float | None = None, style_id: str | None = None) -> dict:
         cfg = self.config()
         self._require_access(cfg, is_admin or grant_seconds is not None)
+        style = style_id or DEFAULT_STYLE
+        prompt = cfg.style_prompt(style)
+        if not prompt:
+            raise ApiError(400, "Pick a style: Glide, Groove or Glow.")
         if accepted_notice is not True or notice_version != NOTICE_VERSION:
             raise ApiError(400, "Accept the notice about the outside AI service first.")
         if aspect not in ASPECTS:
@@ -177,6 +182,7 @@ class Service:
         if per_second is None:
             raise ApiError(503, "Flow videos aren't set up yet: no price is set for this video service.")
 
+        cut = style_edit(style)  # how this style is cut together: speed, dissolves, tint, push in
         clip_usd = _money(per_second * preset.clip_seconds)
         wid = hashlib.sha1(f"{eid}:{request_id}".encode()).hexdigest()[:20]  # a double tap makes one video
         now = self.d.now()
@@ -188,14 +194,18 @@ class Service:
             "status": "pending",
             "gen": 1,
             "attempt": 1,
-            "slowdown": cfg.slowdown_for(i),
+            # The style's speed rides on the same slowdown the config can set: faster is under 1.
+            "slowdown": round(cfg.slowdown_for(i) / cut["speed"], 4),
         } for i in range(preset.clips)]
-        seconds = (sum(preset.clip_seconds * c["slowdown"] for c in clips) + cfg.hold_start + cfg.hold_end)
+        pieces = len(clips) + (1 if cfg.hold_start else 0) + (1 if cfg.hold_end else 0)
+        seconds = round(sum(preset.clip_seconds * c["slowdown"] for c in clips) + cfg.hold_start + cfg.hold_end
+                        + cut["linger"] * pieces - cut["crossfade"] * max(0, pieces - 1), 2)
         doc = {
             "status": "queued",
             "photoIds": photo_ids,
             "presetId": preset.id,
             "aspect": aspect,
+            "styleId": style,
             "resolution": cfg.resolution,
             "clipSeconds": preset.clip_seconds,
             "seconds": seconds,
@@ -228,8 +238,9 @@ class Service:
             "countsVideo": True,
             "provider": provider,
             "model": cfg.model,
-            "prompt": cfg.prompt,
+            "prompt": prompt,
             "clipUsd": clip_usd,
+            "edit": {"crossfade": cut["crossfade"], "warm": cut["warm"], "punch": cut["punch"], "linger": cut["linger"]},
             "holdStart": cfg.hold_start,
             "holdEnd": cfg.hold_end,
             "holdZoom": cfg.hold_zoom,
@@ -938,12 +949,15 @@ class Service:
             segments.append(media.Segment(path, job["holdEnd"]))
 
         final = str(tmp / "final.mp4")
-        expected = sum(s.output_seconds for s in segments)
+        cut = job.get("edit") or {}  # videos from before styles have none: a plain cut
+        look = {"crossfade": float(cut.get("crossfade") or 0), "warm": cut.get("warm") is True,
+                "punch": cut.get("punch") is True, "linger": float(cut.get("linger") or 0)}
+        expected = media.joined_seconds(segments, look["crossfade"], look["linger"])
         try:
-            media.join_segments(segments, final, wt["aspect"], wt["resolution"], label=wt.get("showLabel", True))
+            media.join_segments(segments, final, wt["aspect"], wt["resolution"], label=wt.get("showLabel", True), **look)
         except media.MediaError as e:  # one retry for the join too
             self.d.log(f"Walkthrough {eid}/{wid}: join failed, trying again: {e}")
-            media.join_segments(segments, final, wt["aspect"], wt["resolution"], label=wt.get("showLabel", True))
+            media.join_segments(segments, final, wt["aspect"], wt["resolution"], label=wt.get("showLabel", True), **look)
         info = media.check_final(final, wt["aspect"], wt["resolution"], expected)
         poster = str(tmp / "poster.jpg")
         media.poster_frame(final, poster)

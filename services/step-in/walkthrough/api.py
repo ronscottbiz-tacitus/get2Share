@@ -1,12 +1,26 @@
 """The web endpoints the app calls. Every one checks the Firebase sign-in and that the caller hosts
-the event. Whether the feature is on for this person is checked inside Service."""
+the event. Whether the feature is on for this person is checked inside Service.
+
+Making or redoing a video spends AI seconds, so those two are for the event's owner. The owner can
+let co-hosts do it too by turning on flowCohosts on the event (Host Console, Co-hosts)."""
+
+MSG_OWNER_ONLY = ("Only this event's owner can make or redo Flow videos. "
+                  "The owner can let co-hosts do it in the Host Console, under Co-hosts.")
+
+
+def may_spend(uid: str, event: dict | None, is_admin: bool) -> bool:
+    """The owner, an admin, or any host once the owner has switched co-hosts on."""
+    e = event or {}
+    return bool(is_admin) or e.get("ownerUid") == uid or e.get("flowCohosts") is True
 
 from typing import Callable
 
 
 def build_api(service_factory: Callable, verify: Callable, *, origins: list[str], origin_regex: str | None = None):
-    """verify(id_token, event_id) -> (uid, event, is_admin) or (uid, event, is_admin, grant_seconds),
-    raising PermissionError with a message the app can show."""
+    """verify(id_token, event_id) -> (uid, event, is_admin), (uid, event, is_admin, grant_seconds) or
+    (uid, event, is_admin, grant_seconds, real_admin), raising PermissionError with a message the
+    app can show. is_admin opens the feature (an invited host counts); real_admin is a Get2Share
+    admin and nothing less. Without it, is_admin stands in."""
     from fastapi import FastAPI, Header, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
@@ -22,9 +36,16 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         if not token:
             raise HTTPException(401, "Sign in first.")
         try:
-            return (*verify(token, event_id), None)[:4]
+            uid, event, is_admin, grant, real_admin = (*verify(token, event_id), None, None)[:5]
         except PermissionError as e:
             raise HTTPException(403, str(e))
+        return uid, event, is_admin, grant, (is_admin if real_admin is None else real_admin)
+
+    def spender(authorization: str, event_id: str):
+        uid, event, is_admin, grant, real_admin = signed_in(authorization, event_id)
+        if not may_spend(uid, event, real_admin):
+            raise HTTPException(403, MSG_OWNER_ONLY)
+        return uid, event, is_admin, grant
 
     def answering(fn):
         try:
@@ -41,6 +62,7 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
         noticeVersion: int = 0
         requestId: str
         showLabel: bool = True
+        styleId: str | None = None
 
     class Redo(BaseModel):
         eventId: str
@@ -61,32 +83,32 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
 
     @web.post("/create")
     def create(req: Create, authorization: str = Header(default="")):
-        uid, event, is_admin, grant = signed_in(authorization, req.eventId)
+        uid, event, is_admin, grant = spender(authorization, req.eventId)
         return answering(lambda: service_factory().create(
             uid=uid, is_admin=is_admin, eid=req.eventId, event=event, photo_ids=req.photoIds, preset_id=req.presetId,
             aspect=req.aspect, accepted_notice=req.acceptedNotice, notice_version=req.noticeVersion,
-            request_id=req.requestId, show_label=req.showLabel, grant_seconds=grant))
+            request_id=req.requestId, show_label=req.showLabel, grant_seconds=grant, style_id=req.styleId))
 
     @web.post("/redo")
     def redo(req: Redo, authorization: str = Header(default="")):
-        uid, _, is_admin, grant = signed_in(authorization, req.eventId)
+        uid, _, is_admin, grant = spender(authorization, req.eventId)
         return answering(lambda: service_factory().redo(
             uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, clip_index=req.clipIndex, grant_seconds=grant))
 
     @web.post("/label")
     def label(req: Label, authorization: str = Header(default="")):
-        uid, _, is_admin, grant = signed_in(authorization, req.eventId)
+        uid, _, is_admin, grant, _ = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().set_label(
             uid=uid, is_admin=is_admin, eid=req.eventId, wid=req.walkthroughId, show=req.show, grant_seconds=grant))
 
     @web.post("/meter")
     def meter(req: Meter, authorization: str = Header(default="")):
-        uid, _, is_admin, grant = signed_in(authorization, req.eventId)
+        uid, _, is_admin, grant, _ = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin, grant_seconds=grant))
 
     @web.post("/approve")
     def approve(req: One, authorization: str = Header(default="")):
-        uid, _, _, _ = signed_in(authorization, req.eventId)
+        uid, _, _, _, _ = signed_in(authorization, req.eventId)
         return answering(lambda: service_factory().approve(uid=uid, eid=req.eventId, wid=req.walkthroughId))
 
     @web.post("/unpublish")

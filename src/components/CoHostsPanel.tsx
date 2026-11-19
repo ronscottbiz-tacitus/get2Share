@@ -4,7 +4,7 @@ import { onSnapshot } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import {
   HOST_INVITE_HOURS, HostClaim, HostInvite, MAX_COHOSTS, cancelHostInvite, createHostInvite,
-  hostInviteExpiry, hostInviteUrl, paths, removeCohost,
+  hostInviteExpiry, hostInviteUrl, paths, removeCohost, setFlowCohosts,
 } from '../events';
 
 type InviteRow = HostInvite & { token: string };
@@ -121,6 +121,15 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
   };
 
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const flowOn = event.flowCohosts === true;
+  const handleFlowToggle = async () => {
+    try {
+      await setFlowCohosts(event.id, !flowOn);
+    } catch (e) {
+      console.error('Changing who can make Flow videos failed:', e);
+      setNote("Couldn't change that setting. Check your connection and try again.");
+    }
+  };
 
   return (
     <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
@@ -210,6 +219,29 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
             </div>
           ))}
         </div>
+      )}
+
+      {isOwner ? (
+        <div className="flex items-center justify-between gap-3 bg-black/30 border border-white/5 px-3 py-2.5 rounded-lg">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-white">Co-hosts can make Flow videos</p>
+            <p className="text-[10px] text-g2-muted">Making or redoing a Flow uses this event's AI video seconds. Off means only you can.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={flowOn}
+            aria-label="Co-hosts can make Flow videos"
+            onClick={handleFlowToggle}
+            className={`relative w-11 h-6 rounded-full shrink-0 cursor-pointer transition-colors ${flowOn ? 'bg-g2-blue' : 'bg-white/15'}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${flowOn ? 'translate-x-5' : ''}`} />
+          </button>
+        </div>
+      ) : (
+        <p className="text-[10px] text-g2-muted">
+          {flowOn ? 'The owner lets co-hosts make Flow videos for this event.' : 'Only the owner can make Flow videos for this event.'}
+        </p>
       )}
 
       {isOwner && open.length > 0 && (
