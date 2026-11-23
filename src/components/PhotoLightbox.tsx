@@ -184,9 +184,9 @@ export default function PhotoLightbox({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex flex-col justify-between md:flex-row items-stretch font-sans animate-fade-in">
+    <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex flex-col justify-between md:flex-row items-stretch overflow-y-auto overscroll-contain md:overflow-hidden font-sans animate-fade-in">
       {/* Media Box */}
-      <div className="flex-1 flex items-center justify-center p-4 relative bg-black min-h-[50vh] md:min-h-0">
+      <div className="flex-none md:flex-1 flex items-center justify-center p-4 relative bg-black min-h-[50vh] md:min-h-0">
         <CloseButton onClick={onClose} className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80" />
 
         {view !== 'photo' && ready ? (
@@ -241,7 +241,7 @@ export default function PhotoLightbox({
       </div>
 
       {/* Control Box Panel */}
-      <div className="w-full md:w-96 bg-g2-panel/90 border-t md:border-t-0 md:border-l border-white/5 p-6 flex flex-col justify-between shrink-0 backdrop-blur-xl">
+      <div className="w-full md:w-96 bg-g2-panel/90 border-t md:border-t-0 md:border-l border-white/5 p-6 flex flex-col justify-between shrink-0 md:overflow-y-auto backdrop-blur-xl">
         <div>
           {/* Header Info */}
           <div className="flex justify-between items-start pb-4 border-b border-white/5">
