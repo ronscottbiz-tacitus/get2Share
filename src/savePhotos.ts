@@ -78,6 +78,21 @@ export function canShareFiles(files: File[]) {
   }
 }
 
+/** A phone or tablet: the main pointer is a finger, with no hover. Laptops (touchscreen or not) are false. */
+export function onTouchDevice(): boolean {
+  try {
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+}
+
+/** Save goes through the share sheet ("Save Image", "Save Video") only on phones and tablets.
+ *  Laptops download, even when their browser has a share menu (Chrome on a Mac does). */
+export function saveViaShareSheet(files: File[]): boolean {
+  return onTouchDevice() && canShareFiles(files);
+}
+
 /** Opens the share sheet. Must run straight from a tap. Resolves false if the person closed it. */
 export async function shareFiles(files: File[]): Promise<boolean> {
   try {

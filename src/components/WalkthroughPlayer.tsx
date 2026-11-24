@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Download, Loader2, Play, Share2 } from 'lucide-react';
-import { canShareFiles, downloadBlob, shareFiles } from '../savePhotos';
+import { canShareFiles, downloadBlob, saveViaShareSheet, shareFiles } from '../savePhotos';
 import { useBackToClose } from '../useBackToClose';
 import { FLOW_ACCESS_LINK, Walkthrough, WALKTHROUGH_LABEL, walkthroughFile } from '../walkthrough';
 import CloseButton from './CloseButton';
@@ -73,10 +73,17 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
   const [done, setDone] = useState<'' | 'saved' | 'shared'>('');
   const [note, setNote] = useState('');
   const fetching = useRef<Promise<File | null> | null>(null);
-  // Phones can hand a video to other apps; most laptop browsers can't, so they only get Save (a download).
-  const [phone] = useState(() => {
-    try { return canShareFiles([new File([''], 'flow.mp4', { type: 'video/mp4' })]); } catch { return false; }
-  });
+  // Phones save through the share sheet ("Save Video"). Laptops download, and get Share only if
+  // their browser can hand a video to other apps (Chrome on a Mac can).
+  const [phone, shareable] = useState(() => {
+    try {
+      const probe = [new File([''], 'flow.mp4', { type: 'video/mp4' })];
+      return [saveViaShareSheet(probe), canShareFiles(probe)] as const;
+    } catch {
+      return [false, false] as const;
+    }
+  })[0];
+  const viaSheet = (f: File, how: 'saved' | 'shared') => (how === 'shared' ? canShareFiles([f]) : saveViaShareSheet([f]));
 
   const prepare = () => {
     if (!canSave) return Promise.resolve(null);
@@ -91,7 +98,7 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
   };
 
   const handOver = async (f: File, how: 'saved' | 'shared') => {
-    if (!canShareFiles([f])) {
+    if (!viaSheet(f, how)) {
       downloadBlob(f, f.name);
       setDone('saved');
       return;
@@ -111,7 +118,7 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
       window.open(w.videoUrl!, '_blank', 'noopener'); // CORS not set, or a bad connection: press and hold there
       return;
     }
-    if (!canShareFiles([f])) return handOver(f, how); // laptops can download right away
+    if (!viaSheet(f, how)) return handOver(f, how); // a download can happen right away
     setNote(how === 'shared' ? 'Ready. Tap Share again.' : 'Ready. Tap Save, then choose Save Video.');
   };
 
@@ -150,7 +157,7 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
               {icon(Download, done === 'saved')}
               {done === 'saved' ? 'Saved' : phone ? 'Save' : 'Save to this device'}
             </button>
-            {phone && (
+            {shareable && (
               <button
                 type="button"
                 onClick={() => act('shared')}

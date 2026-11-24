@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download, Box, Loader2, Share2 } from 'lucide-react';
-import { canSavePhoto, canShareFiles, downloadBlob, photoFile, shareFiles } from '../savePhotos';
+import { canSavePhoto, canShareFiles, downloadBlob, photoFile, saveViaShareSheet, shareFiles } from '../savePhotos';
 import { framedPhotoFile, shareFrameOn } from '../shareFrame';
 import { updateDoc, deleteDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
@@ -165,7 +165,7 @@ export default function PhotoLightbox({
 
   const handleSave = async () => {
     setSaveNote('');
-    if (file && canShareFiles([file])) {
+    if (file && saveViaShareSheet([file])) {
       try {
         if (await shareFiles([file])) setSaveNote('Saved.');
       } catch {
