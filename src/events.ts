@@ -215,8 +215,7 @@ export async function isMemberOf(eid: string, uid: string): Promise<boolean> {
 
 // ---------- Co-hosts ----------
 
-/** The owner plus up to this many co-hosts (mirrors hostUids' limit in firestore.rules). */
-export const MAX_COHOSTS = 10;
+// Co-hosts are free on every event, with no limit on how many.
 export const HOST_INVITE_HOURS = 24;
 export const HOST_INVITE_MS = HOST_INVITE_HOURS * 60 * 60 * 1000;
 export const COHOST_PARAM = 'cohost';

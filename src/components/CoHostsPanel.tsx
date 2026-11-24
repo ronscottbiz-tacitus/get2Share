@@ -3,7 +3,7 @@ import { Users, UserPlus, Copy, Check, Share2, X } from 'lucide-react';
 import { onSnapshot } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import {
-  HOST_INVITE_HOURS, HostClaim, HostInvite, MAX_COHOSTS, cancelHostInvite, createHostInvite,
+  HOST_INVITE_HOURS, HostClaim, HostInvite, cancelHostInvite, createHostInvite,
   hostInviteExpiry, hostInviteUrl, paths, removeCohost, setFlowCohosts,
 } from '../events';
 
@@ -58,7 +58,6 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
   const open = invites
     .filter((i) => !i.claimedBy && hostInviteExpiry(i) > now)
     .sort((a, b) => hostInviteExpiry(b) - hostInviteExpiry(a));
-  const room = MAX_COHOSTS - cohosts.length - open.length;
 
   // Links that ran out without being used are just clutter: clear them quietly.
   useEffect(() => {
@@ -69,7 +68,7 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
   }, [invites, now, isOwner, event.id]);
 
   const handleInvite = async () => {
-    if (busy || room <= 0) return;
+    if (busy) return;
     setBusy(true);
     setNote('');
     try {
@@ -141,7 +140,7 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
           <button
             type="button"
             onClick={handleInvite}
-            disabled={busy || room <= 0}
+            disabled={busy}
             className="text-[10px] bg-g2-blue/15 hover:bg-g2-blue/25 border border-g2-blue/40 text-g2-blue-light font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <UserPlus className="w-3 h-3" /> {busy ? 'Making a link…' : 'Invite a co-host'}
@@ -246,9 +245,6 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
 
       {isOwner && open.length > 0 && (
         <p className="text-[10px] text-g2-muted">Send the link only to the person you want as a co-host. They sign in with Google to accept.</p>
-      )}
-      {isOwner && room <= 0 && (
-        <p className="text-[10px] text-g2-muted">This event has all {MAX_COHOSTS} co-host places taken or on offer.</p>
       )}
       {note && <p className="text-[11px] text-g2-secondary break-all" aria-live="polite">{note}</p>}
     </div>

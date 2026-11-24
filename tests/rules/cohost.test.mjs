@@ -105,13 +105,13 @@ await check('the owner can turn it back off', assertSucceeds(updateDoc(event(acc
 await check('a co-host cannot cancel an invite', assertFails(deleteDoc(invite(account('cohost'), OLD))));
 await check('the owner can cancel an invite', assertSucceeds(deleteDoc(invite(account('owner'), OLD))));
 
-// --- The limit: the owner plus 10 co-hosts ---
-await seed({ hostUids: ['owner', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'] });
-await check('owner makes an invite for the tenth co-host', assertSucceeds(setDoc(invite(account('owner')), newInvite('owner'))));
-await check('a tenth co-host can accept', assertSucceeds(accept(account('sam'), 'sam')));
+// --- No limit on co-hosts (there used to be one: the owner plus 10) ---
+await seed({ hostUids: ['owner', ...Array.from({ length: 24 }, (_, i) => `c${i + 1}`)] });
+await check('owner makes an invite for a 25th co-host', assertSucceeds(setDoc(invite(account('owner')), newInvite('owner'))));
+await check('a 25th co-host can accept', assertSucceeds(accept(account('sam'), 'sam')));
 const T2 = 'tokenBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 await check('owner makes one more invite', assertSucceeds(setDoc(invite(account('owner'), T2), newInvite('owner'))));
-await check('an eleventh co-host cannot accept', assertFails(accept(account('dee'), 'dee', { token: T2 })));
+await check('a 26th co-host can accept', assertSucceeds(accept(account('dee'), 'dee', { token: T2 })));
 
 await env.cleanup();
 process.exit(failed ? 1 : 0);
