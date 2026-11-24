@@ -364,8 +364,8 @@ function PairingView({ code, qr, expiresIn, error }: { code: string | null; qr: 
 
 function Tagline() {
   return (
-    <span aria-label="You get to be in the picture." className="font-expanded font-black text-[2.6vmin] text-white">
-      <span aria-hidden="true">You <span className="text-g2-blue">Get2</span> be in the picture.</span>
+    <span aria-label="Get to be in it. Get to keep it." className="font-expanded font-black text-[2.6vmin] text-white">
+      <span aria-hidden="true"><span className="text-g2-blue">Get2</span> be in it. <span className="text-g2-blue">Get2</span> keep it.</span>
     </span>
   );
 }

@@ -142,9 +142,13 @@ export default function ProjectionSlideshow({ onClose }: ProjectionSlideshowProp
               exit={{ opacity: 0 }}
               className="text-center space-y-3 z-10 p-6"
             >
-              <div className="max-w-2xl mx-auto">
-                <h2 aria-label="You get to be in the picture." className="font-expanded font-black text-5xl leading-[1.05] text-white">
-                  <span aria-hidden="true">You <span className="text-g2-blue">Get2</span> be in the picture.</span>
+              <div className="max-w-4xl mx-auto">
+                <h2 aria-label="You're in the group photo. You never get it. Now you get to." className="font-expanded font-black text-4xl lg:text-5xl leading-[1.05] tracking-[-0.02em] text-white">
+                  <span aria-hidden="true" className="block">You're in the group photo.</span>
+                  <span aria-hidden="true" className="block">You never get it.</span>
+                  <span aria-hidden="true" className="block">
+                    Now you <span className="text-g2-blue">Get2.</span>
+                  </span>
                 </h2>
                 <p className="mt-5 text-lg text-g2-secondary">
                   Scan the code to join. Photos show up here as soon as they're posted.
