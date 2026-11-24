@@ -3,6 +3,15 @@ import { Check, Copy, Download, Share2, UserPlus } from 'lucide-react';
 import { canShareLinks, copyText, qrCardFile, shareInvite } from '../eventShare';
 import { canShareFiles, downloadBlob, shareFiles } from '../savePhotos';
 
+/** A phone or tablet: the main pointer is a finger, with no hover. Laptops (touchscreen or not) are false. */
+function onTouchDevice(): boolean {
+  try {
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+}
+
 const hostBtn =
   'flex-1 min-w-0 h-10 rounded-xl border border-white/10 text-g2-secondary hover:text-white hover:bg-white/5 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors';
 
@@ -51,7 +60,9 @@ export function HostShareButtons({ eventName, code, url }: { eventName: string; 
       setNote('The QR card is still being made. Try again in a second.');
       return;
     }
-    if (canShareFiles([card])) {
+    // Phones and tablets: the share sheet, where "Save Image" puts it in Photos. Laptops (even
+    // ones whose browser has a share menu, like Chrome on a Mac): a plain download.
+    if (onTouchDevice() && canShareFiles([card])) {
       try {
         await shareFiles([card]);
       } catch {
