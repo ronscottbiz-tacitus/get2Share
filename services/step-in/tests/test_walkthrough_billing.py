@@ -241,3 +241,49 @@ def test_without_billing_the_app_gets_the_email_fallback(world):
     assert m["checkout"] is False
     r = c.post("/checkout", json={"eventId": "ev1", "planId": "flowPass", "returnUrl": RETURN}, headers={"Authorization": "Bearer host"})
     assert r.status_code == 403
+
+
+# ------------------------------------------------------------------ keys pasted wrong, Stripe saying no
+def test_a_key_pasted_with_spaces_or_quotes_still_works(world):
+    b, stripe = make(world, key=' "sk_test_abc" \n', whsec=" whsec_abc ")
+    assert b.offer(real_admin=True) == {"checkout": True, "checkoutTest": True}
+    b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="flowPass", return_url=RETURN)
+    assert stripe.sessions[0]["api_key"] == "sk_test_abc"
+    b.handle_webhook(paid(), "signed-with-whsec_abc")
+    assert flow_seconds(world) == 100
+
+
+def test_the_publishable_key_turns_checkout_off(world):
+    b, _ = make(world, key="pk_test_abc")
+    assert b.offer(real_admin=True)["checkout"] is False
+
+
+def test_any_key_that_isnt_live_is_treated_as_test(world):
+    b, _ = make(world, key="something_else")
+    assert b.offer(real_admin=False)["checkout"] is False
+    assert b.offer(real_admin=True) == {"checkout": True, "checkoutTest": True}
+
+
+def test_when_stripe_says_no_the_host_sees_why(world):
+    b, stripe = make(world)
+
+    class StripeError(Exception):
+        user_message = "Invalid API Key provided: sk_test_****abc"
+
+    def refuse(**kw):
+        raise StripeError("401")
+    stripe.checkout.Session.create = staticmethod(refuse)
+    with pytest.raises(ApiError) as e:
+        b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="flowPass", return_url=RETURN)
+    assert e.value.status == 502 and "Invalid API Key" in e.value.message
+
+
+def test_a_broken_checkout_still_answers_the_app(world):
+    world.configure()
+    world.add_event()
+
+    def broken():
+        raise RuntimeError("stripe library missing")
+    c = TestClient(build_api(lambda: world.svc, verify, origins=ORIGINS, origin_regex=REGEX, billing_factory=broken))
+    r = c.post("/checkout", json={"eventId": "ev1", "planId": "flowPass", "returnUrl": RETURN}, headers={"Authorization": "Bearer host"})
+    assert r.status_code == 502 and "Checkout" in r.json()["detail"]

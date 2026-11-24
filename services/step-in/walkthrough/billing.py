@@ -49,17 +49,23 @@ class Billing:
                  config: Callable[[], Config], return_ok: Callable[[str], bool], server_time: Any = None,
                  now: Callable = time.time, log: Callable = print):
         self.db, self.run_tx, self.stripe = db, run_tx, stripe
-        self.secret_key, self.webhook_secret = secret_key or "", webhook_secret or ""
+        # Pasted keys often carry a space or quotes; Stripe would reject them.
+        self.secret_key = (secret_key or "").strip().strip('"\'').strip()
+        self.webhook_secret = (webhook_secret or "").strip().strip('"\'').strip()
         self.config, self.return_ok = config, return_ok
         self.server_time, self.now, self.log = server_time, now, log
 
     # -------------------------------------------------------------- who sees checkout
     @property
     def test_mode(self) -> bool:
-        return self.secret_key.startswith(("sk_test_", "rk_test_"))
+        # Anything but a live secret key counts as test: admins only. A wrong key can't reach real hosts.
+        return not self.secret_key.startswith(("sk_live_", "rk_live_"))
 
     def available(self, real_admin: bool) -> bool:
         if not (self.secret_key and self.webhook_secret):
+            return False
+        if self.secret_key.startswith("pk_"):  # the publishable key can't make a checkout
+            self.log("STRIPE_SECRET_KEY holds the publishable key (pk_…); it needs the secret key (sk_…)")
             return False
         if not self.config().checkout:
             return False
@@ -85,7 +91,18 @@ class Billing:
         seconds_text = int(seconds) if float(seconds).is_integer() else seconds
         name = str((event or {}).get("name") or "your event")[:80]
         metadata = {"eventId": eid, "planId": plan["id"], "seconds": str(seconds), "uid": uid}
-        session = self.stripe.checkout.Session.create(
+        try:
+            session = self._create_session(cents, plan, seconds_text, name, eid, metadata, return_url)
+        except ApiError:
+            raise
+        except Exception as e:  # Stripe said no: a bad key, an account setting, a network hiccup
+            msg = getattr(e, "user_message", None) or str(e) or e.__class__.__name__
+            self.log(f"Checkout for {eid} failed at Stripe: {e!r}")
+            raise ApiError(502, f"Stripe couldn't start the checkout: {msg}"[:300])
+        return {"url": session["url"] if isinstance(session, dict) else session.url}
+
+    def _create_session(self, cents, plan, seconds_text, name, eid, metadata, return_url):
+        return self.stripe.checkout.Session.create(
             api_key=self.secret_key,
             mode="payment",
             line_items=[{
@@ -105,7 +122,6 @@ class Billing:
             success_url=with_params(return_url, "pass=done&session={CHECKOUT_SESSION_ID}"),
             cancel_url=with_params(return_url, "pass=cancelled"),
         )
-        return {"url": session["url"] if isinstance(session, dict) else session.url}
 
     # -------------------------------------------------------------- Stripe calling back
     def handle_webhook(self, payload: bytes, signature: str) -> dict:

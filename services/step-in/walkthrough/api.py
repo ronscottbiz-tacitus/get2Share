@@ -131,8 +131,14 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
             raise HTTPException(403, "Buying passes isn't open yet.")
         if not (real_admin or (event or {}).get("ownerUid") == uid):
             raise HTTPException(403, MSG_OWNER_BUYS)
-        return answering(lambda: billing_factory().create_checkout(
-            uid=uid, real_admin=real_admin, eid=req.eventId, event=event, plan_id=req.planId, return_url=req.returnUrl))
+        try:
+            return answering(lambda: billing_factory().create_checkout(
+                uid=uid, real_admin=real_admin, eid=req.eventId, event=event, plan_id=req.planId, return_url=req.returnUrl))
+        except HTTPException:
+            raise
+        except Exception as e:  # always answer, so the app shows a reason instead of "couldn't reach"
+            print(f"/checkout failed: {e!r}")
+            raise HTTPException(502, "Checkout isn't working right now. Try again in a minute.")
 
     @web.post("/checkout/status")
     def checkout_status(req: CheckoutStatus, authorization: str = Header(default="")):
