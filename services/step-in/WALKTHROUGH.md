@@ -170,7 +170,28 @@ What hosts can buy (`DEFAULT_PLANS` in `walkthrough/config.py`):
 | Flow Pass Plus | $29 | 200 | One event. Passes stack. |
 | Pro | $49 a month | 400 a month | Next: needs checkout and a monthly plan. |
 
-Until checkout is built, the Host Console's pass buttons email the request with the event's ID. To add a pass by hand, raise `features/{eventId}.flowSeconds` by the pass's seconds (100 or 200), on top of what's there.
+When checkout is off, the Host Console's pass buttons email the request with the event's ID. To add a pass by hand, raise `features/{eventId}.flowSeconds` by the pass's seconds (100 or 200), on top of what's there.
+
+### Buying passes (Stripe Checkout)
+
+`walkthrough/billing.py`. The owner taps a pass, `POST /checkout` makes a Stripe Checkout page for that pass and event, and the host pays there. Stripe then calls `POST /stripe/webhook`. Only a call signed with the webhook secret counts, and it adds the pass's seconds to `features/{eventId}.flowSeconds`. Each payment adds its seconds once, however many times Stripe resends the notice: `flowPurchases/{checkoutSessionId}` records it (event, pass, seconds, amount, email). Apps can't read that collection. Back in the Console, the app checks `POST /checkout/status` until the seconds are in.
+
+Checkout shows only when all three are true:
+
+1. The Modal secret `get2share-stripe` has `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
+2. `config/walkthrough.checkout` is `true` (boolean). Set it to false to go back to the email buttons at once.
+3. With **test** keys (`sk_test_` / `rk_test_`), the person is an admin. Real hosts never see a test checkout. With **live** keys, every owner sees it.
+
+Setting it up (test first, then the same again with live keys):
+
+1. Modal → Secrets → `get2share-stripe` with `STRIPE_SECRET_KEY` = the Stripe secret key. The secret must exist before deploying, even before the webhook secret is known.
+2. `modal deploy walkthrough_app.py` (from `main`).
+3. Stripe → Developers → Webhooks → Add endpoint: `https://ronscottbiz-tacitus--get2share-walkthrough-api.us-east.modal.run/stripe/webhook`, events `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Copy its signing secret (`whsec_…`).
+4. Add `STRIPE_WEBHOOK_SECRET` = that `whsec_…` to the same Modal secret, then deploy again so the service picks it up.
+5. Firestore: `config/walkthrough.checkout` = `true`.
+6. Test: on a free event, buy with card `4242 4242 4242 4242`, any future date and CVC. Back in the Console you should see "100 seconds added to this event", and `flowPurchases` gets a document.
+
+Prices and amounts come from the plan list above. Checkout charges whatever `config/walkthrough.plans` says at the moment the host taps Buy. Refunds are done in the Stripe dashboard; a refund doesn't take seconds back, so lower `flowSeconds` by hand if you want to.
 
 ## How it behaves
 

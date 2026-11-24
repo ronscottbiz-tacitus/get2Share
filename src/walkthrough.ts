@@ -102,6 +102,9 @@ export interface FlowMeter {
   allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' | 'grant'; access?: boolean;
   /** Flow Pass, Flow Pass Plus and Pro, with their prices and seconds. */
   plans?: FlowPlan[];
+  /** Show Buy buttons (Stripe Checkout) instead of the email fallback. checkoutTest: Stripe test mode, admins only. */
+  checkout?: boolean;
+  checkoutTest?: boolean;
   /** The closing Get2Share card can be left off: the event has paid for Flow time or Pro. Free events always have it. */
   canRemoveEndCard?: boolean;
 }
@@ -197,6 +200,17 @@ async function call(path: string, body: Record<string, unknown>): Promise<any> {
 }
 
 export const getFlowMeter = (eventId: string): Promise<FlowMeter> => call('/meter', { eventId });
+
+/** Sends the host to Stripe's page to buy a pass for this event. Comes back to this page after. */
+export async function startFlowCheckout(eventId: string, planId: string): Promise<void> {
+  const returnUrl = `${window.location.origin}${window.location.pathname}`;
+  const { url } = await call('/checkout', { eventId, planId, returnUrl });
+  window.location.assign(url);
+}
+
+/** After Stripe sends the host back: have this payment's seconds landed on the event yet? */
+export const getCheckoutStatus = (eventId: string, sessionId: string): Promise<{ done: boolean; seconds?: number }> =>
+  call('/checkout/status', { eventId, sessionId });
 export const setFlowLabel = (eventId: string, walkthroughId: string, show: boolean) => call('/label', { eventId, walkthroughId, show });
 export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean; styleId: FlowStyleId; endCard: boolean }) =>
   call('/create', { ...args, acceptedNotice: true, noticeVersion: NOTICE_VERSION });

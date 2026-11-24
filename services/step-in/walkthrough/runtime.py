@@ -88,3 +88,24 @@ def service(spawn) -> Service:
         server_time=firestore.SERVER_TIMESTAMP,
         env=dict(os.environ),
     ))
+
+
+def billing(origins: list[str], origin_regex: str | None):
+    """Stripe Checkout for passes, with the keys from the Modal secret get2share-stripe."""
+    import stripe
+    from firebase_admin import firestore
+
+    from .billing import Billing, return_checker
+    from .config import parse_config
+
+    db = fb.db()
+    return Billing(
+        db=db,
+        run_tx=_run_tx,
+        stripe=stripe,
+        secret_key=os.environ.get("STRIPE_SECRET_KEY"),
+        webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET"),
+        config=lambda: parse_config(db.collection("config").document("walkthrough").get().to_dict()),
+        return_ok=return_checker(origins, origin_regex),
+        server_time=firestore.SERVER_TIMESTAMP,
+    )
