@@ -111,6 +111,11 @@ def _money(x: float) -> float:
     return round(float(x), 4)
 
 
+def is_paid_meter(meter_key) -> bool:
+    """Seconds an event bought (features/{eventId}.flowSeconds), as opposed to free or invited ones."""
+    return isinstance(meter_key, str) and meter_key.startswith("meter-event-")
+
+
 def res_key(index: int, clip: dict) -> str:
     return f"{index}-{clip.get('gen', 1)}-{clip.get('attempt', 1)}"
 
@@ -275,12 +280,15 @@ class Service:
             meter = _dict(meter_ref.get(transaction=tx))
             if ev_use.get("activeJob"):
                 raise ApiError(409, "A video for this event is already being made.")
-            if grant_seconds is None:  # a grant's seconds are its limit; the monthly budget still applies
+            paid = is_paid_meter(meter_key)
+            # Paid and granted seconds are their own limit. A grant still stops at the monthly
+            # budget; paid seconds don't, because they're already paid for and can't run past it.
+            if grant_seconds is None and not paid:
                 if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
                     raise ApiError(429, "This event has already used its Flow videos.")
                 if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
                     raise ApiError(429, "You've used all your Flow videos for this month.")
-            if _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
+            if not paid and _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
                 raise ApiError(429, MSG_BUDGET)
             if meter.get("secondsUsed", 0) + preset.seconds > allowance:
                 raise ApiError(429, MSG_METER)
@@ -351,8 +359,9 @@ class Service:
             reservations = dict(job.get("reservations") or {})
             clip_usd = job.get("clipUsd", 0)
 
+            paid = is_paid_meter(meter_key)
             if status == "preview":
-                if grant_seconds is None:
+                if grant_seconds is None and not paid:
                     if ev_use.get("redos", 0) >= cfg.limits["redosPerEvent"]:
                         raise ApiError(429, "This event has used all its redos.")
                     if host_use.get("redos", 0) >= cfg.limits["redosPerHostPerMonth"]:
@@ -363,7 +372,7 @@ class Service:
                 ev_use["redos"] = ev_use.get("redos", 0) + 1
                 wt["redosUsed"] = wt.get("redosUsed", 0) + 1
             else:  # failed: try again, counted like a new video until it fails again
-                if grant_seconds is None:
+                if grant_seconds is None and not paid:
                     if ev_use.get("videos", 0) >= cfg.limits["videosPerEvent"]:
                         raise ApiError(429, "This event has already used its Flow videos.")
                     if host_use.get("videos", 0) >= cfg.limits["videosPerHostPerMonth"]:
@@ -374,7 +383,7 @@ class Service:
                 ev_use["videos"] = ev_use.get("videos", 0) + 1
 
             total = _money(clip_usd * len(todo))
-            if _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
+            if not paid and _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + total) > cfg.monthly_budget_usd:
                 raise ApiError(429, MSG_BUDGET)
             seconds = wt.get("clipSeconds", cfg.clip_seconds) * len(todo)
             if meter.get("secondsUsed", 0) + seconds > allowance:
@@ -425,7 +434,8 @@ class Service:
         return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
                 "plan": "event" if key.startswith("meter-event-") else "grant" if key.startswith("meter-grant-") else "free",
                 "access": cfg.enabled and (is_admin or cfg.all_hosts or grant_seconds is not None),
-                "canRemoveEndCard": self.can_remove_end_card(eid)}
+                "canRemoveEndCard": self.can_remove_end_card(eid),
+                "plans": [dict(p) for p in cfg.plans]}
 
     # -------------------------------------------------------------- POST /label
     def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool, grant_seconds: float | None = None) -> dict:
@@ -543,7 +553,8 @@ class Service:
             glob = _dict(global_ref.get(transaction=tx))
             usd = job.get("clipUsd", 0)
             cap = self.config_in_tx(tx).monthly_budget_usd
-            if _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + usd) > cap:
+            # Paid seconds are still counted in the month's totals, but never stopped by the cap.
+            if not is_paid_meter(job.get("meterKey")) and _money(glob.get("reservedUsd", 0) + glob.get("spentUsd", 0) + usd) > cap:
                 raise BudgetExceeded()
             reservations[key] = {"usd": usd, "state": "reserved", "month": month}
             tx.update(job_ref, {"reservations": reservations})

@@ -95,8 +95,13 @@ export function parseWalkthroughConfig(d: any): WalkthroughConfig {
 /** Each photo after the first adds one clip. */
 export const flowSeconds = (photos: number, clipSeconds: number) => Math.max(0, photos - 1) * clipSeconds;
 
+/** Something a host can buy (the list comes from the Flow service's config). Seconds are AI seconds. */
+export interface FlowPlan { id: string; name: string; usd: number; seconds: number; per: 'event' | 'month' }
+
 export interface FlowMeter {
   allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' | 'grant'; access?: boolean;
+  /** Flow Pass, Flow Pass Plus and Pro, with their prices and seconds. */
+  plans?: FlowPlan[];
   /** The closing Get2Share card can be left off: the event has paid for Flow time or Pro. Free events always have it. */
   canRemoveEndCard?: boolean;
 }

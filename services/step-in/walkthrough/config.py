@@ -44,6 +44,18 @@ DEFAULT_LIMITS = {
 }
 DEFAULT_MONTHLY_BUDGET_USD = 50.0
 
+# What hosts can buy. Seconds are AI seconds: the end card and still holds cost none.
+# A Flow Pass belongs to one event and passes stack (two passes, twice the seconds); Pro is
+# monthly. config/walkthrough.plans.<id>.{usd, seconds} overrides a price or an amount.
+# Checkout is next. Until then a pass is added by hand: features/{eventId}.flowSeconds goes up by
+# the pass's seconds. Paid seconds are their own limit: no per-event or per-host video caps, and
+# they don't count against the monthly budget (that cap is for free and invited seconds).
+DEFAULT_PLANS = (
+    {"id": "flowPass", "name": "Flow Pass", "usd": 15, "seconds": 100, "per": "event"},
+    {"id": "flowPassPlus", "name": "Flow Pass Plus", "usd": 29, "seconds": 200, "per": "event"},
+    {"id": "pro", "name": "Pro", "usd": 49, "seconds": 400, "per": "month"},
+)
+
 # US dollars per generated second, used to reserve money before anything is generated.
 # UNVERIFIED ESTIMATES, deliberately on the high side: check them against each provider's
 # current price page and override them with config/walkthrough.prices before real use.
@@ -129,6 +141,7 @@ class Config:
     limits: dict = field(default_factory=lambda: dict(DEFAULT_LIMITS))
     monthly_budget_usd: float = DEFAULT_MONTHLY_BUDGET_USD
     prices: dict = field(default_factory=lambda: dict(DEFAULT_PRICES))
+    plans: tuple = tuple(dict(p) for p in DEFAULT_PLANS)
     prompt: str = DEFAULT_PROMPT
     styles: dict = field(default_factory=lambda: dict(DEFAULT_STYLES))
     slowdown: tuple = ()     # per clip; a clip with no entry plays at normal speed
@@ -215,7 +228,14 @@ def parse_config(data: dict | None) -> Config:
         if isinstance(d.get("prompt"), str) and d.get("prompt").strip():
             styles[DEFAULT_STYLE] = d["prompt"]
 
+    plans_in = d.get("plans") if isinstance(d.get("plans"), dict) else {}
+    plans = []
+    for p in DEFAULT_PLANS:
+        o = plans_in.get(p["id"]) if isinstance(plans_in.get(p["id"]), dict) else {}
+        plans.append({**p, "usd": _number(o.get("usd"), p["usd"], 0), "seconds": _number(o.get("seconds"), p["seconds"], 0)})
+
     return Config(
+        plans=tuple(plans),
         styles=styles,
         min_photos=min_photos,
         max_photos=max_photos,

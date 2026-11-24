@@ -8,10 +8,11 @@ import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 import { useBackToClose } from '../useBackToClose';
 import {
-  approveWalkthrough, canMakeWalkthrough, canSpendFlow, clipsDone, createWalkthrough, deleteWalkthrough, FLOW_STYLES, FlowMeter, flowSeconds, FlowStyleId, flowStyleName, getFlowMeter,
+  approveWalkthrough, canMakeWalkthrough, canSpendFlow, clipsDone, createWalkthrough, deleteWalkthrough, FLOW_STYLES, FlowMeter, FlowPlan, flowSeconds, FlowStyleId, flowStyleName, getFlowMeter,
   redoWalkthroughClip, setFlowLabel, unpublishWalkthrough, useHostWalkthroughs, useWalkthroughConfig, Walkthrough, WalkthroughAspect, walkthroughBusy,
   WalkthroughConfig, WALKTHROUGH_NOTICE, walkthroughSlow,
 } from '../walkthrough';
+import { passRequestLink } from '../flowAccess';
 import CloseButton from './CloseButton';
 import VideoBird from './VideoBird';
 import { WalkthroughLabel, WalkthroughVideo } from './WalkthroughPlayer';
@@ -119,9 +120,56 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
         </div>
       )}
 
+      {/* Passes: on events without paid seconds, and on paid events once they run out (passes stack). */}
+      {canMake && canSpend && meter?.plans && (meter.plan !== 'event' || outOfSeconds) && (
+        <PassOffer plans={meter.plans} eventName={event.name} eventId={event.id} topUp={meter.plan === 'event'} />
+      )}
+
       <AnimatePresence>
         {studioOpen && <Studio key="studio" photos={photos} config={config} meter={meter} onClose={() => setStudioOpen(false)} />}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/** Flow Pass and Flow Pass Plus for this event, and Pro. Checkout is next: for now a pass is an email. */
+function PassOffer({ plans, eventName, eventId, topUp }: { plans: FlowPlan[]; eventName: string; eventId: string; topUp: boolean }) {
+  const passes = plans.filter((p) => p.per === 'event');
+  const pro = plans.find((p) => p.per === 'month');
+  if (passes.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/20 p-3.5 space-y-3">
+      <div>
+        <p className="text-[13px] font-bold text-white">{topUp ? 'Add more Flow seconds' : 'Want more Flow?'}</p>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-g2-tertiary">
+          {topUp
+            ? 'A pass adds AI video seconds to this event, on top of any you have.'
+            : 'A pass adds AI video seconds to this event, and lets you turn off the Get2Share card at the end.'}
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {passes.map((p) => (
+          <a
+            key={p.id}
+            href={passRequestLink(p, eventName, eventId)}
+            className="rounded-xl border border-white/15 bg-white/5 hover:border-g2-blue p-3 flex flex-col transition-colors"
+          >
+            <span className="text-[12px] font-bold text-g2-secondary">{p.name}</span>
+            <span className="mt-1 font-expanded font-black text-[22px] leading-none text-white">${p.usd}</span>
+            <span className="mt-1.5 text-[12px] font-bold text-g2-blue-light">{p.seconds} seconds</span>
+            <span className="mt-2 text-[11px] font-bold text-white underline underline-offset-2">Ask for this pass</span>
+          </a>
+        ))}
+      </div>
+      <p className="text-[11px] leading-relaxed text-g2-muted">
+        Paying in the app is next. For now, tapping a pass emails us, and we add the seconds to this event.
+      </p>
+      {pro && (
+        <p className="text-[11px] leading-relaxed text-g2-tertiary flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span>Host often? <span className="font-bold text-g2-secondary">{pro.name}</span>: ${pro.usd} a month with {pro.seconds} seconds.</span>
+          <span className="h-5 px-2 inline-flex items-center rounded-full border border-white/15 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary">Next</span>
+        </p>
+      )}
     </div>
   );
 }

@@ -127,7 +127,8 @@ Everything is optional except `enabled`. A missing document means off for everyo
 | `limits.redosPerEvent` | 5 | A backstop. A redo that fails isn't counted. |
 | `limits.videosPerHostPerMonth` | 20 | A backstop, because anyone with a Google account can make unlimited events. |
 | `limits.redosPerHostPerMonth` | 30 | Same idea. |
-| `budget.monthlyUsd` | 50 | Across all hosts. Money is set aside before each clip is sent. At the cap, hosts see a friendly message. |
+| `budget.monthlyUsd` | 50 | Across all hosts, for free and invited seconds. Money is set aside before each clip is sent. At the cap, hosts see a friendly message. Paid seconds still count in the month's totals but are never stopped by it. |
+| `plans.<id>.usd`, `plans.<id>.seconds` | see below | Change a price or an amount: `flowPass`, `flowPassPlus` or `pro`. The Host Console shows them. |
 | `prices.<provider>.<resolution>` | estimates | US dollars per generated second. No price means it refuses to run. |
 | `slowdown` | none | Per clip, like `[1.5, 1, 1]`. Plays that clip slower. The cost doesn't change. Up to 4. |
 | `hold.startSeconds`, `hold.endSeconds`, `hold.zoom` | 0, 0, off | Non-AI seconds on the first and last photo, with an optional slow zoom. Up to 5 seconds each. |
@@ -159,7 +160,17 @@ A grant gives that account Flow on any event they host, with its own seconds, se
 Every generated second comes off a meter, redos included. Seconds for clips the host didn't get come back. Switching the label on or off re-joins saved clips, so it costs nothing and uses no seconds.
 
 - **Free:** `meter.freeAccountSeconds`, once per account. Used seconds are in `walkthroughUsage/meter-account-<uid>`.
-- **Paid event:** set `features/{eventId}.flowSeconds` (number), which the payment step will write. That event then draws on its own seconds, in `walkthroughUsage/meter-event-<eventId>`, and not the account's.
+- **Paid event:** set `features/{eventId}.flowSeconds` (number), which the payment step will write. That event then draws on its own seconds, in `walkthroughUsage/meter-event-<eventId>`, and not the account's. Paid seconds are their own limit: the per-event and per-host video and redo limits don't apply, and neither does the monthly budget.
+
+What hosts can buy (`DEFAULT_PLANS` in `walkthrough/config.py`):
+
+| Plan | Price | AI seconds | |
+|---|---|---|---|
+| Flow Pass | $15 | 100 | One event. Passes stack. |
+| Flow Pass Plus | $29 | 200 | One event. Passes stack. |
+| Pro | $49 a month | 400 a month | Next: needs checkout and a monthly plan. |
+
+Until checkout is built, the Host Console's pass buttons email the request with the event's ID. To add a pass by hand, raise `features/{eventId}.flowSeconds` by the pass's seconds (100 or 200), on top of what's there.
 
 ## How it behaves
 
