@@ -21,6 +21,7 @@ import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
 import CoHostsPanel from './CoHostsPanel';
+import { HostShareButtons } from './EventShare';
 import { shareFrameOn, useEventPaid } from '../shareFrame';
 import WalkthroughPanel from './WalkthroughPanel';
 import HostCameraButton from './HostCameraButton';
@@ -957,6 +958,7 @@ export default function HostDashboard({
                   Or enter code <span className="font-mono font-bold text-white tracking-[0.12em]">{event.joinCode}</span> at {window.location.host}
                 </p>
               </div>
+              <HostShareButtons eventName={event.name} code={event.joinCode} url={joinLink} />
               <button
                 type="button"
                 onClick={handleResetJoinLink}

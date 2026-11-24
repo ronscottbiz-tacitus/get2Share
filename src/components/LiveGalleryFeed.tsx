@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Download, Heart, Image as ImageIcon, Users, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { query, where, onSnapshot, addDoc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { eventPhase, expiryOf, formatDay, paths } from '../events';
+import { eventPhase, expiryOf, formatDay, joinUrl, paths } from '../events';
 import { useEvent } from '../EventContext';
 import { deletePhotoFile, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { Photo } from '../types';
@@ -15,6 +15,7 @@ import { stepInReady, useStepInVisible } from '../stepIn';
 import { usePublishedWalkthroughs, Walkthrough } from '../walkthrough';
 import WalkthroughPlayer, { WalkthroughCard } from './WalkthroughPlayer';
 import HostTabs from './HostTabs';
+import { InviteButton } from './EventShare';
 
 interface LiveGalleryFeedProps {
   sessionId: string;
@@ -311,6 +312,10 @@ export default function LiveGalleryFeed({
           <h1 className="mt-1.5 font-expanded font-black text-2xl leading-tight text-white">{title}</h1>
         )}
         {subtitle && <p className="mt-1 text-[13px] leading-relaxed text-g2-secondary">{subtitle}</p>}
+        {/* Bring friends in while the event is on (open-link events only). */}
+        {uploadsOpen && event.access === 'link' && event.joinCode && (
+          <InviteButton eventName={title} url={joinUrl(event.joinCode)} />
+        )}
         {onJoinAsNew && !isHost && (
           <button
             type="button"

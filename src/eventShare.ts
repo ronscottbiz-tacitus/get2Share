@@ -1,0 +1,189 @@
+import QRCode from 'qrcode';
+
+// Passing an event around: the share sheet, the clipboard, and a QR card image to print or send.
+// Hosts get all three under the QR code in the Host Console. Guests get "Invite friends" in the
+// gallery while the event is on (see InviteButton).
+
+const BLUE = '#0052FF';
+const BLUE_LIGHT = '#6C93FF';
+
+const clean = (s: string) => (s || '').replace(/\s+/g, ' ').trim();
+
+/** The message that goes with the link. */
+export function inviteText(eventName: string): string {
+  const name = clean(eventName);
+  const what = name ? `the photo album for "${name}"` : 'my event\'s photo album';
+  return `Join ${what} on Get2Share. Every photo from the event lands in one place, so you get the ones you're in.`;
+}
+
+export function canShareLinks(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+}
+
+/** Opens the share sheet with the invite. Must run straight from a tap. False if they closed it. */
+export async function shareInvite(eventName: string, url: string): Promise<boolean> {
+  try {
+    await navigator.share({ title: clean(eventName) || 'Get2Share', text: inviteText(eventName), url });
+    return true;
+  } catch (e: any) {
+    if (e?.name === 'AbortError') return false;
+    throw e;
+  }
+}
+
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- The QR card ----------
+
+const CARD_W = 1200;
+const CARD_H = 1500;
+
+function slug(s: string) {
+  return clean(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'event';
+}
+
+/** Up to `maxLines` lines that fit `maxWidth`; the last one is cut short with … if needed. */
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+  const words = clean(text).split(' ').filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  for (let i = 0; i < words.length; i++) {
+    const next = line ? `${line} ${words[i]}` : words[i];
+    if (ctx.measureText(next).width <= maxWidth || !line) {
+      line = next;
+      continue;
+    }
+    lines.push(line);
+    line = words[i];
+    if (lines.length === maxLines - 1) {
+      line = words.slice(i).join(' ');
+      break;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, maxLines).map((l) => {
+    if (ctx.measureText(l).width <= maxWidth) return l;
+    let cut = l;
+    while (cut.length > 1 && ctx.measureText(cut + '…').width > maxWidth) cut = cut.slice(0, -1);
+    return cut.trimEnd() + '…';
+  });
+}
+
+/** The card: Get2Share, the event's name, the QR code, and the code to type in. Split out so it can be checked on its own. */
+export async function drawQrCard(canvas: HTMLCanvasElement, eventName: string, code: string, url: string, host: string): Promise<void> {
+  canvas.width = CARD_W;
+  canvas.height = CARD_H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No canvas');
+  const cx = CARD_W / 2;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, CARD_W, CARD_H);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  const expanded = (px: number) => {
+    ctx.font = `900 ${px}px Archivo, "Plus Jakarta Sans", system-ui, sans-serif`;
+    try { (ctx as any).fontStretch = 'expanded'; } catch { /* older browsers: regular width */ }
+  };
+  const plain = (px: number, weight = 700) => {
+    try { (ctx as any).fontStretch = 'normal'; } catch { /* ignore */ }
+    ctx.font = `${weight} ${px}px "Plus Jakarta Sans", system-ui, sans-serif`;
+  };
+
+  // Get2Share, centered.
+  expanded(64);
+  const get2 = ctx.measureText('Get2').width;
+  const share = ctx.measureText('Share').width;
+  const lx = cx - (get2 + share) / 2;
+  ctx.fillStyle = BLUE;
+  ctx.fillText('Get2', lx, 140);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Share', lx + get2, 140);
+
+  // The event's name: one line, or two smaller ones, between the lockup and the QR code.
+  const qrSize = 720;
+  const qrTop = 490;
+  const name = clean(eventName);
+  if (name) {
+    expanded(78);
+    let lines = wrapLines(ctx, name, CARD_W - 160, 1);
+    let lineH = 90;
+    if (ctx.measureText(name).width > CARD_W - 160) {
+      expanded(62);
+      lines = wrapLines(ctx, name, CARD_W - 160, 2);
+      lineH = 76;
+    }
+    const blockMid = (140 + qrTop) / 2 + 22;
+    let y = blockMid - ((lines.length - 1) * lineH) / 2;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    for (const l of lines) {
+      ctx.fillText(l, cx, y);
+      y += lineH;
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // The QR code on a white rounded square.
+  const qx = cx - qrSize / 2;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  if (typeof (ctx as any).roundRect === 'function') (ctx as any).roundRect(qx, qrTop, qrSize, qrSize, 48);
+  else ctx.rect(qx, qrTop, qrSize, qrSize);
+  ctx.fill();
+  const qr = document.createElement('canvas');
+  await QRCode.toCanvas(qr, url, { width: qrSize - 80, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } });
+  ctx.drawImage(qr, qx + 40, qrTop + 40, qrSize - 80, qrSize - 80);
+
+  // How to join.
+  ctx.textAlign = 'center';
+  plain(48, 800);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Scan to get the photos you\'re in', cx, qrTop + qrSize + 100);
+  plain(36, 600);
+  const pre = 'Or enter code ';
+  const mid = ` at ${host}`;
+  ctx.font = `600 36px "Plus Jakarta Sans", system-ui, sans-serif`;
+  const wPre = ctx.measureText(pre).width;
+  const wMid = ctx.measureText(mid).width;
+  ctx.font = `700 38px "JetBrains Mono", ui-monospace, monospace`;
+  const wCode = ctx.measureText(code).width;
+  let x = cx - (wPre + wCode + wMid) / 2;
+  const y = qrTop + qrSize + 168;
+  ctx.textAlign = 'left';
+  ctx.font = `600 36px "Plus Jakarta Sans", system-ui, sans-serif`;
+  ctx.fillStyle = '#A8A8B3';
+  ctx.fillText(pre, x, y);
+  x += wPre;
+  ctx.font = `700 38px "JetBrains Mono", ui-monospace, monospace`;
+  ctx.fillStyle = BLUE_LIGHT;
+  ctx.fillText(code, x, y);
+  x += wCode;
+  ctx.font = `600 36px "Plus Jakarta Sans", system-ui, sans-serif`;
+  ctx.fillStyle = '#A8A8B3';
+  ctx.fillText(mid, x, y);
+}
+
+/** The QR card as a PNG, ready to save, print or share. */
+export async function qrCardFile(eventName: string, code: string, url: string, host: string): Promise<File> {
+  try {
+    await Promise.all([
+      document.fonts.load('900 64px Archivo'),
+      document.fonts.load('800 48px "Plus Jakarta Sans"'),
+      document.fonts.load('600 36px "Plus Jakarta Sans"'),
+      document.fonts.load('700 38px "JetBrains Mono"'),
+    ]);
+  } catch { /* draw with whatever is there */ }
+  const canvas = document.createElement('canvas');
+  await drawQrCard(canvas, eventName, code, url, host);
+  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Could not make the QR card');
+  return new File([blob], `get2share-${slug(eventName)}-qr.png`, { type: 'image/png' });
+}
