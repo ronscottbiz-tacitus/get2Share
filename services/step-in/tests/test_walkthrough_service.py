@@ -415,6 +415,11 @@ def test_sweep_clears_up_after_a_deleted_event(world):
 
 
 # ------------------------------------------------------------------ redo
+def meter_without_plans(m):
+    """The meter, minus the price list (checked on its own in the pass tests)."""
+    return {k: v for k, v in m.items() if k != "plans"}
+
+
 def preview(world, **config):
     ready(world, **price(**config))
     r = world.create()
@@ -601,7 +606,7 @@ def test_photos_set_the_length_from_3_to_10(world):
 
 def test_free_account_gets_a_15_second_flow_and_one_redo(world):
     wid = preview(world)
-    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free", "access": True, "canRemoveEndCard": False}
+    assert meter_without_plans(world.svc.meter(uid="host1", eid="ev1")) == {"allowanceSeconds": 20, "usedSeconds": 15, "remainingSeconds": 5, "plan": "free", "access": True, "canRemoveEndCard": False}
     redo(world, wid, 0)
     world.svc.run("ev1", wid)
     assert world.svc.meter(uid="host1", eid="ev1")["remainingSeconds"] == 0
@@ -625,7 +630,7 @@ def test_paid_seconds_belong_to_the_event(world):
     world.db.collection("features").document("ev1").set({"flowSeconds": 60})
     r = world.create(photos=[f"p{i}" for i in range(7)])
     world.svc.run("ev1", r["id"])
-    assert world.svc.meter(uid="host1", eid="ev1") == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event", "access": True, "canRemoveEndCard": True}
+    assert meter_without_plans(world.svc.meter(uid="host1", eid="ev1")) == {"allowanceSeconds": 60.0, "usedSeconds": 30, "remainingSeconds": 30.0, "plan": "event", "access": True, "canRemoveEndCard": True}
     assert world.usage("meter-account-host1") == {}
 
 
@@ -704,7 +709,7 @@ def test_a_grant_gives_access_and_its_own_seconds(world):
     assert world.svc.meter(uid="host1", eid="ev1", grant_seconds=1000)["access"] is True
     r = grant_create(world, "a", 1000)
     world.svc.run("ev1", r["id"])
-    assert world.svc.meter(uid="host1", eid="ev1", grant_seconds=1000) == {
+    assert meter_without_plans(world.svc.meter(uid="host1", eid="ev1", grant_seconds=1000)) == {
         "allowanceSeconds": 1000.0, "usedSeconds": 45, "remainingSeconds": 955.0, "plan": "grant", "access": True, "canRemoveEndCard": False}
     assert world.usage("meter-account-host1") == {}
 
@@ -754,3 +759,70 @@ def test_a_redo_after_the_grant_ends_comes_off_free_seconds(world):
     world.svc.run("ev1", wid)
     assert world.usage("meter-grant-host1")["secondsUsed"] == 45
     assert world.usage("meter-account-host1")["secondsUsed"] == 5
+
+
+# ------------------------------------------------------------------ passes (paid event seconds)
+def buy(world, seconds, eid="ev1"):
+    world.db.collection("features").document(eid).set({"flowSeconds": seconds})
+
+
+def test_the_meter_carries_the_price_list(world):
+    ready(world)
+    plans = {p["id"]: p for p in world.svc.meter(uid="host1", eid="ev1")["plans"]}
+    assert plans["flowPass"] == {"id": "flowPass", "name": "Flow Pass", "usd": 15, "seconds": 100, "per": "event"}
+    assert plans["flowPassPlus"] == {"id": "flowPassPlus", "name": "Flow Pass Plus", "usd": 29, "seconds": 200, "per": "event"}
+    assert plans["pro"] == {"id": "pro", "name": "Pro", "usd": 49, "seconds": 400, "per": "month"}
+
+
+def test_a_price_or_amount_can_change_in_config(world):
+    ready(world, plans={"flowPass": {"usd": 12, "seconds": 120}, "pro": {"usd": "lots"}})
+    plans = {p["id"]: p for p in world.svc.meter(uid="host1", eid="ev1")["plans"]}
+    assert (plans["flowPass"]["usd"], plans["flowPass"]["seconds"]) == (12, 120)
+    assert plans["pro"]["usd"] == 49, "a bad value keeps the default"
+
+
+def test_paid_seconds_skip_the_video_and_redo_caps(world):
+    ready(world, limits={"videosPerEvent": 1, "videosPerHostPerMonth": 1, "redosPerEvent": 0, "redosPerHostPerMonth": 0})
+    world.add_event("ev1", count=12)
+    buy(world, 200)
+    first = world.create(rid="a")["id"]
+    world.svc.run("ev1", first)
+    second = world.create(rid="b")["id"]  # past both video caps
+    world.svc.run("ev1", second)
+    world.svc.redo(uid="host1", is_admin=False, eid="ev1", wid=second, clip_index=0)  # past both redo caps
+    world.svc.run("ev1", second)
+    assert world.svc.meter(uid="host1", eid="ev1")["usedSeconds"] == 35
+
+
+def test_paid_seconds_still_stop_at_what_was_bought(world):
+    ready(world, limits={"videosPerEvent": 99})
+    world.add_event("ev1", count=12)
+    buy(world, 20)
+    world.svc.run("ev1", world.create(rid="a")["id"])
+    with pytest.raises(ApiError) as e:
+        world.create(rid="b")
+    assert e.value.status == 429 and "seconds" in e.value.message
+
+
+def test_paid_seconds_are_not_stopped_by_the_monthly_budget(world):
+    ready(world, **price(budget={"monthlyUsd": 1}))  # $1.50 a video, over the $1 cap
+    world.add_event("ev1", count=12)
+    buy(world, 100)
+    wid = world.create()["id"]
+    assert world.svc.run("ev1", wid) == "preview"
+    assert world.budget() == {"reservedUsd": 0, "spentUsd": 1.5}, "still counted in the month's totals"
+
+
+def test_free_seconds_still_stop_at_the_monthly_budget(world):
+    ready(world, **price(budget={"monthlyUsd": 1}))
+    world.add_event("ev1", count=12)
+    with pytest.raises(ApiError) as e:
+        world.create()
+    assert e.value.message == MSG_BUDGET
+
+
+def test_two_passes_stack(world):
+    ready(world)
+    world.add_event("ev1", count=12)
+    buy(world, 100 + 100)
+    assert world.svc.meter(uid="host1", eid="ev1")["allowanceSeconds"] == 200
