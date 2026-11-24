@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Check, Download, Loader2, Play } from 'lucide-react';
+import { Check, Download, Loader2, Play, Share2 } from 'lucide-react';
 import { canShareFiles, downloadBlob, shareFiles } from '../savePhotos';
 import { useBackToClose } from '../useBackToClose';
 import { FLOW_ACCESS_LINK, Walkthrough, WALKTHROUGH_LABEL, walkthroughFile } from '../walkthrough';
@@ -12,7 +12,7 @@ export function WalkthroughLabel({ className = '' }: { className?: string }) {
 }
 
 /** The video itself. Silent, so controls never need to ask for sound. */
-export function WalkthroughVideo({ w, className = '' }: { w: Walkthrough; className?: string }) {
+export function WalkthroughVideo({ w, className = '', onPlay }: { w: Walkthrough; className?: string; onPlay?: () => void }) {
   return (
     <video
       key={w.videoUrl || ''}
@@ -22,6 +22,7 @@ export function WalkthroughVideo({ w, className = '' }: { w: Walkthrough; classN
       playsInline
       muted
       preload="metadata"
+      onPlay={onPlay}
       aria-label={`Walkthrough video. ${WALKTHROUGH_LABEL}`}
       className={`bg-black rounded-xl ${w.aspect === '9:16' ? 'aspect-[9/16]' : 'aspect-video'} ${className}`}
     />
@@ -53,9 +54,11 @@ export function WalkthroughCard({ w, onOpen }: { key?: string; w: Walkthrough; o
 }
 
 /**
- * Full screen for guests and hosts: the video, its label, and saving it. On a phone the file is
- * fetched on the first tap and handed over on the second, since the share sheet has to open
- * straight from a tap and this file is too big to fetch every time someone just watches.
+ * Full screen for guests and hosts: the video, its label, saving it and sharing it. A phone only
+ * opens the share sheet straight from a tap, so the file has to be in hand before the tap. It's
+ * too big to fetch for everyone who just looks, so it's fetched once someone presses play (or on
+ * their first tap, if they go straight for a button). The Flow already ends with the Get2Share
+ * card on free events, so the shared copy is the video as it is.
  */
 export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
   key?: string;
@@ -66,37 +69,56 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
 }) {
   useBackToClose(true, onClose);
   const [file, setFile] = useState<File | null>(null);
-  const [state, setState] = useState<'idle' | 'getting' | 'saved'>('idle');
+  const [getting, setGetting] = useState(false);
+  const [done, setDone] = useState<'' | 'saved' | 'shared'>('');
   const [note, setNote] = useState('');
+  const fetching = useRef<Promise<File | null> | null>(null);
+  // Phones can hand a video to other apps; most laptop browsers can't, so they only get Save (a download).
+  const [phone] = useState(() => {
+    try { return canShareFiles([new File([''], 'flow.mp4', { type: 'video/mp4' })]); } catch { return false; }
+  });
 
-  const handOver = async (f: File) => {
-    if (canShareFiles([f])) {
-      try {
-        if (await shareFiles([f])) setState('saved');
-      } catch {
-        setNote("Your phone didn't open the save sheet. Tap Save again.");
-      }
-    } else {
+  const prepare = () => {
+    if (!canSave) return Promise.resolve(null);
+    if (!fetching.current) {
+      setGetting(true);
+      fetching.current = walkthroughFile(eventName, w)
+        .then((f) => { setFile(f); return f; })
+        .catch(() => { fetching.current = null; return null; })
+        .finally(() => setGetting(false));
+    }
+    return fetching.current;
+  };
+
+  const handOver = async (f: File, how: 'saved' | 'shared') => {
+    if (!canShareFiles([f])) {
       downloadBlob(f, f.name);
-      setState('saved');
+      setDone('saved');
+      return;
+    }
+    try {
+      if (await shareFiles([f])) setDone(how);
+    } catch {
+      setNote(how === 'shared' ? "Your phone didn't open sharing. Tap Share again." : "Your phone didn't open the save sheet. Tap Save again.");
     }
   };
 
-  const save = async () => {
+  const act = async (how: 'saved' | 'shared') => {
     setNote('');
-    if (file) return handOver(file);
-    setState('getting');
-    try {
-      const f = await walkthroughFile(eventName, w);
-      setFile(f);
-      setState('idle');
-      if (!canShareFiles([f])) await handOver(f); // laptops can download right away
-      else setNote('Ready. Tap Save, then choose Save Video.');
-    } catch {
-      setState('idle');
+    if (file) return handOver(file, how);
+    const f = await prepare();
+    if (!f) {
       window.open(w.videoUrl!, '_blank', 'noopener'); // CORS not set, or a bad connection: press and hold there
+      return;
     }
+    if (!canShareFiles([f])) return handOver(f, how); // laptops can download right away
+    setNote(how === 'shared' ? 'Ready. Tap Share again.' : 'Ready. Tap Save, then choose Save Video.');
   };
+
+  const icon = (Icon: typeof Download, mine: boolean) =>
+    getting && !file ? <Loader2 className="w-[18px] h-[18px] animate-spin" aria-hidden="true" />
+      : mine ? <Check className="w-[18px] h-[18px]" aria-hidden="true" />
+      : <Icon className="w-[18px] h-[18px]" aria-hidden="true" />;
 
   return (
     <motion.div
@@ -110,7 +132,7 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
     >
       <div className="flex-1 min-h-0 flex items-center justify-center p-4 relative">
         <CloseButton onClick={onClose} className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80" />
-        <WalkthroughVideo w={w} className="max-w-full max-h-full" />
+        <WalkthroughVideo w={w} className="max-w-full max-h-full" onPlay={() => { prepare(); }} />
       </div>
       <div className="px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] border-t border-white/[0.08] bg-g2-panel flex flex-col gap-3 items-center">
         <WalkthroughLabel className="text-center text-[13px]" />
@@ -118,19 +140,32 @@ export default function WalkthroughPlayer({ w, eventName, canSave, onClose }: {
           Make one for your next event
         </a>
         {canSave && (
-          <button
-            type="button"
-            onClick={save}
-            disabled={state === 'getting'}
-            className="w-full max-w-sm h-12 rounded-xl border border-white/15 bg-white/5 hover:border-white/30 disabled:opacity-60 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer transition-colors"
-          >
-            {state === 'getting' ? <Loader2 className="w-[18px] h-[18px] animate-spin" aria-hidden="true" />
-              : state === 'saved' ? <Check className="w-[18px] h-[18px]" aria-hidden="true" />
-              : <Download className="w-[18px] h-[18px]" aria-hidden="true" />}
-            {state === 'getting' ? 'Getting it ready…' : state === 'saved' ? 'Saved' : 'Save to this device'}
-          </button>
+          <div className="w-full max-w-sm flex gap-2">
+            <button
+              type="button"
+              onClick={() => act('saved')}
+              disabled={getting && !file}
+              className="flex-1 h-12 rounded-xl border border-white/15 bg-white/5 hover:border-white/30 disabled:opacity-60 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer disabled:cursor-wait transition-colors"
+            >
+              {icon(Download, done === 'saved')}
+              {done === 'saved' ? 'Saved' : phone ? 'Save' : 'Save to this device'}
+            </button>
+            {phone && (
+              <button
+                type="button"
+                onClick={() => act('shared')}
+                disabled={getting && !file}
+                className="flex-1 h-12 rounded-xl bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-60 text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer disabled:cursor-wait transition-colors"
+              >
+                {icon(Share2, done === 'shared')}
+                {done === 'shared' ? 'Shared' : 'Share'}
+              </button>
+            )}
+          </div>
         )}
-        {note && <p className="text-[12px] text-g2-secondary" aria-live="polite">{note}</p>}
+        {(note || (getting && !file)) && (
+          <p className="text-[12px] text-g2-secondary" aria-live="polite">{note || 'Getting the video ready…'}</p>
+        )}
       </div>
     </motion.div>
   );
