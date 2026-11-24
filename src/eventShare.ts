@@ -147,28 +147,41 @@ export async function drawQrCard(canvas: HTMLCanvasElement, eventName: string, c
   plain(48, 800);
   ctx.fillStyle = '#fff';
   ctx.fillText('Scan to get the photos you\'re in', cx, qrTop + qrSize + 100);
-  plain(36, 600);
+  // "Or enter code CODE at HOST": one line if it fits, otherwise the address goes on a second line
+  // (shrunk if even that is too wide, as with a long preview address).
+  const maxW = CARD_W - 120;
+  const textFont = (px: number) => { plain(px, 600); };
+  const codeFont = (px: number) => { ctx.font = `700 ${px}px "JetBrains Mono", ui-monospace, monospace`; };
   const pre = 'Or enter code ';
-  const mid = ` at ${host}`;
-  ctx.font = `600 36px "Plus Jakarta Sans", system-ui, sans-serif`;
+  textFont(36);
   const wPre = ctx.measureText(pre).width;
-  const wMid = ctx.measureText(mid).width;
-  ctx.font = `700 38px "JetBrains Mono", ui-monospace, monospace`;
+  const wAt = ctx.measureText(` at ${host}`).width;
+  codeFont(38);
   const wCode = ctx.measureText(code).width;
-  let x = cx - (wPre + wCode + wMid) / 2;
   const y = qrTop + qrSize + 168;
   ctx.textAlign = 'left';
-  ctx.font = `600 36px "Plus Jakarta Sans", system-ui, sans-serif`;
+  const oneLine = wPre + wCode + wAt <= maxW;
+  let x = cx - (wPre + wCode + (oneLine ? wAt : 0)) / 2;
+  textFont(36);
   ctx.fillStyle = '#A8A8B3';
   ctx.fillText(pre, x, y);
   x += wPre;
-  ctx.font = `700 38px "JetBrains Mono", ui-monospace, monospace`;
+  codeFont(38);
   ctx.fillStyle = BLUE_LIGHT;
   ctx.fillText(code, x, y);
   x += wCode;
-  ctx.font = `600 36px "Plus Jakarta Sans", system-ui, sans-serif`;
   ctx.fillStyle = '#A8A8B3';
-  ctx.fillText(mid, x, y);
+  if (oneLine) {
+    textFont(36);
+    ctx.fillText(` at ${host}`, x, y);
+  } else {
+    const at = `at ${host}`;
+    let px = 36;
+    textFont(px);
+    while (px > 20 && ctx.measureText(at).width > maxW) textFont(--px);
+    ctx.textAlign = 'center';
+    ctx.fillText(at, cx, y + 54);
+  }
 }
 
 /** The QR card as a PNG, ready to save, print or share. */
