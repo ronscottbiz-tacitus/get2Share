@@ -1,6 +1,7 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-24: no limit on co-hosts (was the owner plus 10). Loosens a check only.
 // Version 2026-11-19: "shareFrame" on the event: the strip on shared photos. Any host can set
 //   it, but only an event with paid Flow time or Pro (features/{eid}) may turn it off. Additive.
 // Version 2026-11-18b: "flowCohosts" on the event: the owner lets co-hosts make Flow videos.
@@ -223,7 +224,7 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && (!('subtitle' in d) || (d.subtitle is string && d.subtitle.size() <= 200))
         && d.ownerUid is string
-        && d.hostUids is list && d.hostUids.size() >= 1 && d.hostUids.size() <= 11
+        && d.hostUids is list && d.hostUids.size() >= 1
         && d.ownerUid in d.hostUids
         && isCode(d.joinCode)
         && d.access in ['link', 'list']
