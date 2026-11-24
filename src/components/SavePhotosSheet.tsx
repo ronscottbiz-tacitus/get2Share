@@ -5,7 +5,7 @@ import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 import CloseButton from './CloseButton';
 import { useBackToClose } from '../useBackToClose';
-import { SHARE_BATCH, canShareFiles, downloadBlob, photoFile, shareFiles, zipFiles } from '../savePhotos';
+import { SHARE_BATCH, downloadBlob, photoFile, saveViaShareSheet, shareFiles, zipFiles } from '../savePhotos';
 
 interface SavePhotosSheetProps {
   key?: string; // no @types/react here, so JSX needs this spelled out
@@ -49,7 +49,7 @@ export default function SavePhotosSheet({ photos, what, onClose }: SavePhotosShe
     })();
   }, []);
 
-  const phone = ready && files.length > 0 && canShareFiles(files.slice(0, 1));
+  const phone = ready && files.length > 0 && saveViaShareSheet(files.slice(0, 1));
   const batches: File[][] = [];
   for (let i = 0; i < files.length; i += SHARE_BATCH) batches.push(files.slice(i, i + SHARE_BATCH));
 
