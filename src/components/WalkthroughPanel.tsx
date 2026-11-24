@@ -120,9 +120,11 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
         </div>
       )}
 
-      {/* Passes: on events without paid seconds, and on paid events once they run out (passes stack). */}
-      {canMake && canSpend && meter?.plans && (meter.plan !== 'event' || outOfSeconds) && (
-        <PassOffer plans={meter.plans} eventName={event.name} eventId={event.id} topUp={meter.plan === 'event'} />
+      {/* Passes stack, so a host can add seconds any time. An event with paid seconds left gets a
+          slim row that opens the passes; one without, or one that ran out, sees them open. */}
+      {canMake && canSpend && meter?.plans && (
+        <PassOffer plans={meter.plans} eventName={event.name} eventId={event.id}
+          topUp={meter.plan === 'event'} startOpen={meter.plan !== 'event' || outOfSeconds} />
       )}
 
       <AnimatePresence>
@@ -133,10 +135,30 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
 }
 
 /** Flow Pass and Flow Pass Plus for this event, and Pro. Checkout is next: for now a pass is an email. */
-function PassOffer({ plans, eventName, eventId, topUp }: { plans: FlowPlan[]; eventName: string; eventId: string; topUp: boolean }) {
+function PassOffer({ plans, eventName, eventId, topUp, startOpen }: {
+  plans: FlowPlan[]; eventName: string; eventId: string; topUp: boolean; startOpen: boolean;
+}) {
   const passes = plans.filter((p) => p.per === 'event');
   const pro = plans.find((p) => p.per === 'month');
+  const [open, setOpen] = useState(startOpen);
+  useEffect(() => { if (startOpen) setOpen(true); }, [startOpen]); // ran out: show the passes
   if (passes.length === 0) return null;
+  if (!open) {
+    const from = Math.min(...passes.map((p) => p.usd));
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full h-11 px-3.5 rounded-xl border border-white/10 bg-black/20 hover:border-white/25 flex items-center justify-between gap-3 text-left cursor-pointer transition-colors"
+      >
+        <span className="text-[13px] font-bold text-white">Add more Flow seconds</span>
+        <span className="flex items-center gap-1 text-[12px] text-g2-tertiary">
+          from ${from}
+          <ChevronDown className="w-4 h-4" aria-hidden="true" />
+        </span>
+      </button>
+    );
+  }
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3.5 space-y-3">
       <div>
