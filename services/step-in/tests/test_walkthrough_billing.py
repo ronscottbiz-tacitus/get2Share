@@ -287,3 +287,27 @@ def test_a_broken_checkout_still_answers_the_app(world):
     c = TestClient(build_api(lambda: world.svc, verify, origins=ORIGINS, origin_regex=REGEX, billing_factory=broken))
     r = c.post("/checkout", json={"eventId": "ev1", "planId": "flowPass", "returnUrl": RETURN}, headers={"Authorization": "Bearer host"})
     assert r.status_code == 502 and "Checkout" in r.json()["detail"]
+
+
+# ------------------------------------------------------------------ the real Stripe library
+def real_signed(payload: bytes, secret: str):
+    import hashlib
+    import hmac
+    import time
+    ts = int(time.time())
+    sig = hmac.new(secret.encode(), f"{ts}.".encode() + payload, hashlib.sha256).hexdigest()
+    return f"t={ts},v1={sig}"
+
+
+def test_a_real_stripe_signed_notice_adds_the_seconds(world):
+    """With the real stripe library: its objects aren't dicts, which the fake hid."""
+    import stripe as real_stripe
+    world.configure(checkout=True)
+    b = Billing(db=world.db, run_tx=world.svc.d.run_tx, stripe=real_stripe, secret_key="sk_test_abc", webhook_secret="whsec_real",
+                config=lambda: parse_config(world.db.collection("config").document("walkthrough").get().to_dict()),
+                return_ok=return_checker(ORIGINS, REGEX), server_time="now", log=lambda *_: None)
+    body = paid(seconds="200", plan="flowPassPlus")
+    assert b.handle_webhook(body, real_signed(body, "whsec_real")) == {"ok": True, "added": True}
+    assert flow_seconds(world) == 200
+    with pytest.raises(ApiError):
+        b.handle_webhook(body, real_signed(body, "whsec_wrong"))

@@ -12,6 +12,7 @@ Checkout is offered only when both are set and config/walkthrough.checkout is tr
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any, Callable
@@ -128,10 +129,12 @@ class Billing:
         if not self.webhook_secret:
             raise ApiError(503, "Webhooks aren't set up.")
         try:
-            event = self.stripe.Webhook.construct_event(payload, signature, self.webhook_secret)
+            self.stripe.Webhook.construct_event(payload, signature, self.webhook_secret)
+            # Signed by Stripe. Read it as plain data: the library's objects aren't dicts.
+            event = json.loads(payload.decode("utf-8") if isinstance(payload, (bytes, bytearray)) else payload)
         except Exception:  # a bad signature or a body that isn't Stripe's
             raise ApiError(400, "That didn't come from Stripe.")
-        kind = event["type"]
+        kind = event.get("type")
         if kind not in PAID_EVENTS:
             return {"ok": True, "ignored": kind}
         session = event["data"]["object"]
