@@ -142,6 +142,7 @@ class Config:
     monthly_budget_usd: float = DEFAULT_MONTHLY_BUDGET_USD
     prices: dict = field(default_factory=lambda: dict(DEFAULT_PRICES))
     plans: tuple = tuple(dict(p) for p in DEFAULT_PLANS)
+    checkout: bool = False  # Stripe Checkout for passes (walkthrough/billing.py); only a literal true
     prompt: str = DEFAULT_PROMPT
     styles: dict = field(default_factory=lambda: dict(DEFAULT_STYLES))
     slowdown: tuple = ()     # per clip; a clip with no entry plays at normal speed
@@ -236,6 +237,7 @@ def parse_config(data: dict | None) -> Config:
 
     return Config(
         plans=tuple(plans),
+        checkout=d.get("checkout") is True,
         styles=styles,
         min_photos=min_photos,
         max_photos=max_photos,

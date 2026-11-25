@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Loader2, Monitor, RefreshCw, Smartphone, Trash2,
@@ -8,7 +8,7 @@ import { useEvent } from '../EventContext';
 import { Photo } from '../types';
 import { useBackToClose } from '../useBackToClose';
 import {
-  approveWalkthrough, canMakeWalkthrough, canSpendFlow, clipsDone, createWalkthrough, deleteWalkthrough, FLOW_STYLES, FlowMeter, FlowPlan, flowSeconds, FlowStyleId, flowStyleName, getFlowMeter,
+  approveWalkthrough, canMakeWalkthrough, canSpendFlow, clipsDone, createWalkthrough, deleteWalkthrough, FLOW_STYLES, FlowMeter, FlowPlan, flowSeconds, FlowStyleId, flowStyleName, getCheckoutStatus, getFlowMeter, startFlowCheckout,
   redoWalkthroughClip, setFlowLabel, unpublishWalkthrough, useHostWalkthroughs, useWalkthroughConfig, Walkthrough, WalkthroughAspect, walkthroughBusy,
   WalkthroughConfig, WALKTHROUGH_NOTICE, walkthroughSlow,
 } from '../walkthrough';
@@ -20,6 +20,17 @@ import { WalkthroughLabel, WalkthroughVideo } from './WalkthroughPlayer';
 const primary = 'h-12 rounded-xl bg-g2-blue hover:bg-g2-blue-hover disabled:opacity-40 disabled:hover:bg-g2-blue text-white font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed transition-colors';
 const secondary = 'h-11 rounded-xl border border-white/15 bg-white/5 hover:border-white/30 disabled:opacity-40 text-white font-bold text-[13px] flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed transition-colors';
 const danger = 'h-11 rounded-xl border border-red-400/30 text-red-300 hover:bg-red-500/10 disabled:opacity-40 font-bold text-[13px] flex items-center justify-center gap-1.5 cursor-pointer transition-colors';
+
+// Back from Stripe: share.get2.one/host/<event>?pass=done&session=… or ?pass=cancelled. Read once,
+// when the page loads, because the Console can mount this panel more than once while it loads.
+const STRIPE_RETURN = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return { pass: q.get('pass'), session: q.get('session') || '', path: window.location.pathname };
+  } catch {
+    return { pass: null, session: '', path: '' };
+  }
+})();
 
 /** Host Console: make a Flow video, follow it, preview it, approve it, take it down. */
 export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
@@ -37,12 +48,55 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const newest = rows[0]?.id ?? null;
   useEffect(() => { setOpenId(null); }, [newest]);
+  const [bump, setBump] = useState(0); // fetch the meter again (a pass just landed)
   useEffect(() => {
     if (!isEventHost || !config.enabled) return;
     let on = true;
     getFlowMeter(event.id).then((m) => { if (on) setMeter(m); }).catch(() => { if (on) setMeter(null); });
     return () => { on = false; };
-  }, [event.id, isEventHost, config.enabled, stamp]);
+  }, [event.id, isEventHost, config.enabled, stamp, bump]);
+
+  // Back from Stripe (see STRIPE_RETURN): wait for the payment's seconds to land. Only on the page
+  // Stripe sent the host back to, not on another event's Console later.
+  const [back] = useState(() => (STRIPE_RETURN.path === window.location.pathname ? STRIPE_RETURN : { pass: null, session: '' }));
+  const [passNote, setPassNote] = useState<{ tone: 'ok' | 'wait' | 'info'; text: string } | null>(null);
+  useEffect(() => {
+    if (!back.pass) return;
+    const q = new URLSearchParams(window.location.search);
+    q.delete('pass');
+    q.delete('session');
+    const rest = q.toString();
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+  }, [back]);
+  useEffect(() => {
+    if (!isEventHost || !back.pass) return;
+    if (back.pass === 'cancelled') {
+      setPassNote({ tone: 'info', text: "Checkout cancelled. You weren't charged." });
+      return;
+    }
+    if (back.pass !== 'done' || !back.session) return;
+    setPassNote({ tone: 'wait', text: 'Payment received. Adding your seconds…' });
+    let on = true;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
+      tries += 1;
+      try {
+        const s = await getCheckoutStatus(event.id, back.session);
+        if (!on) return;
+        if (s.done) {
+          setPassNote({ tone: 'ok', text: s.seconds ? `${s.seconds} seconds added to this event.` : 'Your seconds are in.' });
+          setBump((b) => b + 1);
+          return;
+        }
+      } catch { /* try again */ }
+      if (!on) return;
+      if (tries < 20) timer = setTimeout(check, 2000);
+      else setPassNote({ tone: 'info', text: "Your payment went through, but the seconds haven't shown up yet. Refresh in a minute, or email ron@get2studio.com." });
+    };
+    check();
+    return () => { on = false; clearTimeout(timer); };
+  }, [back, event.id, isEventHost]);
 
   // A host can always manage a video they have, even with the feature off.
   if (!canMake && rows.length === 0) return null;
@@ -61,6 +115,20 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
       </h3>
 
       {canMake && meter && <MeterBar meter={meter} />}
+
+      {passNote && (
+        <p
+          role="status"
+          className={`px-3.5 py-2.5 rounded-lg text-[13px] leading-relaxed border ${
+            passNote.tone === 'ok' ? 'bg-emerald-400/10 border-emerald-400/30 text-emerald-100'
+              : passNote.tone === 'wait' ? 'bg-g2-blue/10 border-g2-blue/40 text-white'
+              : 'bg-white/5 border-white/10 text-g2-secondary'
+          }`}
+        >
+          {passNote.tone === 'wait' && <Loader2 className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5 animate-spin" aria-hidden="true" />}
+          {passNote.text}
+        </p>
+      )}
 
       {rows.length === 0 && (
         <p className="text-[13px] leading-relaxed text-g2-secondary">
@@ -124,7 +192,8 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
           slim row that opens the passes; one without, or one that ran out, sees them open. */}
       {canMake && canSpend && meter?.plans && (
         <PassOffer plans={meter.plans} eventName={event.name} eventId={event.id}
-          topUp={meter.plan === 'event'} startOpen={meter.plan !== 'event' || outOfSeconds} />
+          topUp={meter.plan === 'event'} startOpen={meter.plan !== 'event' || outOfSeconds}
+          checkout={meter.checkout === true} checkoutTest={meter.checkoutTest === true} />
       )}
 
       <AnimatePresence>
@@ -135,12 +204,34 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
 }
 
 /** Flow Pass and Flow Pass Plus for this event, and Pro. Checkout is next: for now a pass is an email. */
-function PassOffer({ plans, eventName, eventId, topUp, startOpen }: {
+function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, checkoutTest }: {
   plans: FlowPlan[]; eventName: string; eventId: string; topUp: boolean; startOpen: boolean;
+  checkout: boolean; checkoutTest: boolean;
 }) {
   const passes = plans.filter((p) => p.per === 'event');
   const pro = plans.find((p) => p.per === 'month');
   const [open, setOpen] = useState(startOpen);
+  const [buying, setBuying] = useState('');
+  const [error, setError] = useState('');
+  const buy = async (p: FlowPlan) => {
+    setError('');
+    setBuying(p.id);
+    try {
+      await startFlowCheckout(eventId, p.id); // leaves the page for Stripe
+    } catch (e: any) {
+      setError(e?.message || "Couldn't open checkout. Try again.");
+      setBuying('');
+    }
+  };
+  const card = 'rounded-xl border border-white/15 bg-white/5 hover:border-g2-blue p-3 flex flex-col text-left transition-colors';
+  const inside = (p: FlowPlan, cta: React.ReactNode) => (
+    <>
+      <span className="text-[12px] font-bold text-g2-secondary">{p.name}</span>
+      <span className="mt-1 font-expanded font-black text-[22px] leading-none text-white">${p.usd}</span>
+      <span className="mt-1.5 text-[12px] font-bold text-g2-blue-light">{p.seconds} seconds</span>
+      <span className="mt-2 text-[11px] font-bold text-white underline underline-offset-2">{cta}</span>
+    </>
+  );
   useEffect(() => { if (startOpen) setOpen(true); }, [startOpen]); // ran out: show the passes
   if (passes.length === 0) return null;
   if (!open) {
@@ -170,22 +261,35 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen }: {
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        {passes.map((p) => (
-          <a
-            key={p.id}
-            href={passRequestLink(p, eventName, eventId)}
-            className="rounded-xl border border-white/15 bg-white/5 hover:border-g2-blue p-3 flex flex-col transition-colors"
-          >
-            <span className="text-[12px] font-bold text-g2-secondary">{p.name}</span>
-            <span className="mt-1 font-expanded font-black text-[22px] leading-none text-white">${p.usd}</span>
-            <span className="mt-1.5 text-[12px] font-bold text-g2-blue-light">{p.seconds} seconds</span>
-            <span className="mt-2 text-[11px] font-bold text-white underline underline-offset-2">Ask for this pass</span>
+        {passes.map((p) => checkout ? (
+          <button key={p.id} type="button" onClick={() => buy(p)} disabled={!!buying}
+            className={`${card} cursor-pointer disabled:opacity-60 disabled:cursor-wait`}>
+            {inside(p, buying === p.id
+              ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />Opening checkout…</span>
+              : 'Buy this pass')}
+          </button>
+        ) : (
+          <a key={p.id} href={passRequestLink(p, eventName, eventId)} className={card}>
+            {inside(p, 'Ask for this pass')}
           </a>
         ))}
       </div>
-      <p className="text-[11px] leading-relaxed text-g2-muted">
-        Paying in the app is next. For now, tapping a pass emails us, and we add the seconds to this event.
-      </p>
+      {error && <p className="text-[12px] text-red-300" aria-live="polite">{error}</p>}
+      {checkout ? (
+        <p className="text-[11px] leading-relaxed text-g2-muted">
+          Secure checkout by Stripe. The seconds land on this event as soon as you pay.
+        </p>
+      ) : (
+        <p className="text-[11px] leading-relaxed text-g2-muted">
+          Paying in the app is next. For now, tapping a pass emails us, and we add the seconds to this event.
+        </p>
+      )}
+      {checkoutTest && (
+        <p className="text-[11px] leading-relaxed text-amber-200 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span className="h-5 px-2 inline-flex items-center rounded-full border border-amber-300/40 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase">Test mode</span>
+          <span>Only admins see this. Pay with card 4242 4242 4242 4242, any future date, any CVC.</span>
+        </p>
+      )}
       {pro && (
         <p className="text-[11px] leading-relaxed text-g2-tertiary flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <span>Host often? <span className="font-bold text-g2-secondary">{pro.name}</span>: ${pro.usd} a month with {pro.seconds} seconds.</span>

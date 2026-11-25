@@ -5,3 +5,4 @@ pillow
 requests
 fastapi[standard]
 httpx
+stripe==17.1.0

@@ -16,12 +16,16 @@ def may_spend(uid: str, event: dict | None, is_admin: bool) -> bool:
 from typing import Callable
 
 
-def build_api(service_factory: Callable, verify: Callable, *, origins: list[str], origin_regex: str | None = None):
+MSG_OWNER_BUYS = "Only this event's owner can buy passes for it."
+
+
+def build_api(service_factory: Callable, verify: Callable, *, origins: list[str], origin_regex: str | None = None,
+              billing_factory: Callable | None = None):
     """verify(id_token, event_id) -> (uid, event, is_admin), (uid, event, is_admin, grant_seconds) or
     (uid, event, is_admin, grant_seconds, real_admin), raising PermissionError with a message the
     app can show. is_admin opens the feature (an invited host counts); real_admin is a Get2Share
     admin and nothing less. Without it, is_admin stands in."""
-    from fastapi import FastAPI, Header, HTTPException
+    from fastapi import FastAPI, Header, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
 
@@ -82,6 +86,15 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
     class Meter(BaseModel):
         eventId: str
 
+    class Checkout(BaseModel):
+        eventId: str
+        planId: str
+        returnUrl: str
+
+    class CheckoutStatus(BaseModel):
+        eventId: str
+        sessionId: str
+
     @web.post("/create")
     def create(req: Create, authorization: str = Header(default="")):
         uid, event, is_admin, grant = spender(authorization, req.eventId)
@@ -105,8 +118,42 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
 
     @web.post("/meter")
     def meter(req: Meter, authorization: str = Header(default="")):
-        uid, _, is_admin, grant, _ = signed_in(authorization, req.eventId)
-        return answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin, grant_seconds=grant))
+        uid, _, is_admin, grant, real_admin = signed_in(authorization, req.eventId)
+        m = answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin, grant_seconds=grant))
+        # Whether the app shows Buy buttons (Stripe Checkout) or the email fallback.
+        return {**m, **(billing_factory().offer(real_admin) if billing_factory else {"checkout": False, "checkoutTest": False})}
+
+    # ---- Buying passes (walkthrough/billing.py)
+    @web.post("/checkout")
+    def checkout(req: Checkout, authorization: str = Header(default="")):
+        uid, event, _, _, real_admin = signed_in(authorization, req.eventId)
+        if not billing_factory:
+            raise HTTPException(403, "Buying passes isn't open yet.")
+        if not (real_admin or (event or {}).get("ownerUid") == uid):
+            raise HTTPException(403, MSG_OWNER_BUYS)
+        try:
+            return answering(lambda: billing_factory().create_checkout(
+                uid=uid, real_admin=real_admin, eid=req.eventId, event=event, plan_id=req.planId, return_url=req.returnUrl))
+        except HTTPException:
+            raise
+        except Exception as e:  # always answer, so the app shows a reason instead of "couldn't reach"
+            print(f"/checkout failed: {e!r}")
+            raise HTTPException(502, "Checkout isn't working right now. Try again in a minute.")
+
+    @web.post("/checkout/status")
+    def checkout_status(req: CheckoutStatus, authorization: str = Header(default="")):
+        signed_in(authorization, req.eventId)
+        if not billing_factory:
+            return {"done": False}
+        return answering(lambda: billing_factory().status(eid=req.eventId, session_id=req.sessionId))
+
+    @web.post("/stripe/webhook")
+    async def stripe_webhook(request: Request, stripe_signature: str = Header(default="")):
+        # No sign-in here: Stripe calls this, and the signature check in billing is the guard.
+        if not billing_factory:
+            raise HTTPException(503, "Webhooks aren't set up.")
+        payload = await request.body()
+        return answering(lambda: billing_factory().handle_webhook(payload, stripe_signature))
 
     @web.post("/approve")
     def approve(req: One, authorization: str = Header(default="")):
