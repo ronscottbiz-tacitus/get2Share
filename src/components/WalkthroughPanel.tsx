@@ -14,6 +14,7 @@ import {
   WalkthroughConfig, WALKTHROUGH_NOTICE, walkthroughSlow,
 } from '../walkthrough';
 import { passRequestLink } from '../flowAccess';
+import { REFUNDS_PATH, TERMS_PATH } from '../legal';
 import CloseButton from './CloseButton';
 import VideoBird from './VideoBird';
 import { WalkthroughLabel, WalkthroughVideo } from './WalkthroughPlayer';
@@ -356,7 +357,9 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
       {error && <p className="text-[12px] text-red-300" aria-live="polite">{error}</p>}
       {checkout ? (
         <p className="text-[11px] leading-relaxed text-g2-muted">
-          Secure checkout by Stripe. It applies to this event as soon as you pay.
+          Secure checkout by Stripe. It applies to this event as soon as you pay. By buying, you agree to
+          the <a href={TERMS_PATH} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-white">terms</a> and
+          the <a href={REFUNDS_PATH} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-white">refund policy</a>.
         </p>
       ) : (
         <p className="text-[11px] leading-relaxed text-g2-muted">

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CONTACT_EMAIL, PRIVACY_PATH, REFUNDS_PATH, TERMS_PATH } from '../legal';
 import { ArrowRight, Camera, Play } from 'lucide-react';
 import GroupShotIcon from './GroupShotIcon';
 import Get2ShareLockup from './Get2ShareLockup';
@@ -198,6 +199,12 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
         <p className="mt-4 text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
           A Get2 product · share.get2.one
         </p>
+        <nav aria-label="Policies" className="mt-2 flex justify-center gap-4 text-[12px] text-g2-tertiary">
+          <a href={TERMS_PATH} className="hover:text-white underline underline-offset-2">Terms</a>
+          <a href={PRIVACY_PATH} className="hover:text-white underline underline-offset-2">Privacy</a>
+          <a href={REFUNDS_PATH} className="hover:text-white underline underline-offset-2">Refunds</a>
+          <a href={`mailto:${CONTACT_EMAIL}`} className="hover:text-white underline underline-offset-2">Contact</a>
+        </nav>
       </div>
     </main>
   );
