@@ -363,7 +363,7 @@ def test_each_checkout_says_what_it_upgrades(world):
     b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={"name": "Sam's 40th"}, plan_id="bigEvent", return_url=RETURN)
     party, big = stripe.sessions
     pp, bp = (s["line_items"][0]["price_data"] for s in (party, big))
-    assert pp["unit_amount"] == 1000 and pp["product_data"]["name"] == "Party upgrade, with 20 more seconds of Flow"
+    assert pp["unit_amount"] == 1000 and pp["product_data"]["name"] == "Party upgrade, with 20 seconds of Flow"
     assert "Sam's 40th" in pp["product_data"]["description"] and "up to 100 guests" in pp["product_data"]["description"]
     assert bp["unit_amount"] == 2900 and bp["product_data"]["name"] == "Big Event upgrade, with 100 seconds of Flow"
     assert "unlimited guests" in bp["product_data"]["description"] and "one-year album" in bp["product_data"]["description"]

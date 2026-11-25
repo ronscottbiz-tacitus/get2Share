@@ -127,7 +127,7 @@ class Billing:
 
     def _create_session(self, cents, plan, seconds_text, name, eid, metadata, return_url):
         if metadata.get("tier") in TIER_ABOUT:
-            more = " more" if metadata.get("stepUp") or metadata["tier"] == "party" else ""
+            more = " more" if metadata.get("stepUp") else ""
             title = f"{plan['name']} upgrade{' (from Party)' if metadata.get('stepUp') else ''}, with {seconds_text}{more} seconds of Flow"
             about = f'Upgrades "{name}" on Get2Share: {TIER_ABOUT[metadata["tier"]]}'
         else:

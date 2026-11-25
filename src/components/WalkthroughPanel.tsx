@@ -86,7 +86,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
         if (!on) return;
         if (s.done) {
           setPassNote({ tone: 'ok', text: s.planId === 'party'
-            ? `This event is upgraded to Party${s.seconds ? `, with ${s.seconds} more seconds of Flow` : ''}.`
+            ? `This event is upgraded to Party${s.seconds ? `, with ${s.seconds} seconds of Flow` : ''}.`
             : s.planId === 'bigEvent'
               ? `This is now a Big Event${s.seconds ? `, with ${s.seconds} more seconds of Flow` : ''}.`
               : s.seconds ? `${s.seconds} seconds added to this event.` : 'Your seconds are in.' });
@@ -211,7 +211,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
 const TIER_COPY: Record<'party' | 'big', { blurb: string; stepUp?: string; perks: (p: FlowPlan) => string[] }> = {
   party: {
     blurb: 'For the party that got bigger than planned.',
-    perks: (p) => ['Up to 100 guests', '3 Share Spots and 3 TVs', 'The album kept 6 months', `${p.seconds} more seconds of Flow`],
+    perks: (p) => ['Up to 100 guests', '3 Share Spots and 3 TVs', 'The album kept 6 months', `${p.seconds} seconds of Flow`],
   },
   big: {
     blurb: 'For weddings, work events and anything over 100 guests.',
