@@ -19,18 +19,27 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from .config import Config
-from .service import ApiError, is_upgraded
+from .service import TIERS, ApiError, event_tier, offered_plans
 
 PURCHASES = "flowPurchases"
 PAID_EVENTS = ("checkout.session.completed", "checkout.session.async_payment_succeeded")
 MSG_CLOSED = "Buying passes isn't open yet. Tap the pass to email us instead."
 MSG_NOT_FOR_SALE = "That pass isn't for sale here."
 MSG_BAD_RETURN = "This page can't start a checkout."
-MSG_ALREADY_UPGRADED = "This event is already upgraded."
+MSG_ALREADY_UPGRADED = "This event already has that upgrade."
+# What each upgrade does, on Stripe's page and the receipt.
+TIER_ABOUT = {
+    "party": "up to 100 guests, 3 Share Spots and 3 TVs, a six-month album",
+    "big": "unlimited guests, 5 Share Spots and 5 TVs, a one-year album, no branding",
+}
 
 
 def _dict(snap) -> dict:
     return (snap.to_dict() or {}) if snap.exists else {}
+
+
+def _whole(x):
+    return int(x) if float(x).is_integer() else x
 
 
 def _seconds(value) -> float | None:
@@ -83,23 +92,29 @@ class Billing:
                         return_url: str) -> dict:
         if not self.available(real_admin):
             raise ApiError(403, MSG_CLOSED)
-        plan = next((p for p in self.config().plans if p["id"] == plan_id), None)
+        cfg = self.config()
+        plan = next((p for p in cfg.plans if p["id"] == plan_id), None)
         if not plan or plan.get("per") != "event":
             raise ApiError(400, MSG_NOT_FOR_SALE)
         if not self.return_ok(return_url):
             raise ApiError(400, MSG_BAD_RETURN)
-        upgrade = plan.get("upgrade") is True
-        if upgrade and not (self.config().upgrade or real_admin):  # not on sale yet
-            raise ApiError(400, MSG_NOT_FOR_SALE)
-        if upgrade and is_upgraded(_dict(self.db.collection("features").document(eid).get())):
-            raise ApiError(400, MSG_ALREADY_UPGRADED)
+        tier = plan.get("tier")
+        if tier:
+            if tier not in TIERS or not (cfg.upgrade or real_admin):  # not on sale yet
+                raise ApiError(400, MSG_NOT_FOR_SALE)
+            have = event_tier(_dict(self.db.collection("features").document(eid).get()))
+            plan = next((p for p in offered_plans(cfg.plans, have) if p["id"] == plan_id), None)
+            if not plan:
+                raise ApiError(400, MSG_ALREADY_UPGRADED)
         cents = int(round(float(plan["usd"]) * 100))
         seconds = plan["seconds"]
         seconds_text = int(seconds) if float(seconds).is_integer() else seconds
         name = str((event or {}).get("name") or "your event")[:80]
         metadata = {"eventId": eid, "planId": plan["id"], "seconds": str(seconds), "uid": uid}
-        if upgrade:
-            metadata["upgrade"] = "1"
+        if tier:
+            metadata["tier"] = tier
+            if plan.get("stepUp"):
+                metadata["stepUp"] = "1"
         try:
             session = self._create_session(cents, plan, seconds_text, name, eid, metadata, return_url)
         except ApiError:
@@ -111,9 +126,10 @@ class Billing:
         return {"url": session["url"] if isinstance(session, dict) else session.url}
 
     def _create_session(self, cents, plan, seconds_text, name, eid, metadata, return_url):
-        if metadata.get("upgrade") == "1":
-            title = f"{plan['name']}, with {seconds_text} seconds of Flow"
-            about = f'Upgrades "{name}" on Get2Share: unlimited guests, 5 Share Spots and 5 TVs, a one-year album, no branding'
+        if metadata.get("tier") in TIER_ABOUT:
+            more = " more" if metadata.get("stepUp") or metadata["tier"] == "party" else ""
+            title = f"{plan['name']} upgrade{' (from Party)' if metadata.get('stepUp') else ''}, with {seconds_text}{more} seconds of Flow"
+            about = f'Upgrades "{name}" on Get2Share: {TIER_ABOUT[metadata["tier"]]}'
         else:
             title = f"{plan['name']}: {seconds_text} seconds of Flow"
             about = f'AI video seconds for "{name}" on Get2Share'
@@ -174,8 +190,14 @@ class Billing:
             had = had if isinstance(had, (int, float)) and not isinstance(had, bool) and had > 0 else 0
             total = had + seconds
             new_feat = {**feat, "flowSeconds": int(total) if float(total).is_integer() else total}
-            if md.get("upgrade") == "1":
-                new_feat.update(upgraded=True, upgradedAt=self.server_time)
+            tier = md.get("tier")
+            if tier in TIERS[1:]:
+                # Never down a tier. Included seconds aren't a Flow Pass (see can_remove_end_card).
+                have = event_tier(feat)
+                included = feat.get("includedSeconds")
+                included = included if isinstance(included, (int, float)) and not isinstance(included, bool) else 0
+                new_feat.update(tier=max(have, tier, key=TIERS.index), upgraded=True, upgradedAt=self.server_time,
+                                includedSeconds=_whole(included + seconds))
             tx.set(features_ref, new_feat)
             tx.set(purchase_ref, {
                 "eventId": eid,

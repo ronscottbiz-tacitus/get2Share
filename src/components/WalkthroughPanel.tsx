@@ -85,9 +85,11 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
         const s = await getCheckoutStatus(event.id, back.session);
         if (!on) return;
         if (s.done) {
-          setPassNote({ tone: 'ok', text: s.planId === 'eventUpgrade'
-            ? `This event is upgraded${s.seconds ? `, with ${s.seconds} seconds of Flow` : ''}.`
-            : s.seconds ? `${s.seconds} seconds added to this event.` : 'Your seconds are in.' });
+          setPassNote({ tone: 'ok', text: s.planId === 'party'
+            ? `This event is upgraded to Party${s.seconds ? `, with ${s.seconds} more seconds of Flow` : ''}.`
+            : s.planId === 'bigEvent'
+              ? `This is now a Big Event${s.seconds ? `, with ${s.seconds} more seconds of Flow` : ''}.`
+              : s.seconds ? `${s.seconds} seconds added to this event.` : 'Your seconds are in.' });
           setBump((b) => b + 1);
           return;
         }
@@ -195,7 +197,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
       {canMake && canSpend && meter?.plans && (
         <PassOffer plans={meter.plans} eventName={event.name} eventId={event.id}
           topUp={meter.plan === 'event'} startOpen={meter.plan !== 'event' || outOfSeconds}
-          checkout={meter.checkout === true} checkoutTest={meter.checkoutTest === true} upgraded={meter.upgraded === true} />
+          checkout={meter.checkout === true} checkoutTest={meter.checkoutTest === true} />
       )}
 
       <AnimatePresence>
@@ -205,27 +207,33 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   );
 }
 
-/** What the Event Upgrade gives an event. Keep in step with plans-and-pricing (Get2Share project). */
-const UPGRADE_PERKS = (seconds: number) => [
-  'Unlimited guests',
-  '5 Share Spots and 5 TVs',
-  'The album kept for a year',
-  `${seconds} seconds of Flow`,
-  'No Get2Share branding',
-  'Step In 3D moments',
-];
+/** What each upgrade gives an event. Keep in step with plans-and-pricing (Get2Share project). */
+const TIER_COPY: Record<'party' | 'big', { blurb: string; stepUp?: string; perks: (p: FlowPlan) => string[] }> = {
+  party: {
+    blurb: 'For the party that got bigger than planned.',
+    perks: (p) => ['Up to 100 guests', '3 Share Spots and 3 TVs', 'The album kept 6 months', `${p.seconds} more seconds of Flow`],
+  },
+  big: {
+    blurb: 'For weddings, work events and anything over 100 guests.',
+    stepUp: 'You have Party. Pay just the difference.',
+    perks: (p) => ['Unlimited guests', '5 Share Spots and 5 TVs', 'The album kept for a year',
+      `${p.seconds}${p.stepUp ? ' more' : ''} seconds of Flow`, 'No Get2Share branding', 'Step In 3D moments'],
+  },
+};
 
 /**
- * What a host can buy for this event. Not upgraded: the Event Upgrade first, with a Flow Pass for
- * anyone who only wants video. Upgraded: Flow top-ups. Checkout is Stripe when it's on, email otherwise.
+ * What a host can buy for this event. The service sends only what the event can buy now: Party and
+ * Big Event for a free event, Big Event for the difference on a Party event, then Flow passes.
+ * Checkout is Stripe when it's on, email otherwise.
  */
-function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, checkoutTest, upgraded }: {
+function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, checkoutTest }: {
   plans: FlowPlan[]; eventName: string; eventId: string; topUp: boolean; startOpen: boolean;
-  checkout: boolean; checkoutTest: boolean; upgraded: boolean;
+  checkout: boolean; checkoutTest: boolean;
 }) {
-  const upgradePlan = upgraded ? undefined : plans.find((p) => p.upgrade && p.per === 'event');
-  const flowPasses = plans.filter((p) => p.per === 'event' && !p.upgrade);
-  const passes = upgradePlan ? flowPasses.slice(0, 1) : flowPasses;
+  const upgrades = plans.filter((p) => p.per === 'event' && (p.tier === 'party' || p.tier === 'big'));
+  const flowPasses = plans.filter((p) => p.per === 'event' && !p.tier);
+  // A free event sees the Flow Pass next to the upgrades; Flow Pass Plus waits for an upgraded one.
+  const passes = upgrades.length && !upgrades.some((p) => p.stepUp) ? flowPasses.slice(0, 1) : flowPasses;
   const pro = plans.find((p) => p.per === 'month');
   const [open, setOpen] = useState(startOpen);
   const [buying, setBuying] = useState('');
@@ -260,19 +268,50 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
     ) : (
       <a key={p.id} href={passRequestLink(p, eventName, eventId)} className={className}>{body(ask)}</a>
     );
+  const upgradeCard = (p: FlowPlan, primary: boolean) => {
+    const copy = TIER_COPY[p.tier as 'party' | 'big'];
+    const title = p.stepUp ? `Make it a ${p.name}` : p.name;
+    return passCard(
+      p,
+      primary
+        ? 'w-full rounded-xl border border-g2-blue/60 bg-g2-blue/10 hover:bg-g2-blue/15 p-3.5 flex flex-col text-left transition-colors'
+        : 'w-full rounded-xl border border-white/15 bg-white/[0.03] hover:border-white/30 p-3.5 flex flex-col text-left transition-colors',
+      (cta) => (
+        <>
+          <span className="flex items-baseline justify-between gap-3">
+            <span className="text-[14px] font-bold text-white">{title}</span>
+            <span className="font-expanded font-black text-[22px] leading-none text-white">${p.usd}</span>
+          </span>
+          <span className="mt-1 text-[12px] leading-relaxed text-g2-secondary">{p.stepUp && copy.stepUp ? copy.stepUp : copy.blurb}</span>
+          <span className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5">
+            {copy.perks(p).map((perk) => (
+              <span key={perk} className="flex items-start gap-1.5 text-[12px] leading-snug text-white">
+                <Check className="w-3.5 h-3.5 mt-px shrink-0 text-g2-blue-light" aria-hidden="true" />{perk}
+              </span>
+            ))}
+          </span>
+          <span className={`mt-3 h-10 rounded-lg text-[13px] font-bold flex items-center justify-center ${primary ? 'bg-g2-blue text-white' : 'border border-white/25 text-white'}`}>{cta}</span>
+        </>
+      ),
+      `Ask for ${p.name}`,
+      p.stepUp ? `Upgrade for $${p.usd} more` : `Upgrade for $${p.usd}`,
+    );
+  };
   useEffect(() => { if (startOpen) setOpen(true); }, [startOpen]); // ran out: show the passes
-  if (!upgradePlan && passes.length === 0) return null;
+  if (upgrades.length === 0 && passes.length === 0) return null;
   if (!open) {
-    const from = Math.min(...passes.map((p) => p.usd));
+    const cheapest = (list: FlowPlan[]) => Math.min(...list.map((p) => p.usd));
+    const label = upgrades.some((p) => p.stepUp) ? 'Make it a Big Event' : upgrades.length ? 'Upgrade this event' : 'Add more Flow seconds';
+    const price = upgrades.length === 1 ? `$${upgrades[0].usd}` : `from $${cheapest(upgrades.length ? upgrades : passes)}`;
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
         className="w-full h-11 px-3.5 rounded-xl border border-white/10 bg-black/20 hover:border-white/25 flex items-center justify-between gap-3 text-left cursor-pointer transition-colors"
       >
-        <span className="text-[13px] font-bold text-white">{upgradePlan ? 'Upgrade this event' : 'Add more Flow seconds'}</span>
+        <span className="text-[13px] font-bold text-white">{label}</span>
         <span className="flex items-center gap-1 text-[12px] text-g2-tertiary">
-          {upgradePlan ? `$${upgradePlan.usd}` : `from $${from}`}
+          {price}
           <ChevronDown className="w-4 h-4" aria-hidden="true" />
         </span>
       </button>
@@ -280,39 +319,19 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
   }
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3.5 space-y-3">
-      {upgradePlan ? (
+      {upgrades.length ? (
         <>
-          {passCard(
-            upgradePlan,
-            'w-full rounded-xl border border-g2-blue/60 bg-g2-blue/10 hover:bg-g2-blue/15 p-3.5 flex flex-col text-left transition-colors',
-            (cta) => (
-              <>
-                <span className="flex items-baseline justify-between gap-3">
-                  <span className="text-[14px] font-bold text-white">Upgrade this event</span>
-                  <span className="font-expanded font-black text-[22px] leading-none text-white">${upgradePlan.usd}</span>
-                </span>
-                <span className="mt-1 text-[12px] leading-relaxed text-g2-secondary">Everything a big event needs, for this event. One payment.</span>
-                <span className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5">
-                  {UPGRADE_PERKS(upgradePlan.seconds).map((perk) => (
-                    <span key={perk} className="flex items-start gap-1.5 text-[12px] leading-snug text-white">
-                      <Check className="w-3.5 h-3.5 mt-px shrink-0 text-g2-blue-light" aria-hidden="true" />{perk}
-                    </span>
-                  ))}
-                </span>
-                <span className="mt-3 h-10 rounded-lg bg-g2-blue text-white text-[13px] font-bold flex items-center justify-center">{cta}</span>
-              </>
-            ),
-            'Ask for the upgrade',
-            `Upgrade for $${upgradePlan.usd}`,
-          )}
+          {upgrades.map((p, i) => upgradeCard(p, i === 0))}
           {passes.map((p) => passCard(
             p,
             'w-full rounded-xl border border-white/10 hover:border-white/25 px-3.5 py-2.5 flex items-center justify-between gap-3 text-left transition-colors',
             (cta) => (
               <>
                 <span>
-                  <span className="block text-[12px] font-bold text-g2-secondary">Just want Flow?</span>
-                  <span className="block text-[12px] text-g2-tertiary">{p.name}: {p.seconds} seconds, ${p.usd}</span>
+                  <span className="block text-[12px] font-bold text-g2-secondary">{upgrades.some((u) => u.stepUp) ? p.name : 'Just want Flow?'}</span>
+                  <span className="block text-[12px] text-g2-tertiary">
+                    {upgrades.some((u) => u.stepUp) ? `${p.seconds} more seconds of Flow, $${p.usd}` : `${p.name}: ${p.seconds} seconds, $${p.usd}`}
+                  </span>
                 </span>
                 <span className="text-[11px] font-bold text-white underline underline-offset-2 shrink-0">{cta}</span>
               </>
@@ -350,7 +369,7 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
       )}
       {pro && (
         <p className="text-[11px] leading-relaxed text-g2-tertiary flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span>Host often? <span className="font-bold text-g2-secondary">{pro.name}</span>: ${pro.usd} a month, every event upgraded, with {pro.seconds} seconds of Flow.</span>
+          <span>Host often? <span className="font-bold text-g2-secondary">{pro.name}</span>: ${pro.usd} a month, every event a Big Event, with {pro.seconds} seconds of Flow.</span>
           <span className="h-5 px-2 inline-flex items-center rounded-full border border-white/15 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary">Next</span>
         </p>
       )}

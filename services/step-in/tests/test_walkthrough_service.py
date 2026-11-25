@@ -417,7 +417,7 @@ def test_sweep_clears_up_after_a_deleted_event(world):
 # ------------------------------------------------------------------ redo
 def meter_without_plans(m):
     """The meter, minus the price list and the upgrade flag (checked on their own in the pass tests)."""
-    return {k: v for k, v in m.items() if k not in ("plans", "upgraded")}
+    return {k: v for k, v in m.items() if k not in ("plans", "upgraded", "tier")}
 
 
 def preview(world, **config):

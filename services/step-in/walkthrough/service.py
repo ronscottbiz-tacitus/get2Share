@@ -111,9 +111,38 @@ def _money(x: float) -> float:
     return round(float(x), 4)
 
 
+TIERS = ("free", "party", "big")
+
+
+def event_tier(features: dict) -> str:
+    """free, party or big (features/{eventId}.tier). Pro events are Big Events. A Flow Pass alone doesn't upgrade."""
+    if features.get("pro") is True or features.get("tier") == "big":
+        return "big"
+    if features.get("tier") == "party":
+        return "party"
+    return "big" if features.get("upgraded") is True else "free"  # marked by hand, no tier
+
+
 def is_upgraded(features: dict) -> bool:
-    """An event with the Event Upgrade (features/{eventId}.upgraded) or Pro. A Flow Pass alone doesn't upgrade."""
-    return features.get("upgraded") is True or features.get("pro") is True
+    return event_tier(features) != "free"
+
+
+def offered_plans(plans, tier: str, show_upgrades: bool = True) -> list[dict]:
+    """What this event can buy now. Upgrades at or below its tier are gone, and a higher one costs
+    the difference: a Party event pays Big Event minus Party, for the difference in seconds."""
+    have = TIERS.index(tier)
+    paid_for = next((p for p in plans if p.get("tier") == tier), None)
+    out = []
+    for p in plans:
+        t = p.get("tier")
+        if t:
+            if not show_upgrades or t not in TIERS or TIERS.index(t) <= have:
+                continue
+            if paid_for:
+                p = {**p, "usd": max(0, p["usd"] - paid_for["usd"]),
+                     "seconds": max(0, p["seconds"] - paid_for["seconds"]), "stepUp": True}
+        out.append(dict(p))
+    return out
 
 
 def is_paid_meter(meter_key) -> bool:
@@ -425,26 +454,28 @@ class Service:
         return f"meter-account-{uid}", cfg.free_account_seconds
 
     def can_remove_end_card(self, eid: str) -> bool:
-        """The closing card is how a free event pays its way. An event with paid Flow time, the
-        Event Upgrade or Pro (features/{eventId}) may leave it off."""
+        """The closing card is how a free event pays its way. A Big Event (or Pro), or an event that
+        bought a Flow Pass, may leave it off. Party keeps it: the seconds Party includes
+        (features/{eventId}.includedSeconds) don't count as a pass."""
         data = _dict(self.db.collection("features").document(eid).get())
-        paid = data.get("flowSeconds")
-        return is_upgraded(data) or (isinstance(paid, (int, float)) and not isinstance(paid, bool) and paid > 0)
+        num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+        return event_tier(data) == "big" or num(data.get("flowSeconds")) - num(data.get("includedSeconds")) > 0
 
     def meter(self, *, uid: str, eid: str, is_admin: bool = False, grant_seconds: float | None = None,
               real_admin: bool = False) -> dict:
         """`access` is how the app learns an invited host can use Flow: the invite list stays private.
-        The Event Upgrade is only listed once it's on sale (config upgrade), or for a real admin."""
+        Party and Big Event are only listed once on sale (config upgrade), or for a real admin."""
         cfg = self.config()
-        show_upgrade = cfg.upgrade or real_admin
+        tier = event_tier(_dict(self.db.collection("features").document(eid).get()))
         key, allowance = self._meter_source(cfg, eid, uid, None, grant_seconds)
         used = _dict(self.usage_ref(key).get()).get("secondsUsed", 0)
         return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
                 "plan": "event" if key.startswith("meter-event-") else "grant" if key.startswith("meter-grant-") else "free",
                 "access": cfg.enabled and (is_admin or cfg.all_hosts or grant_seconds is not None),
                 "canRemoveEndCard": self.can_remove_end_card(eid),
-                "upgraded": is_upgraded(_dict(self.db.collection("features").document(eid).get())),
-                "plans": [dict(p) for p in cfg.plans if show_upgrade or p.get("upgrade") is not True]}
+                "tier": tier,
+                "upgraded": tier != "free",
+                "plans": offered_plans(cfg.plans, tier, cfg.upgrade or real_admin)}
 
     # -------------------------------------------------------------- POST /label
     def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool, grant_seconds: float | None = None) -> dict:
