@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -27,6 +28,8 @@ MSG_CLOSED = "Buying passes isn't open yet. Tap the pass to email us instead."
 MSG_NOT_FOR_SALE = "That pass isn't for sale here."
 MSG_BAD_RETURN = "This page can't start a checkout."
 MSG_ALREADY_UPGRADED = "This event already has that upgrade."
+# How long the album stays after the end, by plan. Same as ALBUM_DAYS in src/events.ts.
+ALBUM_DAYS = {"free": 7, "party": 182, "big": 365}
 # What each upgrade does, on Stripe's page and the receipt.
 TIER_ABOUT = {
     "party": "up to 100 guests, 3 Share Spots and 3 TVs, a six-month album",
@@ -214,7 +217,38 @@ class Billing:
 
         added = self.run_tx(tx_fulfil)
         self.log(f"Checkout {sid}: {'added' if added else 'already had'} {seconds} seconds on {eid}")
+        if md.get("tier") in TIERS[1:]:
+            try:
+                self.extend_album(eid)
+            except Exception as e:  # the payment is in; the album date can be fixed by hand
+                self.log(f"Checkout {sid}: couldn't move {eid}'s album date: {e!r}")
         return added
+
+    def extend_album(self, eid: str) -> None:
+        """An upgraded event's album stays open longer (ALBUM_DAYS). Moves the closing date
+        (expireAt) on the event, its join code and each guest's "my events" entry. Never earlier.
+        Records inside the event already carry a later backstop date (see ttlFrom in src/events.ts)."""
+        event_ref = self.db.collection("events").document(eid)
+        ev = _dict(event_ref.get())
+        ends = ev.get("endsAt")
+        if not isinstance(ends, datetime):
+            return  # no end time: nothing closes
+        days = ALBUM_DAYS[event_tier(_dict(self.db.collection("features").document(eid).get()))]
+        closes = ends + timedelta(days=days)
+        current = ev.get("expireAt")
+        if isinstance(current, datetime) and current >= closes:
+            return
+        event_ref.update({"expireAt": closes})
+        code = ev.get("joinCode")
+        if isinstance(code, str) and code:
+            code_ref = self.db.collection("joinCodes").document(code)
+            if code_ref.get().exists:
+                code_ref.update({"expireAt": closes})
+        for member in event_ref.collection("members").stream():
+            joined = self.db.collection("users").document(member.id).collection("joined").document(eid)
+            if joined.get().exists:
+                joined.update({"expireAt": closes})
+        self.log(f"{eid}: album now open until {closes:%Y-%m-%d}")
 
     # -------------------------------------------------------------- the app checking back
     def status(self, *, eid: str, session_id: str) -> dict:

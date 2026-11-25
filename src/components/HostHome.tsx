@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Lock, LogOut, Plus, X } from 'lucide-react';
 import { formatPairingCode } from '../spotPairing';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import Get2ShareLockup from './Get2ShareLockup';
-import { ALBUM_DAYS, createEvent, defaultEnd, EventWithId, eventPhase, formatDay, paths, toLocalInput } from '../events';
+import { ALBUM_LENGTH, createEvent, defaultEnd, EventWithId, eventPhase, formatDay, paths, toLocalInput } from '../events';
 import CloseButton from './CloseButton';
 
 interface HostHomeProps {
@@ -321,7 +321,7 @@ export default function HostHome({
                 className="h-[52px] px-4 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-white text-base focus:outline-none [color-scheme:dark]"
               />
               <p className="text-xs text-g2-tertiary">
-                New photos close an hour after this. Guests can keep viewing and saving the album for {ALBUM_DAYS} days, then it's deleted.
+                New photos close an hour after this. Guests can keep viewing and saving the album for {ALBUM_LENGTH.free}, then it's deleted. Upgrading keeps it for 6 months or a year.
               </p>
             </div>
             <label className="min-h-[52px] px-4 rounded-lg bg-g2-page border border-white/10 flex items-center justify-between gap-3 text-sm font-semibold text-white cursor-pointer">

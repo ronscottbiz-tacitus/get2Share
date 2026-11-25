@@ -3,6 +3,7 @@ import { CheckCircle2, Plus, X } from 'lucide-react';
 import { deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { useEvent } from '../EventContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { expiryOf } from '../events';
 import { SpotPairing } from '../types';
 import { PAIRING_TTL_MS, SPOT_SETUP_PATH, formatPairingCode, newPairingCode } from '../spotPairing';
 import CloseButton from './CloseButton';
@@ -82,7 +83,7 @@ export default function AddShareSpot({ full }: { full?: React.ReactNode }) {
           // If the code is already taken this write is refused; try another.
           await setDoc(ref, {
             spotName, createdAt: serverTimestamp(), claimedBy: null, eventId: event.id,
-            ...(event.expireAt ? { expireAt: event.expireAt } : {}),
+            ...expiryOf(event),
           });
           setNow(Date.now());
           setCode(candidate);

@@ -1,6 +1,10 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-25c: album lengths by plan. A new end time's closing date (expireAt) is
+//   7 days free, 182 Party, 365 Big Event (tierAlbumDays); until the launch switch, 30 days
+//   (the live app) is fine too. Other event updates no longer re-check the date, so events
+//   from before this, and ones the cloud job moved out, keep working.
 // Version 2026-11-25b: turning off the strip on shared photos (shareFrame) needs a Big Event or a
 //   Flow Pass; Party's included seconds don't count. Tightens a check.
 // Version 2026-11-25: guest limits (plans-and-pricing: free 20, Party 100, Big Event unlimited,
@@ -63,8 +67,9 @@ rules_version = '2';
 //     fired that device's shutter in the last 2 minutes. Otherwise 'pending'.
 //   * Guests can delete only their own photos.
 //   * Events end: an hour after the end time no new photos can be added. The
-//     album stays viewable until expireAt (end + 30 days), when Firestore's TTL
-//     cleanup deletes every document carrying that expireAt.
+//     album stays viewable until the event's expireAt (7 days free, 6 months
+//     Party, a year Big Event), when the nightly cleanup deletes it. Records in
+//     the event carry a later expireAt, a backstop for Firestore's TTL deletion.
 //   * users/{uid}/joined lists the events a device joined, so a guest who saves
 //     their photos (links a Google account) keeps them on any device.
 
@@ -233,15 +238,28 @@ service cloud.firestore {
       return existsAfter(guestsPath(eid)) && getAfter(guestsPath(eid)).data.n == before + 1;
     }
 
-    function albumDays() {
-      return duration.value(30, 'd');
+    // How long the album stays after the end, by plan. Keep in step with ALBUM_DAYS in src/events.ts.
+    function tierAlbumDays(eid) {
+      let f = featuresOf(eid);
+      return (f.get('pro', false) == true || f.get('tier', '') == 'big'
+              || (f.get('upgraded', false) == true && !('tier' in f))) ? 365
+        : f.get('tier', '') == 'party' ? 182
+        : 7;
     }
 
-    // An end time always comes with its cleanup date, 30 days later.
-    function endsLineUp(d) {
+    // An end time always comes with the album's closing date (expireAt), after it.
+    function endsPaired(d) {
       return (!('endsAt' in d) || d.endsAt == null)
         ? (!('expireAt' in d) || d.expireAt == null)
-        : (d.endsAt is timestamp && 'expireAt' in d && d.expireAt == d.endsAt + albumDays());
+        : (d.endsAt is timestamp && 'expireAt' in d && d.expireAt is timestamp && d.expireAt > d.endsAt);
+    }
+
+    // Setting the end time sets the closing date for the event's plan. Until the launch switch,
+    // the live app's 30 days are fine too. (Upgrading moves it later; the cloud job does that.)
+    function albumLinesUp(d, eid) {
+      return !('endsAt' in d) || d.endsAt == null
+        || d.expireAt == d.endsAt + duration.value(tierAlbumDays(eid), 'd')
+        || (!limitsOn() && d.expireAt == d.endsAt + duration.value(30, 'd'));
     }
 
     function hasEnd(e) {
@@ -280,7 +298,7 @@ service cloud.firestore {
         && isOptionalTime(d, 'startsAt')
         && isOptionalTime(d, 'endsAt')
         && isOptionalTime(d, 'expireAt')
-        && endsLineUp(d)
+        && endsPaired(d)
         && (!('groupShot' in d) || d.groupShot == null || isValidGroupShot(d.groupShot))
         && (!('lensSharing' in d) || d.lensSharing is bool)
         && (!('albumSaving' in d) || d.albumSaving in ['party', 'after', 'host'])
@@ -328,6 +346,7 @@ service cloud.firestore {
                     && incoming().hostUids == [myUid()]
                     && incoming().createdAt == request.time
                     && incoming().status == 'live'
+                    && albumLinesUp(incoming(), eid)
                     && getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid;
 
       allow update: if (isEventHost(eid)
@@ -336,6 +355,8 @@ service cloud.firestore {
                                               'guestLensEnabled', 'status', 'startsAt', 'endsAt', 'expireAt', 'hostUids',
                                               'groupShot', 'lensSharing', 'albumSaving', 'flowCohosts', 'shareFrame'])
                         && incoming().ownerUid == existing().ownerUid
+                        // A new end time comes with the plan's closing date.
+                        && (!changed().hasAny(['endsAt', 'expireAt']) || albumLinesUp(incoming(), eid))
                         // The strip on shared photos comes off only for a paid event.
                         && (!('shareFrame' in changed()) || incoming().shareFrame == true || eventPaid(eid) || isAdmin())
                         // Only the owner (or an admin) decides whether co-hosts can spend Flow time.

@@ -9,7 +9,7 @@ import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
-import { ALBUM_DAYS, DEVICE_LIMITS, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
+import { ALBUM_LENGTH, DEVICE_LIMITS, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -523,7 +523,7 @@ export default function HostDashboard({
     try {
       setTimingBusy(true);
       setTimingMsg('');
-      await setEventEnd(eventId, event.joinCode, end);
+      await setEventEnd(eventId, event.joinCode, end, tier);
       setTimingMsg(msg);
       setTimeout(() => setTimingMsg(''), 3000);
     } catch (e) {
@@ -752,7 +752,9 @@ export default function HostDashboard({
                 </button>
               )}
               <p className="text-[10px] text-g2-muted leading-relaxed">
-                The album stays up for {ALBUM_DAYS} days after the end, then photos and guest info are deleted automatically.
+                The album stays up for {ALBUM_LENGTH[tier]} after the end, then photos and guest info are deleted automatically.
+                {tier === 'free' && ' Upgrading keeps it for 6 months (Party) or a year (Big Event).'}
+                {tier === 'party' && ' A Big Event keeps it for a year.'}
               </p>
               {timingMsg && <p className="text-[11px] text-g2-secondary" aria-live="polite">{timingMsg}</p>}
             </div>

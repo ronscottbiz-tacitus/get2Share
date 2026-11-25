@@ -451,3 +451,98 @@ def test_upgrade_prices_can_change_in_config(world):
     b.handle_webhook(upgrade_paid("cs_test_u2", eid="ev2", tier="party", seconds="30"), "signed-with-whsec_abc")
     big = offered(world, eid="ev2")["bigEvent"]
     assert big["usd"] == 27 and big["seconds"] == 120
+
+
+# ------------------------------------------------------------------ album lengths
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+END = datetime(2026, 12, 31, 23, 0, tzinfo=timezone.utc)
+
+
+def album_event(world, expire_days=7, members=("g1", "g2")):
+    world.db.collection("events").document("ev1").set({
+        "name": "Party", "ownerUid": "host1", "hostUids": ["host1"], "joinCode": "ABC123",
+        "endsAt": END, "expireAt": END + timedelta(days=expire_days)})
+    world.db.collection("joinCodes").document("ABC123").set({"eventId": "ev1", "expireAt": END + timedelta(days=expire_days)})
+    for uid in members:
+        world.db.collection("events").document("ev1").collection("members").document(uid).set({"role": "guest"})
+        world.db.collection("users").document(uid).collection("joined").document("ev1").set(
+            {"name": "Party", "expireAt": END + timedelta(days=expire_days)})
+
+
+def closes(world, path):
+    return world.db.docs[path]["expireAt"]
+
+
+def test_party_keeps_the_album_six_months(world):
+    b, _ = make(world)
+    album_event(world)
+    b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
+    six_months = END + timedelta(days=182)
+    assert closes(world, "events/ev1") == six_months
+    assert closes(world, "joinCodes/ABC123") == six_months
+    assert closes(world, "users/g1/joined/ev1") == six_months and closes(world, "users/g2/joined/ev1") == six_months
+
+
+def test_big_event_keeps_it_a_year_and_party_after_big_changes_nothing(world):
+    b, _ = make(world)
+    album_event(world)
+    b.handle_webhook(upgrade_paid(), "signed-with-whsec_abc")
+    assert closes(world, "events/ev1") == END + timedelta(days=365)
+    b.handle_webhook(upgrade_paid("cs_test_u2", tier="party", seconds="20"), "signed-with-whsec_abc")
+    assert closes(world, "events/ev1") == END + timedelta(days=365), "never earlier"
+
+
+def test_the_step_up_moves_party_to_a_year(world):
+    b, _ = make(world)
+    album_event(world)
+    b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
+    b.handle_webhook(upgrade_paid("cs_test_u2", tier="big", seconds="80", step_up=True), "signed-with-whsec_abc")
+    assert closes(world, "events/ev1") == END + timedelta(days=365)
+    assert closes(world, "users/g1/joined/ev1") == END + timedelta(days=365)
+
+
+def test_a_flow_pass_leaves_the_album_date_alone(world):
+    b, _ = make(world)
+    album_event(world)
+    b.handle_webhook(paid(), "signed-with-whsec_abc")
+    assert closes(world, "events/ev1") == END + timedelta(days=7)
+
+
+def test_a_later_date_is_kept(world):
+    """An admin set a longer date by hand: an upgrade doesn't shorten it."""
+    b, _ = make(world)
+    album_event(world, expire_days=500)
+    b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
+    assert closes(world, "events/ev1") == END + timedelta(days=500)
+
+
+def test_no_end_time_no_date_and_guests_who_left_are_skipped(world):
+    b, _ = make(world)
+    world.add_event()  # no end time
+    b.handle_webhook(upgrade_paid(), "signed-with-whsec_abc")
+    assert "expireAt" not in world.db.docs["events/ev1"]
+    album_event(world, members=("g1",))
+    world.db.docs.pop("users/g1/joined/ev1")
+    b.handle_webhook(upgrade_paid("cs_test_u3", tier="party", seconds="20"), "signed-with-whsec_abc")
+    assert "users/g1/joined/ev1" not in world.db.docs
+
+
+def test_odd_join_code_data_doesnt_stop_the_date(world):
+    b, _ = make(world)
+    album_event(world)
+    world.db.docs.pop("joinCodes/ABC123")
+    world.db.docs["events/ev1"]["joinCode"] = 5
+    b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
+    assert closes(world, "events/ev1") == END + timedelta(days=182)
+
+
+def test_the_payment_counts_even_if_the_date_cannot_move(world, monkeypatch):
+    b, _ = make(world)
+    album_event(world)
+    def broken(_eid):
+        raise RuntimeError("Firestore is down")
+    monkeypatch.setattr(b, "extend_album", broken)
+    b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
+    assert features(world)["tier"] == "party" and features(world)["flowSeconds"] == 20
+    assert closes(world, "events/ev1") == END + timedelta(days=7)

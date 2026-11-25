@@ -42,12 +42,23 @@ export interface EventWithId extends EventDoc {
 // ---------- Lifecycle ----------
 //   live     until the end time
 //   wrapup   1 hour after the end: last uploads still land, Share Spots are off
-//   album    30 days after the end: view, react, save; no new photos
-//   expired  the cleanup removes it
+//   album    until expireAt: view, react, save; no new photos. How long depends on the plan
+//            (ALBUM_DAYS): 7 days free, 6 months Party, a year Big Event. Upgrading moves
+//            expireAt out (the cloud job does it).
+//   expired  the nightly cleanup removes it
+//
+// Photos, members and the rest carry a later expireAt (ttlFrom): Firestore's automatic deletion
+// is only a backstop, so it can never take an album that an upgrade kept open.
 
 export const UPLOAD_GRACE_MS = 60 * 60 * 1000;
-export const ALBUM_DAYS = 30;
+/** How long the album stays after the end, by plan. Keep in step with tierAlbumDays in firestore.rules. */
+export const ALBUM_DAYS: Record<EventTier, number> = { free: 7, party: 182, big: 365 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The backstop: a record's automatic deletion comes this long after its album closes. */
+const TTL_EXTRA_MS = 365 * DAY_MS;
+
+/** "7 days", "6 months", "a year": how the app says ALBUM_DAYS. */
+export const ALBUM_LENGTH: Record<EventTier, string> = { free: '7 days', party: '6 months', big: 'a year' };
 
 export type EventPhase = 'live' | 'wrapup' | 'album' | 'expired';
 
@@ -55,16 +66,21 @@ export function eventPhase(ev: Pick<EventDoc, 'endsAt' | 'expireAt'>, now = Date
   const end = ev.endsAt?.toMillis?.();
   if (!end || now < end) return 'live';
   if (now < end + UPLOAD_GRACE_MS) return 'wrapup';
-  const exp = ev.expireAt?.toMillis?.() ?? end + ALBUM_DAYS * DAY_MS;
+  const exp = ev.expireAt?.toMillis?.() ?? end + 30 * DAY_MS; // events from before album dates
   return now < exp ? 'album' : 'expired';
 }
 
-/** endsAt and the matching cleanup date (the rules check they line up). */
-export function endTimes(end: Date) {
+/** endsAt and the album's closing date for this plan (the rules check they line up). */
+export function endTimes(end: Date, tier: EventTier = 'free') {
   return {
     endsAt: Timestamp.fromDate(end),
-    expireAt: Timestamp.fromMillis(end.getTime() + ALBUM_DAYS * DAY_MS),
+    expireAt: Timestamp.fromMillis(end.getTime() + ALBUM_DAYS[tier] * DAY_MS),
   };
+}
+
+/** The backstop expireAt for a record in an event whose album closes at closesAt. */
+export function ttlFrom(closesAt: Timestamp | null | undefined): Timestamp | null {
+  return closesAt ? Timestamp.fromMillis(closesAt.toMillis() + TTL_EXTRA_MS) : null;
 }
 
 /** Default end time for a new event: 5 hours from now, on the hour. */
@@ -75,8 +91,8 @@ export function defaultEnd(): Date {
 }
 
 /** Change (or set) when an event ends. Also used for "End now" and "Reopen". */
-export async function setEventEnd(eid: string, code: string, end: Date) {
-  const t = endTimes(end);
+export async function setEventEnd(eid: string, code: string, end: Date, tier: EventTier = 'free') {
+  const t = endTimes(end, tier);
   const batch = writeBatch(db);
   batch.update(paths.event(eid), t);
   batch.update(paths.joinCode(code), { expireAt: t.expireAt });
@@ -254,9 +270,10 @@ export async function joinEvent(
   } catch {
     exists = false; // not readable = not a member yet
   }
+  const ttl = ttlFrom(expireAt);
   const member = {
     nickname, joinedAt: serverTimestamp(), joinCode: code, role: 'guest',
-    ...(expireAt ? { expireAt } : {}),
+    ...(ttl ? { expireAt: ttl } : {}),
   };
   if (exists) {
     await updateDoc(ref, { nickname });
@@ -268,7 +285,7 @@ export async function joinEvent(
         const count = await tx.get(paths.guestCount(eid));
         const n = (count.data()?.n as number | undefined) ?? 0;
         tx.set(ref, member);
-        tx.set(paths.guestCount(eid), { n: n + 1, last: uid, ...(expireAt ? { expireAt } : {}) });
+        tx.set(paths.guestCount(eid), { n: n + 1, last: uid, ...(ttl ? { expireAt: ttl } : {}) });
       });
     } catch (err) {
       const cap = guestCapOf(await eventFeatures(eid));
@@ -528,9 +545,11 @@ export async function saveEventDetails(eid: string, code: string, name: string, 
   await batch.commit();
 }
 
-/** Fields every photo/session in an event carries so the cleanup removes it with the album. */
+/** The backstop expireAt every photo/session in an event carries (see ttlFrom). The nightly
+ *  cleanup removes it with the album; this only matters if the cleanup misses it. */
 export function expiryOf(ev: { expireAt?: Timestamp | null } | null | undefined) {
-  return ev?.expireAt ? { expireAt: ev.expireAt } : {};
+  const ttl = ttlFrom(ev?.expireAt);
+  return ttl ? { expireAt: ttl } : {};
 }
 
 /** Delete an event and everything in it. Order matters: the rules check the
