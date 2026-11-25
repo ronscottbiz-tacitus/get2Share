@@ -19,13 +19,14 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from .config import Config
-from .service import ApiError
+from .service import ApiError, is_upgraded
 
 PURCHASES = "flowPurchases"
 PAID_EVENTS = ("checkout.session.completed", "checkout.session.async_payment_succeeded")
 MSG_CLOSED = "Buying passes isn't open yet. Tap the pass to email us instead."
 MSG_NOT_FOR_SALE = "That pass isn't for sale here."
 MSG_BAD_RETURN = "This page can't start a checkout."
+MSG_ALREADY_UPGRADED = "This event is already upgraded."
 
 
 def _dict(snap) -> dict:
@@ -87,11 +88,18 @@ class Billing:
             raise ApiError(400, MSG_NOT_FOR_SALE)
         if not self.return_ok(return_url):
             raise ApiError(400, MSG_BAD_RETURN)
+        upgrade = plan.get("upgrade") is True
+        if upgrade and not (self.config().upgrade or real_admin):  # not on sale yet
+            raise ApiError(400, MSG_NOT_FOR_SALE)
+        if upgrade and is_upgraded(_dict(self.db.collection("features").document(eid).get())):
+            raise ApiError(400, MSG_ALREADY_UPGRADED)
         cents = int(round(float(plan["usd"]) * 100))
         seconds = plan["seconds"]
         seconds_text = int(seconds) if float(seconds).is_integer() else seconds
         name = str((event or {}).get("name") or "your event")[:80]
         metadata = {"eventId": eid, "planId": plan["id"], "seconds": str(seconds), "uid": uid}
+        if upgrade:
+            metadata["upgrade"] = "1"
         try:
             session = self._create_session(cents, plan, seconds_text, name, eid, metadata, return_url)
         except ApiError:
@@ -103,6 +111,12 @@ class Billing:
         return {"url": session["url"] if isinstance(session, dict) else session.url}
 
     def _create_session(self, cents, plan, seconds_text, name, eid, metadata, return_url):
+        if metadata.get("upgrade") == "1":
+            title = f"{plan['name']}, with {seconds_text} seconds of Flow"
+            about = f'Upgrades "{name}" on Get2Share: unlimited guests, 5 Share Spots and 5 TVs, a one-year album, no branding'
+        else:
+            title = f"{plan['name']}: {seconds_text} seconds of Flow"
+            about = f'AI video seconds for "{name}" on Get2Share'
         return self.stripe.checkout.Session.create(
             api_key=self.secret_key,
             mode="payment",
@@ -111,10 +125,7 @@ class Billing:
                 "price_data": {
                     "currency": "usd",
                     "unit_amount": cents,
-                    "product_data": {
-                        "name": f"{plan['name']}: {seconds_text} seconds of Flow",
-                        "description": f'AI video seconds for "{name}" on Get2Share',
-                    },
+                    "product_data": {"name": title, "description": about},
                 },
             }],
             client_reference_id=eid,
@@ -162,7 +173,10 @@ class Billing:
             had = feat.get("flowSeconds")
             had = had if isinstance(had, (int, float)) and not isinstance(had, bool) and had > 0 else 0
             total = had + seconds
-            tx.set(features_ref, {**feat, "flowSeconds": int(total) if float(total).is_integer() else total})
+            new_feat = {**feat, "flowSeconds": int(total) if float(total).is_integer() else total}
+            if md.get("upgrade") == "1":
+                new_feat.update(upgraded=True, upgradedAt=self.server_time)
+            tx.set(features_ref, new_feat)
             tx.set(purchase_ref, {
                 "eventId": eid,
                 "planId": md.get("planId"),
@@ -189,7 +203,7 @@ class Billing:
         data = _dict(snap)
         if not data or data.get("eventId") != eid:
             return {"done": False}
-        return {"done": True, "seconds": data.get("seconds")}
+        return {"done": True, "seconds": data.get("seconds"), "planId": data.get("planId")}
 
 
 def return_checker(origins: list[str], origin_regex: str | None) -> Callable[[str], bool]:

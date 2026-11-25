@@ -119,7 +119,8 @@ def build_api(service_factory: Callable, verify: Callable, *, origins: list[str]
     @web.post("/meter")
     def meter(req: Meter, authorization: str = Header(default="")):
         uid, _, is_admin, grant, real_admin = signed_in(authorization, req.eventId)
-        m = answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin, grant_seconds=grant))
+        m = answering(lambda: service_factory().meter(uid=uid, eid=req.eventId, is_admin=is_admin, grant_seconds=grant,
+                                                         real_admin=real_admin))
         # Whether the app shows Buy buttons (Stripe Checkout) or the email fallback.
         return {**m, **(billing_factory().offer(real_admin) if billing_factory else {"checkout": False, "checkoutTest": False})}
 

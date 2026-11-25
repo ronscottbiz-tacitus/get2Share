@@ -96,7 +96,7 @@ export function parseWalkthroughConfig(d: any): WalkthroughConfig {
 export const flowSeconds = (photos: number, clipSeconds: number) => Math.max(0, photos - 1) * clipSeconds;
 
 /** Something a host can buy (the list comes from the Flow service's config). Seconds are AI seconds. */
-export interface FlowPlan { id: string; name: string; usd: number; seconds: number; per: 'event' | 'month' }
+export interface FlowPlan { id: string; name: string; usd: number; seconds: number; per: 'event' | 'month'; upgrade?: boolean }
 
 export interface FlowMeter {
   allowanceSeconds: number; usedSeconds: number; remainingSeconds: number; plan: 'free' | 'event' | 'grant'; access?: boolean;
@@ -105,6 +105,8 @@ export interface FlowMeter {
   /** Show Buy buttons (Stripe Checkout) instead of the email fallback. checkoutTest: Stripe test mode, admins only. */
   checkout?: boolean;
   checkoutTest?: boolean;
+  /** The event has the Event Upgrade (or Pro). A Flow Pass alone doesn't upgrade. */
+  upgraded?: boolean;
   /** The closing Get2Share card can be left off: the event has paid for Flow time or Pro. Free events always have it. */
   canRemoveEndCard?: boolean;
 }
@@ -209,7 +211,7 @@ export async function startFlowCheckout(eventId: string, planId: string): Promis
 }
 
 /** After Stripe sends the host back: have this payment's seconds landed on the event yet? */
-export const getCheckoutStatus = (eventId: string, sessionId: string): Promise<{ done: boolean; seconds?: number }> =>
+export const getCheckoutStatus = (eventId: string, sessionId: string): Promise<{ done: boolean; seconds?: number; planId?: string }> =>
   call('/checkout/status', { eventId, sessionId });
 export const setFlowLabel = (eventId: string, walkthroughId: string, show: boolean) => call('/label', { eventId, walkthroughId, show });
 export const createWalkthrough = (args: { eventId: string; photoIds: string[]; aspect: WalkthroughAspect; requestId: string; showLabel: boolean; styleId: FlowStyleId; endCard: boolean }) =>

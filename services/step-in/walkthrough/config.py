@@ -45,12 +45,14 @@ DEFAULT_LIMITS = {
 DEFAULT_MONTHLY_BUDGET_USD = 50.0
 
 # What hosts can buy. Seconds are AI seconds: the end card and still holds cost none.
-# A Flow Pass belongs to one event and passes stack (two passes, twice the seconds); Pro is
-# monthly. config/walkthrough.plans.<id>.{usd, seconds} overrides a price or an amount.
+# The Event Upgrade upgrades one event (see plans-and-pricing in the Get2Share project) and
+# includes 100 seconds; it can be bought once per event. A Flow Pass belongs to one event and
+# passes stack (two passes, twice the seconds); Pro is monthly. config/walkthrough.plans.<id>.{usd, seconds} overrides a price or an amount.
 # Checkout is next. Until then a pass is added by hand: features/{eventId}.flowSeconds goes up by
 # the pass's seconds. Paid seconds are their own limit: no per-event or per-host video caps, and
 # they don't count against the monthly budget (that cap is for free and invited seconds).
 DEFAULT_PLANS = (
+    {"id": "eventUpgrade", "name": "Event Upgrade", "usd": 29, "seconds": 100, "per": "event", "upgrade": True},
     {"id": "flowPass", "name": "Flow Pass", "usd": 15, "seconds": 100, "per": "event"},
     {"id": "flowPassPlus", "name": "Flow Pass Plus", "usd": 29, "seconds": 200, "per": "event"},
     {"id": "pro", "name": "Pro", "usd": 49, "seconds": 400, "per": "month"},
@@ -143,6 +145,9 @@ class Config:
     prices: dict = field(default_factory=lambda: dict(DEFAULT_PRICES))
     plans: tuple = tuple(dict(p) for p in DEFAULT_PLANS)
     checkout: bool = False  # Stripe Checkout for passes (walkthrough/billing.py); only a literal true
+    # The Event Upgrade is on sale to every host. Until then (config/walkthrough.upgrade not a literal
+    # true) only admins see it or can buy it, so the service can ship before the app that sells it.
+    upgrade: bool = False
     prompt: str = DEFAULT_PROMPT
     styles: dict = field(default_factory=lambda: dict(DEFAULT_STYLES))
     slowdown: tuple = ()     # per clip; a clip with no entry plays at normal speed
@@ -238,6 +243,7 @@ def parse_config(data: dict | None) -> Config:
     return Config(
         plans=tuple(plans),
         checkout=d.get("checkout") is True,
+        upgrade=d.get("upgrade") is True,
         styles=styles,
         min_photos=min_photos,
         max_photos=max_photos,

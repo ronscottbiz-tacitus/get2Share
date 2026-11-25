@@ -111,6 +111,11 @@ def _money(x: float) -> float:
     return round(float(x), 4)
 
 
+def is_upgraded(features: dict) -> bool:
+    """An event with the Event Upgrade (features/{eventId}.upgraded) or Pro. A Flow Pass alone doesn't upgrade."""
+    return features.get("upgraded") is True or features.get("pro") is True
+
+
 def is_paid_meter(meter_key) -> bool:
     """Seconds an event bought (features/{eventId}.flowSeconds), as opposed to free or invited ones."""
     return isinstance(meter_key, str) and meter_key.startswith("meter-event-")
@@ -420,22 +425,26 @@ class Service:
         return f"meter-account-{uid}", cfg.free_account_seconds
 
     def can_remove_end_card(self, eid: str) -> bool:
-        """The closing card is how a free event pays its way. An event with paid Flow time or Pro
-        (features/{eventId}) may leave it off."""
+        """The closing card is how a free event pays its way. An event with paid Flow time, the
+        Event Upgrade or Pro (features/{eventId}) may leave it off."""
         data = _dict(self.db.collection("features").document(eid).get())
         paid = data.get("flowSeconds")
-        return data.get("pro") is True or (isinstance(paid, (int, float)) and not isinstance(paid, bool) and paid > 0)
+        return is_upgraded(data) or (isinstance(paid, (int, float)) and not isinstance(paid, bool) and paid > 0)
 
-    def meter(self, *, uid: str, eid: str, is_admin: bool = False, grant_seconds: float | None = None) -> dict:
-        """`access` is how the app learns an invited host can use Flow: the invite list stays private."""
+    def meter(self, *, uid: str, eid: str, is_admin: bool = False, grant_seconds: float | None = None,
+              real_admin: bool = False) -> dict:
+        """`access` is how the app learns an invited host can use Flow: the invite list stays private.
+        The Event Upgrade is only listed once it's on sale (config upgrade), or for a real admin."""
         cfg = self.config()
+        show_upgrade = cfg.upgrade or real_admin
         key, allowance = self._meter_source(cfg, eid, uid, None, grant_seconds)
         used = _dict(self.usage_ref(key).get()).get("secondsUsed", 0)
         return {"allowanceSeconds": allowance, "usedSeconds": used, "remainingSeconds": max(0, allowance - used),
                 "plan": "event" if key.startswith("meter-event-") else "grant" if key.startswith("meter-grant-") else "free",
                 "access": cfg.enabled and (is_admin or cfg.all_hosts or grant_seconds is not None),
                 "canRemoveEndCard": self.can_remove_end_card(eid),
-                "plans": [dict(p) for p in cfg.plans]}
+                "upgraded": is_upgraded(_dict(self.db.collection("features").document(eid).get())),
+                "plans": [dict(p) for p in cfg.plans if show_upgrade or p.get("upgrade") is not True]}
 
     # -------------------------------------------------------------- POST /label
     def set_label(self, *, uid: str, is_admin: bool, eid: str, wid: str, show: bool, grant_seconds: float | None = None) -> dict:

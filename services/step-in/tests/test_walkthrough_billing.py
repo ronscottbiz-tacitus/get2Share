@@ -186,7 +186,7 @@ def test_status_says_when_the_seconds_are_in(world):
     b, _ = make(world)
     assert b.status(eid="ev1", session_id="cs_test_1") == {"done": False}
     b.handle_webhook(paid(), "signed-with-whsec_abc")
-    assert b.status(eid="ev1", session_id="cs_test_1") == {"done": True, "seconds": 100}
+    assert b.status(eid="ev1", session_id="cs_test_1") == {"done": True, "seconds": 100, "planId": "flowPass"}
     assert b.status(eid="other", session_id="cs_test_1") == {"done": False}, "only for the event it was bought for"
     with pytest.raises(ApiError):
         b.status(eid="ev1", session_id="../../config/walkthrough")
@@ -230,7 +230,7 @@ def test_the_webhook_needs_stripes_signature_not_a_sign_in(client):
     assert r.status_code == 200 and r.json()["added"] is True
     assert flow_seconds(world) == 100
     s = c.post("/checkout/status", json={"eventId": "ev1", "sessionId": "cs_test_1"}, headers={"Authorization": "Bearer host"})
-    assert s.json() == {"done": True, "seconds": 100}
+    assert s.json() == {"done": True, "seconds": 100, "planId": "flowPass"}
 
 
 def test_without_billing_the_app_gets_the_email_fallback(world):
@@ -311,3 +311,82 @@ def test_a_real_stripe_signed_notice_adds_the_seconds(world):
     assert flow_seconds(world) == 200
     with pytest.raises(ApiError):
         b.handle_webhook(body, real_signed(body, "whsec_wrong"))
+
+
+# ------------------------------------------------------------------ the Event Upgrade
+def upgrade_paid(session_id="cs_test_u1", eid="ev1"):
+    body = json.loads(paid(session_id, eid, seconds="100", plan="eventUpgrade"))
+    body["data"]["object"]["metadata"]["upgrade"] = "1"
+    return json.dumps(body).encode()
+
+
+def test_the_upgrade_is_first_in_the_price_list(world):
+    b, _ = make(world, upgrade=True)
+    plans = world.svc.meter(uid="host1", eid="ev1")["plans"]
+    assert plans[0] == {"id": "eventUpgrade", "name": "Event Upgrade", "usd": 29, "seconds": 100, "per": "event", "upgrade": True}
+
+
+def test_until_the_upgrade_is_on_sale_only_admins_see_it_or_buy_it(world):
+    """So the service can ship before the app that sells it: the live app would list it as a third pass."""
+    b, stripe = make(world, key="sk_live_abc")  # live keys: every host can buy passes
+    ids = lambda **kw: [p["id"] for p in world.svc.meter(uid="host1", eid="ev1", **kw)["plans"]]
+    assert ids() == ["flowPass", "flowPassPlus", "pro"]
+    assert ids(real_admin=True)[0] == "eventUpgrade"
+    with pytest.raises(ApiError) as e:
+        b.create_checkout(uid="host1", real_admin=False, eid="ev1", event={}, plan_id="eventUpgrade", return_url=RETURN)
+    assert e.value.status == 400 and not stripe.sessions
+    b.create_checkout(uid="host1", real_admin=False, eid="ev1", event={}, plan_id="flowPass", return_url=RETURN)
+    b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="eventUpgrade", return_url=RETURN)
+    world.configure(checkout=True, upgrade=True)
+    assert ids()[0] == "eventUpgrade"
+    b.create_checkout(uid="host2", real_admin=False, eid="ev2", event={}, plan_id="eventUpgrade", return_url=RETURN)
+    assert len(stripe.sessions) == 3
+
+
+def test_an_upgrade_checkout_says_what_it_upgrades(world):
+    b, stripe = make(world)
+    b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={"name": "Sam's 40th"}, plan_id="eventUpgrade", return_url=RETURN)
+    s = stripe.sessions[0]
+    product = s["line_items"][0]["price_data"]["product_data"]
+    assert s["line_items"][0]["price_data"]["unit_amount"] == 2900
+    assert product["name"] == "Event Upgrade, with 100 seconds of Flow"
+    assert "Sam's 40th" in product["description"] and "one-year album" in product["description"]
+    assert s["metadata"]["upgrade"] == "1" and s["metadata"]["planId"] == "eventUpgrade"
+
+
+def test_paying_for_the_upgrade_upgrades_the_event_and_adds_its_seconds(world):
+    b, _ = make(world)
+    world.add_event()
+    world.db.collection("features").document("ev1").set({"flowSeconds": 100})  # a Flow Pass bought earlier
+    assert world.svc.meter(uid="host1", eid="ev1")["upgraded"] is False, "a Flow Pass alone doesn't upgrade"
+    b.handle_webhook(upgrade_paid(), "signed-with-whsec_abc")
+    feat = world.db.collection("features").document("ev1").get().to_dict()
+    assert feat["upgraded"] is True and feat["flowSeconds"] == 200 and feat["upgradedAt"] == "now"
+    m = world.svc.meter(uid="host1", eid="ev1")
+    assert m["upgraded"] is True and m["allowanceSeconds"] == 200 and m["canRemoveEndCard"] is True
+    assert b.status(eid="ev1", session_id="cs_test_u1")["planId"] == "eventUpgrade"
+
+
+def test_an_event_can_only_be_upgraded_once(world):
+    b, _ = make(world)
+    b.handle_webhook(upgrade_paid(), "signed-with-whsec_abc")
+    with pytest.raises(ApiError) as e:
+        b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="eventUpgrade", return_url=RETURN)
+    assert e.value.status == 400 and "already upgraded" in e.value.message
+    b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="flowPassPlus", return_url=RETURN)
+
+
+def test_pro_events_count_as_upgraded(world):
+    b, _ = make(world)
+    world.add_event()
+    world.db.collection("features").document("ev1").set({"pro": True})
+    assert world.svc.meter(uid="host1", eid="ev1")["upgraded"] is True
+    with pytest.raises(ApiError):
+        b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="eventUpgrade", return_url=RETURN)
+
+
+def test_the_upgrade_price_can_change_in_config(world):
+    b, stripe = make(world, plans={"eventUpgrade": {"usd": 39, "seconds": 150}})
+    b.create_checkout(uid="host1", real_admin=True, eid="ev1", event={}, plan_id="eventUpgrade", return_url=RETURN)
+    assert stripe.sessions[0]["line_items"][0]["price_data"]["unit_amount"] == 3900
+    assert stripe.sessions[0]["metadata"]["seconds"] == "150"

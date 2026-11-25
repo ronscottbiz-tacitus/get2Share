@@ -85,7 +85,9 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
         const s = await getCheckoutStatus(event.id, back.session);
         if (!on) return;
         if (s.done) {
-          setPassNote({ tone: 'ok', text: s.seconds ? `${s.seconds} seconds added to this event.` : 'Your seconds are in.' });
+          setPassNote({ tone: 'ok', text: s.planId === 'eventUpgrade'
+            ? `This event is upgraded${s.seconds ? `, with ${s.seconds} seconds of Flow` : ''}.`
+            : s.seconds ? `${s.seconds} seconds added to this event.` : 'Your seconds are in.' });
           setBump((b) => b + 1);
           return;
         }
@@ -193,7 +195,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
       {canMake && canSpend && meter?.plans && (
         <PassOffer plans={meter.plans} eventName={event.name} eventId={event.id}
           topUp={meter.plan === 'event'} startOpen={meter.plan !== 'event' || outOfSeconds}
-          checkout={meter.checkout === true} checkoutTest={meter.checkoutTest === true} />
+          checkout={meter.checkout === true} checkoutTest={meter.checkoutTest === true} upgraded={meter.upgraded === true} />
       )}
 
       <AnimatePresence>
@@ -203,12 +205,27 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
   );
 }
 
-/** Flow Pass and Flow Pass Plus for this event, and Pro. Checkout is next: for now a pass is an email. */
-function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, checkoutTest }: {
+/** What the Event Upgrade gives an event. Keep in step with plans-and-pricing (Get2Share project). */
+const UPGRADE_PERKS = (seconds: number) => [
+  'Unlimited guests',
+  '5 Share Spots and 5 TVs',
+  'The album kept for a year',
+  `${seconds} seconds of Flow`,
+  'No Get2Share branding',
+  'Step In 3D moments',
+];
+
+/**
+ * What a host can buy for this event. Not upgraded: the Event Upgrade first, with a Flow Pass for
+ * anyone who only wants video. Upgraded: Flow top-ups. Checkout is Stripe when it's on, email otherwise.
+ */
+function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, checkoutTest, upgraded }: {
   plans: FlowPlan[]; eventName: string; eventId: string; topUp: boolean; startOpen: boolean;
-  checkout: boolean; checkoutTest: boolean;
+  checkout: boolean; checkoutTest: boolean; upgraded: boolean;
 }) {
-  const passes = plans.filter((p) => p.per === 'event');
+  const upgradePlan = upgraded ? undefined : plans.find((p) => p.upgrade && p.per === 'event');
+  const flowPasses = plans.filter((p) => p.per === 'event' && !p.upgrade);
+  const passes = upgradePlan ? flowPasses.slice(0, 1) : flowPasses;
   const pro = plans.find((p) => p.per === 'month');
   const [open, setOpen] = useState(startOpen);
   const [buying, setBuying] = useState('');
@@ -223,17 +240,28 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
       setBuying('');
     }
   };
+  const opening = <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />Opening checkout…</span>;
   const card = 'rounded-xl border border-white/15 bg-white/5 hover:border-g2-blue p-3 flex flex-col text-left transition-colors';
   const inside = (p: FlowPlan, cta: React.ReactNode) => (
     <>
       <span className="text-[12px] font-bold text-g2-secondary">{p.name}</span>
       <span className="mt-1 font-expanded font-black text-[22px] leading-none text-white">${p.usd}</span>
-      <span className="mt-1.5 text-[12px] font-bold text-g2-blue-light">{p.seconds} seconds</span>
+      <span className="mt-1.5 text-[12px] font-bold text-g2-blue-light">{p.seconds} seconds of Flow</span>
       <span className="mt-2 text-[11px] font-bold text-white underline underline-offset-2">{cta}</span>
     </>
   );
+  // A pass: a button to Stripe when checkout is on, otherwise an email asking for it.
+  const passCard = (p: FlowPlan, className: string, body: (cta: React.ReactNode) => React.ReactNode, ask: string, buyText: string) =>
+    checkout ? (
+      <button key={p.id} type="button" onClick={() => buy(p)} disabled={!!buying}
+        className={`${className} cursor-pointer disabled:opacity-60 disabled:cursor-wait`}>
+        {body(buying === p.id ? opening : buyText)}
+      </button>
+    ) : (
+      <a key={p.id} href={passRequestLink(p, eventName, eventId)} className={className}>{body(ask)}</a>
+    );
   useEffect(() => { if (startOpen) setOpen(true); }, [startOpen]); // ran out: show the passes
-  if (passes.length === 0) return null;
+  if (!upgradePlan && passes.length === 0) return null;
   if (!open) {
     const from = Math.min(...passes.map((p) => p.usd));
     return (
@@ -242,9 +270,9 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
         onClick={() => setOpen(true)}
         className="w-full h-11 px-3.5 rounded-xl border border-white/10 bg-black/20 hover:border-white/25 flex items-center justify-between gap-3 text-left cursor-pointer transition-colors"
       >
-        <span className="text-[13px] font-bold text-white">Add more Flow seconds</span>
+        <span className="text-[13px] font-bold text-white">{upgradePlan ? 'Upgrade this event' : 'Add more Flow seconds'}</span>
         <span className="flex items-center gap-1 text-[12px] text-g2-tertiary">
-          from ${from}
+          {upgradePlan ? `$${upgradePlan.usd}` : `from $${from}`}
           <ChevronDown className="w-4 h-4" aria-hidden="true" />
         </span>
       </button>
@@ -252,36 +280,66 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
   }
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3.5 space-y-3">
-      <div>
-        <p className="text-[13px] font-bold text-white">{topUp ? 'Add more Flow seconds' : 'Want more Flow?'}</p>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-g2-tertiary">
-          {topUp
-            ? 'A pass adds AI video seconds to this event, on top of any you have.'
-            : 'A pass adds AI video seconds to this event, and lets you turn off the Get2Share card at the end.'}
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {passes.map((p) => checkout ? (
-          <button key={p.id} type="button" onClick={() => buy(p)} disabled={!!buying}
-            className={`${card} cursor-pointer disabled:opacity-60 disabled:cursor-wait`}>
-            {inside(p, buying === p.id
-              ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />Opening checkout…</span>
-              : 'Buy this pass')}
-          </button>
-        ) : (
-          <a key={p.id} href={passRequestLink(p, eventName, eventId)} className={card}>
-            {inside(p, 'Ask for this pass')}
-          </a>
-        ))}
-      </div>
+      {upgradePlan ? (
+        <>
+          {passCard(
+            upgradePlan,
+            'w-full rounded-xl border border-g2-blue/60 bg-g2-blue/10 hover:bg-g2-blue/15 p-3.5 flex flex-col text-left transition-colors',
+            (cta) => (
+              <>
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="text-[14px] font-bold text-white">Upgrade this event</span>
+                  <span className="font-expanded font-black text-[22px] leading-none text-white">${upgradePlan.usd}</span>
+                </span>
+                <span className="mt-1 text-[12px] leading-relaxed text-g2-secondary">Everything a big event needs, for this event. One payment.</span>
+                <span className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  {UPGRADE_PERKS(upgradePlan.seconds).map((perk) => (
+                    <span key={perk} className="flex items-start gap-1.5 text-[12px] leading-snug text-white">
+                      <Check className="w-3.5 h-3.5 mt-px shrink-0 text-g2-blue-light" aria-hidden="true" />{perk}
+                    </span>
+                  ))}
+                </span>
+                <span className="mt-3 h-10 rounded-lg bg-g2-blue text-white text-[13px] font-bold flex items-center justify-center">{cta}</span>
+              </>
+            ),
+            'Ask for the upgrade',
+            `Upgrade for $${upgradePlan.usd}`,
+          )}
+          {passes.map((p) => passCard(
+            p,
+            'w-full rounded-xl border border-white/10 hover:border-white/25 px-3.5 py-2.5 flex items-center justify-between gap-3 text-left transition-colors',
+            (cta) => (
+              <>
+                <span>
+                  <span className="block text-[12px] font-bold text-g2-secondary">Just want Flow?</span>
+                  <span className="block text-[12px] text-g2-tertiary">{p.name}: {p.seconds} seconds, ${p.usd}</span>
+                </span>
+                <span className="text-[11px] font-bold text-white underline underline-offset-2 shrink-0">{cta}</span>
+              </>
+            ),
+            'Ask for it',
+            'Buy',
+          ))}
+        </>
+      ) : (
+        <>
+          <div>
+            <p className="text-[13px] font-bold text-white">{topUp ? 'Add more Flow seconds' : 'Want more Flow?'}</p>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-g2-tertiary">A pass adds AI video seconds to this event, on top of any you have.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {passes.map((p) => passCard(p, card, (cta) => inside(p, cta), 'Ask for this pass', 'Buy this pass'))}
+          </div>
+        </>
+      )}
       {error && <p className="text-[12px] text-red-300" aria-live="polite">{error}</p>}
       {checkout ? (
         <p className="text-[11px] leading-relaxed text-g2-muted">
-          Secure checkout by Stripe. The seconds land on this event as soon as you pay.
+          Secure checkout by Stripe. It applies to this event as soon as you pay.
         </p>
       ) : (
         <p className="text-[11px] leading-relaxed text-g2-muted">
-          Paying in the app is next. For now, tapping a pass emails us, and we add the seconds to this event.
+          Paying in the app is next. For now, tapping one emails us, and we add it to this event.
         </p>
       )}
       {checkoutTest && (
@@ -292,7 +350,7 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
       )}
       {pro && (
         <p className="text-[11px] leading-relaxed text-g2-tertiary flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span>Host often? <span className="font-bold text-g2-secondary">{pro.name}</span>: ${pro.usd} a month with {pro.seconds} seconds.</span>
+          <span>Host often? <span className="font-bold text-g2-secondary">{pro.name}</span>: ${pro.usd} a month, every event upgraded, with {pro.seconds} seconds of Flow.</span>
           <span className="h-5 px-2 inline-flex items-center rounded-full border border-white/15 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase text-g2-secondary">Next</span>
         </p>
       )}
