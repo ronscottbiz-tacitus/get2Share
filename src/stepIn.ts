@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { isAdminEmail } from './hosts';
+import { tierOf } from './events';
 import { Photo } from './types';
 
-// Step In / Step Out: a Pro feature. A host asks for it on one photo; a cloud GPU job
+// Step In / Step Out: part of Big Event (and Pro). A host asks for it on one photo; a cloud GPU job
 // (services/step-in) turns the photo into two 3D splats and writes photo.stepIn.
 //   Step In   the whole scene, with the background behind people filled in
 //   Step Out  just the people, as a floating cutout
 //
-// Pro events have features/{eventId}.pro == true. Only the cloud job (and admins in the
-// Firebase console) write that doc; hosts can read it.
+// Big Events have features/{eventId}.tier == 'big' (Pro events: .pro == true; see tierOf).
+// Only the cloud job (and admins in the Firebase console) write that doc; anyone signed in reads it.
 
 /** The cloud job's web address. Override with VITE_STEP_IN_API for a test deployment. */
 export const STEP_IN_API: string =
@@ -48,9 +49,8 @@ export function useStepInAllHosts(active = true): boolean | null {
 
 /**
  * Should this person see finished Step In moments? When allHosts is off, moments that already
- * exist stop showing to everyone except admins, who keep them for testing, and hosts of a Pro
- * event. Guests and TVs can't read whether an event is Pro, so at a Pro event they follow the
- * switch too.
+ * exist stop showing to everyone except admins, who keep them for testing, and hosts of a Big
+ * Event (or Pro). Guests and TVs follow the switch.
  */
 export function useStepInVisible(eventId: string, isHost: boolean): boolean {
   const user = auth.currentUser;
@@ -64,7 +64,7 @@ function useStepInPro(eventId: string, active: boolean): boolean {
   const [pro, setPro] = useState(false);
   useEffect(() => {
     if (!active) return;
-    return onSnapshot(doc(db, 'features', eventId), (s) => setPro(!!s.data()?.pro), () => setPro(false));
+    return onSnapshot(doc(db, 'features', eventId), (s) => setPro(tierOf(s.data()) === 'big'), () => setPro(false));
   }, [eventId, active]);
   return pro;
 }
@@ -99,7 +99,7 @@ export function useCanMakeStepIn(eventId: string, isHost: boolean): boolean {
   }, [isHost, admin]);
   useEffect(() => {
     if (!isHost || admin || allHosts) return;
-    return onSnapshot(doc(db, 'features', eventId), (s) => setPro(!!s.data()?.pro), () => setPro(false));
+    return onSnapshot(doc(db, 'features', eventId), (s) => setPro(tierOf(s.data()) === 'big'), () => setPro(false));
   }, [eventId, isHost, admin, allHosts]);
   return isHost && (admin || allHosts || pro);
 }

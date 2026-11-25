@@ -12,7 +12,7 @@ import { useQr } from '../useQr';
  * Host-only: name a Share Spot and get a one-time code to enter on the tablet.
  * The database only lets a device become a Share Spot by claiming one of these.
  */
-export default function AddShareSpot() {
+export default function AddShareSpot({ full }: { full?: React.ReactNode }) {
   const { event } = useEvent();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -114,6 +114,7 @@ export default function AddShareSpot() {
   };
 
   if (!open) {
+    if (full) return <>{full}</>; // as many Share Spots as the plan allows
     return (
       <button
         type="button"

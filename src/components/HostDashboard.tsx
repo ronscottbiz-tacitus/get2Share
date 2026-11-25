@@ -9,7 +9,7 @@ import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
-import { ALBUM_DAYS, blockGuest, deleteEvent, eventPhase, expiryOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
+import { ALBUM_DAYS, DEVICE_LIMITS, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -20,6 +20,8 @@ import { ShutterButton, ShotOverlay, shotStatusText } from './ShutterButton';
 import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
+import PlanLimitNote from './PlanLimitNote';
+import { useEventFeatures } from '../plan';
 import CoHostsPanel from './CoHostsPanel';
 import { HostShareButtons } from './EventShare';
 import { shareFrameOn, useEventPaid } from '../shareFrame';
@@ -270,6 +272,9 @@ export default function HostDashboard({
   // Let guests borrow each other's cameras (GuestLens). Off unless turned on here.
   // The strip on shared photos: always on for a free event, a paid one can turn it off.
   const eventPaid = useEventPaid(eventId, isHost);
+  // The plan (features/{eventId}): how many Share Spots and TVs it may have.
+  const tier = tierOf(useEventFeatures(eventId, isHost));
+  const deviceLimit = DEVICE_LIMITS[tier];
   const shareFrame = shareFrameOn(event);
   const [shareFrameNote, setShareFrameNote] = useState('');
   const handleToggleShareFrame = async () => {
@@ -880,7 +885,7 @@ export default function HostDashboard({
                     <p className="text-[10px] text-g2-muted mt-0.5">
                       {eventPaid
                         ? "A slim strip under photos guests share, with your event's name and share.get2.one. Saved copies stay clean."
-                        : "A slim strip under photos guests share, with your event's name and share.get2.one. Part of every free event; events with paid Flow time can turn it off."}
+                        : "A slim strip under photos guests share, with your event's name and share.get2.one. Big Events, and events with a Flow Pass, can turn it off."}
                     </p>
                     {shareFrameNote && <p className="text-[10px] text-amber-300 mt-1" aria-live="polite">{shareFrameNote}</p>}
                   </div>
@@ -1085,7 +1090,7 @@ export default function HostDashboard({
                 <span className="ml-3 text-right text-[10px] text-g2-muted font-medium normal-case tracking-normal">Any spare phone or tablet on a stand</span>
               </h3>
 
-              <AddShareSpot />
+              <AddShareSpot full={tripods.length >= deviceLimit ? <PlanLimitNote tier={tier} one="Share Spot" many="Share Spots" /> : undefined} />
 
               {tripods.length === 0 ? (
                 <div className="p-6 bg-black/30 border border-white/5 rounded-xl text-center text-g2-muted text-xs">
@@ -1110,7 +1115,7 @@ export default function HostDashboard({
             </div>
 
             {/* TV screens paired to this event */}
-            <ScreensPanel hostUid={sessionId} />
+            <ScreensPanel hostUid={sessionId} limit={deviceLimit} full={<PlanLimitNote tier={tier} one="TV" many="TVs" />} />
 
             {/* AI Walkthrough video (hidden until config/walkthrough turns it on) */}
             <WalkthroughPanel photos={photos} />

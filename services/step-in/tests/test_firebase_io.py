@@ -32,7 +32,7 @@ def host_env(monkeypatch):
                 return Snap(state["event"])
             if self.col == "config":
                 return Snap(state["stepIn"])
-            return Snap({"pro": True} if state["pro"] else None)
+            return Snap((state["pro"] if isinstance(state["pro"], dict) else {"pro": True}) if state["pro"] else None)
 
     class Db:
         def collection(self, col):
@@ -71,6 +71,9 @@ def test_verify_host_messages_unchanged(host_env):
     ({"other": 1}, False, False, True),
     ({"allHosts": False}, False, False, False),
     ({"allHosts": False}, True, False, True),   # Pro event
+    ({"allHosts": False}, {"tier": "big"}, False, True),     # Big Event
+    ({"allHosts": False}, {"tier": "party"}, False, False),  # Party doesn't include Step In
+    ({"allHosts": False}, {"flowSeconds": 100}, False, False),  # nor does a Flow Pass
     ({"allHosts": False}, False, True, True),   # admin
 ])
 def test_verify_host_keeps_the_step_in_switch(host_env, step_in, pro, admin, allowed):
@@ -80,7 +83,7 @@ def test_verify_host_keeps_the_step_in_switch(host_env, step_in, pro, admin, all
     if allowed:
         assert fb.verify_host("t", "ev1")[1] == host_env["event"]
     else:
-        with pytest.raises(PermissionError, match="Step In is a Pro feature."):
+        with pytest.raises(PermissionError, match="Step In comes with Big Event."):
             fb.verify_host("t", "ev1")
 
 

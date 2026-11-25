@@ -73,8 +73,8 @@ def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
     """Returns (uid, event) if the caller hosts this event and Step In is on for it.
     Raises PermissionError with a message the app can show."""
     uid, ev, is_admin = verify_event_host(id_token, event_id, denied="Only hosts can make Step In moments.")
-    if not (is_admin or step_in_for_all_hosts() or features(event_id).get("pro")):
-        raise PermissionError("Step In is a Pro feature.")
+    if not (is_admin or step_in_for_all_hosts() or big_event(features(event_id))):
+        raise PermissionError("Step In comes with Big Event.")
     return uid, ev
 
 
@@ -84,8 +84,13 @@ def step_in_for_all_hosts() -> bool:
     return (snap.to_dict() or {}).get("allHosts", True) is not False if snap.exists else True
 
 
+def big_event(f: dict) -> bool:
+    """A Big Event (features.tier == "big") or Pro. Same as tierOf in src/events.ts."""
+    return f.get("pro") is True or f.get("tier") == "big" or (f.get("upgraded") is True and "tier" not in f)
+
+
 def features(event_id: str) -> dict:
-    """features/{eventId}: { pro: true } for Pro events, { keep: true } to never auto-delete.
+    """features/{eventId}: { tier: "party" | "big" } once upgraded ({ pro: true } for Pro), { keep: true } to never auto-delete.
     Separate from the event doc so hosts can't grant themselves Pro (see firestore.rules)."""
     snap = db().collection("features").document(event_id).get()
     return (snap.to_dict() or {}) if snap.exists else {}

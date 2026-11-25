@@ -1,15 +1,14 @@
-import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from './firebase';
+import { brandingOptional } from './events';
+import { useEventFeatures } from './plan';
 
 // The strip on shared photos. When a guest taps Share, the copy that leaves the app carries a
 // slim black strip under the photo: the event's name on the left, Get2Share and its address on
 // the right. It is how a shared photo leads back here. The photo in the gallery, and copies
 // saved with "Save to this device", stay clean.
 //
-// Free events always have the strip. An event with paid Flow time or Pro (features/{eventId})
-// can turn it off: that sets shareFrame to false on the event, which the rules only allow for
-// a paid event. So "shareFrame === false" is the one thing to check here.
+// Free and Party events always have the strip. A Big Event (or Pro), or an event with a Flow Pass
+// (features/{eventId}, see brandingOptional), can turn it off: that sets shareFrame to false on the
+// event, which the rules only allow for those. So "shareFrame === false" is the one thing to check here.
 
 export const SITE = 'share.get2.one';
 const BLUE = '#0052FF';
@@ -20,21 +19,9 @@ export function shareFrameOn(ev: { shareFrame?: boolean }): boolean {
   return ev.shareFrame !== false;
 }
 
-/** Hosts only: has this event paid for Flow time or Pro? (Guests can't read this, and don't need to.) */
+/** Hosts only: may this event turn the strip off? A Big Event, or one with a Flow Pass. */
 export function useEventPaid(eventId: string, isHost: boolean): boolean {
-  const [paid, setPaid] = useState(false);
-  useEffect(() => {
-    if (!isHost) return;
-    return onSnapshot(
-      doc(db, 'features', eventId),
-      (s) => {
-        const d = s.data() || {};
-        setPaid(d.pro === true || (typeof d.flowSeconds === 'number' && d.flowSeconds > 0));
-      },
-      () => setPaid(false),
-    );
-  }, [eventId, isHost]);
-  return paid;
+  return brandingOptional(useEventFeatures(eventId, isHost));
 }
 
 function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {

@@ -56,6 +56,14 @@ await check('a co-host of a paid event can turn it off', assertSucceeds(updateDo
 await seed({ pro: true });
 await check('a Pro event can turn the strip off', assertSucceeds(updateDoc(event(account('owner')), { shareFrame: false })));
 
+// --- Party and Big Event ---
+await seed({ tier: 'big', upgraded: true, flowSeconds: 100, includedSeconds: 100 });
+await check('a Big Event can turn the strip off', assertSucceeds(updateDoc(event(account('owner')), { shareFrame: false })));
+await seed({ tier: 'party', upgraded: true, flowSeconds: 20, includedSeconds: 20 });
+await check('a Party event keeps the strip (its seconds are included, not a pass)', assertFails(updateDoc(event(account('owner')), { shareFrame: false })));
+await seed({ tier: 'party', upgraded: true, flowSeconds: 120, includedSeconds: 20 });
+await check('a Party event with a Flow Pass can turn it off', assertSucceeds(updateDoc(event(account('owner')), { shareFrame: false })));
+
 // --- Things that look paid but aren't ---
 await seed({ flowSeconds: 0 });
 await check('zero paid seconds is not paid', assertFails(updateDoc(event(account('owner')), { shareFrame: false })));

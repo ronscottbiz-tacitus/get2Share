@@ -11,7 +11,7 @@ const ONLINE_MS = 3 * 60 * 1000;
 type Row = ScreenConfig & { id: string };
 
 /** Host Console: the event's TVs. Add one by its code, pick what it shows, pause or remove it. */
-export default function ScreensPanel({ hostUid }: { hostUid: string }) {
+export default function ScreensPanel({ hostUid, limit, full }: { hostUid: string; limit?: number; full?: React.ReactNode }) {
   const { event } = useEvent();
   const [screens, setScreens] = useState<Row[]>([]);
   const [adding, setAdding] = useState(false);
@@ -70,7 +70,9 @@ export default function ScreensPanel({ hostUid }: { hostUid: string }) {
         <span className="text-[10px] text-g2-muted font-medium normal-case tracking-normal">Smart TVs and big displays</span>
       </h3>
 
-      {!adding ? (
+      {!adding && full && limit !== undefined && screens.length >= limit ? (
+        full
+      ) : !adding ? (
         <button
           type="button"
           onClick={() => { setAdding(true); setError(''); }}

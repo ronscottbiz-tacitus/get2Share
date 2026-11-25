@@ -184,7 +184,7 @@ export const GUEST_GRACE = 5;
 export type EventTier = 'free' | 'party' | 'big';
 
 /** features/{eventId}: the event's plan. Written only by the cloud job and admins. */
-export interface EventFeatures { tier?: string; pro?: boolean; upgraded?: boolean; guestCap?: number; flowSeconds?: number }
+export interface EventFeatures { tier?: string; pro?: boolean; upgraded?: boolean; guestCap?: number; flowSeconds?: number; includedSeconds?: number }
 
 export function tierOf(f: EventFeatures | null | undefined): EventTier {
   if (!f) return 'free';
@@ -205,6 +205,17 @@ export function guestCapOf(f: EventFeatures | null | undefined): number | null {
   if (f && Number.isInteger(f.guestCap)) return f.guestCap as number;
   const limit = guestLimitOf(f);
   return limit === null ? null : limit + GUEST_GRACE;
+}
+
+/** Share Spots and TVs an event may have (each): free 1, Party 3, Big Event 5. */
+export const DEVICE_LIMITS: Record<EventTier, number> = { free: 1, party: 3, big: 5 };
+
+/** Big Events, and events with a Flow Pass, may turn off Get2Share branding. Party's included
+ *  seconds (includedSeconds) aren't a pass. Keep in step with eventPaid in firestore.rules. */
+export function brandingOptional(f: EventFeatures & { includedSeconds?: number } | null | undefined): boolean {
+  if (tierOf(f) === 'big') return true;
+  const num = (v: unknown) => (typeof v === 'number' ? v : 0);
+  return num(f?.flowSeconds) - num(f?.includedSeconds) > 0;
 }
 
 export async function eventFeatures(eid: string): Promise<EventFeatures | null> {

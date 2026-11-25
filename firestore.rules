@@ -1,6 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-25b: turning off the strip on shared photos (shareFrame) needs a Big Event or a
+//   Flow Pass; Party's included seconds don't count. Tightens a check.
 // Version 2026-11-25: guest limits (plans-and-pricing: free 20, Party 100, Big Event unlimited,
 //   each with a grace of 5). events/{eid}/meta/guests counts guests as they join, in the same
 //   write as their membership, and refuses a guest past the event's cap (guestCap, from
@@ -185,12 +187,17 @@ service cloud.firestore {
               'groupShot', 'lensSharing', 'albumSaving', 'flowCohosts', 'shareFrame'];
     }
 
-    // features/{eid} is written only by admins and the cloud job: paid Flow time, or Pro.
+    // features/{eid} is written only by admins and the cloud job. A Big Event (or Pro), or an event
+    // with a Flow Pass, may turn branding off; Party's included seconds (includedSeconds) aren't a
+    // pass. Same as brandingOptional in src/events.ts.
     function eventPaid(eid) {
       let path = /databases/$(database)/documents/features/$(eid);
-      return exists(path)
-        && (get(path).data.get('pro', false) == true
-            || (get(path).data.get('flowSeconds', 0) is number && get(path).data.get('flowSeconds', 0) > 0));
+      let f = exists(path) ? get(path).data : {};
+      let flow = f.get('flowSeconds', 0) is number ? f.get('flowSeconds', 0) : 0;
+      let included = f.get('includedSeconds', 0) is number ? f.get('includedSeconds', 0) : 0;
+      return f.get('pro', false) == true || f.get('tier', '') == 'big'
+        || (f.get('upgraded', false) == true && !('tier' in f))
+        || flow - included > 0;
     }
 
     // ---------- Guest limits ----------
