@@ -1,6 +1,12 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-25: guest limits (plans-and-pricing: free 20, Party 100, Big Event unlimited,
+//   each with a grace of 5). events/{eid}/meta/guests counts guests as they join, in the same
+//   write as their membership, and refuses a guest past the event's cap (guestCap, from
+//   features/{eid}). features/{eid} is now readable by anyone signed in, so a waiting guest
+//   knows the cap. Until config/walkthrough.upgrade is true (the launch switch), a guest may also
+//   join without being counted, so the live app keeps working. Additive.
 // Version 2026-11-24: no limit on co-hosts (was the owner plus 10). Loosens a check only.
 // Version 2026-11-19: "shareFrame" on the event: the strip on shared photos. Any host can set
 //   it, but only an event with paid Flow time or Pro (features/{eid}) may turn it off. Additive.
@@ -187,6 +193,39 @@ service cloud.firestore {
             || (get(path).data.get('flowSeconds', 0) is number && get(path).data.get('flowSeconds', 0) > 0));
     }
 
+    // ---------- Guest limits ----------
+    // Keep in step with guestCapOf in src/events.ts. features/{eid}.guestCap (set by an admin)
+    // overrides the cap for one event, for testing.
+    function featuresOf(eid) {
+      let path = /databases/$(database)/documents/features/$(eid);
+      return exists(path) ? get(path).data : {};
+    }
+
+    function guestCap(eid) {
+      let f = featuresOf(eid);
+      return f.get('guestCap', null) is int ? f.guestCap
+        : (f.get('pro', false) == true || f.get('tier', '') == 'big'
+           || (f.get('upgraded', false) == true && !('tier' in f))) ? 1000000000
+        : f.get('tier', '') == 'party' ? 105
+        : 25;
+    }
+
+    function guestsPath(eid) {
+      return /databases/$(database)/documents/events/$(eid)/meta/guests;
+    }
+
+    // The launch switch: once on, every new guest must be counted (see meta/guests).
+    function limitsOn() {
+      let path = /databases/$(database)/documents/config/walkthrough;
+      return exists(path) && get(path).data.get('upgrade', false) == true;
+    }
+
+    // This write also counts the new guest.
+    function countedAsGuest(eid) {
+      let before = exists(guestsPath(eid)) ? get(guestsPath(eid)).data.n : 0;
+      return existsAfter(guestsPath(eid)) && getAfter(guestsPath(eid)).data.n == before + 1;
+    }
+
     function albumDays() {
       return duration.value(30, 'd');
     }
@@ -371,7 +410,9 @@ service cloud.firestore {
                         && joinOpen(eventData(eid))
                         && incoming().joinCode == eventData(eid).joinCode
                         // A host blocked this device from the event.
-                        && !exists(blockedPath(eid, mid)))
+                        && !exists(blockedPath(eid, mid))
+                        // Counted against the guest limit (hosts aren't guests).
+                        && (!limitsOn() || isEventHost(eid) || countedAsGuest(eid)))
                       // Share Spots: they claimed a pairing code the host made for this event.
                       || (incoming().role == 'spot' && spotPairedTo(eid, incoming().joinCode, mid))
                       // TV screens: a host claimed the code this TV showed.
@@ -603,7 +644,26 @@ service cloud.firestore {
     // ({ keep: true } = never auto-delete). Kept off the event doc so hosts can't grant
     // themselves Pro. Only admins in the console and the cloud job write it.
     match /features/{eid} {
-      allow get: if isEventHost(eid);
+      // The plan (tier, Flow seconds) isn't secret: a guest waiting at a full event reads it.
+      allow get: if signedIn();
+    }
+
+    // ---------- Guest count ----------
+    // meta/guests { n, last }: guests who joined since guest limits arrived. A guest adds
+    // themselves, once, in the same write as their membership, and only up to the cap. Removing
+    // a guest doesn't give the spot back (so a host can't cycle guests past the limit).
+    match /events/{eid}/meta/{docId} {
+      allow get: if signedIn() && docId == 'guests';
+      allow create, update: if docId == 'guests'
+                    && incoming().keys().hasOnly(['n', 'last', 'expireAt'])
+                    && incoming().n is int
+                    && incoming().n == (resource == null ? 0 : existing().n) + 1
+                    && incoming().n <= guestCap(eid)
+                    && incoming().last == myUid()
+                    && isOptionalTime(incoming(), 'expireAt')
+                    && !exists(memberPath(eid, myUid()))
+                    && existsAfter(memberPath(eid, myUid()))
+                    && getAfter(memberPath(eid, myUid())).data.role == 'guest';
     }
 
     // config/stepIn: { allHosts: true } gives every host Step In while there's no paid plan.

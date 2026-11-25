@@ -106,6 +106,8 @@ const docSnap = (path: string) => {
   if (path === 'features/ev1') data = localStorage.getItem('h-pro') === '1' ? { pro: true } : undefined;
   if (path === 'config/stepIn') data = localStorage.getItem('h-allhosts') === '0' ? { allHosts: false } : undefined;
   if (path === 'config/walkthrough') data = walkthroughConfig();
+  // h-full=1: the event is full (25 guests, free) until h-full is cleared.
+  if (path === 'events/ev1/meta/guests') data = localStorage.getItem('h-full') === '1' ? { n: 25, last: 'g25' } : undefined;
   const tv = localStorage.getItem('h-tv');
   if (path.startsWith('screenPairings/')) data = tv ? { screenUid: 'guest1', createdAt: ts(now - 120000), eventId: tv === 'show' ? 'ev1' : null, screenName: tv === 'show' ? 'Main Hall TV' : null, claimedBy: tv === 'show' ? 'host1' : null } : undefined;
   if (tv === 'show' && path === 'events/ev1/members/guest1') data = { nickname: 'Main Hall TV' };
@@ -148,7 +150,17 @@ export const onSnapshot = (ref: any, cb: any) => {
   return () => {};
 };
 const feedTimers: any[] = [];
-export const getDoc = async (ref: any) => { await new Promise((r) => setTimeout(r, Number(localStorage.getItem('h-slow') || 0))); return docSnap(ref.path); };
+export const getDoc = async (ref: any) => {
+  await new Promise((r) => setTimeout(r, Number(localStorage.getItem('h-slow') || 0)));
+  if (ref.path === 'events/ev1' && localStorage.getItem('h-full') !== null) { const e: any = new Error('denied'); e.code = 'permission-denied'; throw e; } // a guest can't read it
+  return docSnap(ref.path);
+};
+// h-full=1: the rules refuse the counted join (the event is full).
+export const runTransaction = async (_db: any, fn: any) => {
+  if (localStorage.getItem('h-full') === '1') { const e: any = new Error('denied'); e.code = 'permission-denied'; throw e; }
+  const tx = { get: async (ref: any) => docSnap(ref.path), set: (ref: any, data: any) => console.log('TX SET', ref.path, JSON.stringify(data).slice(0, 80)) };
+  return fn(tx);
+};
 export const setDoc = async (ref: any, data: any) => { if (ref.path.includes('/lensRequests/') && localStorage.getItem('h-ask') === 'busy') { const e: any = new Error('denied'); e.code = 'permission-denied'; throw e; } console.log('SET', ref.path, Object.keys(data || {}).join(','), data && data.status ? data.status : ''); };
 export const updateDoc = async (ref: any, data: any) => { if (data.groupShot) localStorage.setItem('h-gs', String(data.groupShot.firesAt.toMillis())); console.log('UPDATE', ref.path, Object.keys(data).join(','), JSON.stringify(data).slice(0, 80), data.stream_frame ? 'frame:' + data.stream_frame.length : ''); };
 export const addDoc = async (ref: any, data: any) => { console.log('ADD', ref.path, data && data.nickname, data && data.status); return { id: 'new' }; };

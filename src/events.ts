@@ -1,5 +1,5 @@
 import {
-  arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch, Timestamp,
+  arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, Timestamp,
 } from 'firebase/firestore';
 import { db, deletePhotoFile } from './firebase';
 import { newCode } from './spotPairing';
@@ -102,6 +102,9 @@ export const paths = {
   events: () => collection(db, 'events'),
   joinCode: (code: string) => doc(db, 'joinCodes', code),
   member: (eid: string, uid: string) => doc(db, 'events', eid, 'members', uid),
+  /** { n, last }: how many guests joined (firestore.rules guestCap is the most it takes). */
+  guestCount: (eid: string) => doc(db, 'events', eid, 'meta', 'guests'),
+  features: (eid: string) => doc(db, 'features', eid),
   hostInvites: (eid: string) => collection(db, 'events', eid, 'hostInvites'),
   hostInvite: (eid: string, token: string) => doc(db, 'events', eid, 'hostInvites', token),
   hostClaims: (eid: string) => collection(db, 'events', eid, 'hostClaims'),
@@ -174,7 +177,62 @@ export async function createEvent(
   throw lastErr;
 }
 
-/** Join as a guest (or update the nickname if this device already joined). */
+/** Guest limits (plans-and-pricing): free 20, Party 100, Big Event unlimited, each with a grace
+ *  of 5. firestore.rules (guestCap) is the real limit and must match guestCapOf. */
+export const GUEST_LIMITS = { free: 20, party: 100 } as const;
+export const GUEST_GRACE = 5;
+export type EventTier = 'free' | 'party' | 'big';
+
+/** features/{eventId}: the event's plan. Written only by the cloud job and admins. */
+export interface EventFeatures { tier?: string; pro?: boolean; upgraded?: boolean; guestCap?: number; flowSeconds?: number }
+
+export function tierOf(f: EventFeatures | null | undefined): EventTier {
+  if (!f) return 'free';
+  if (f.pro === true || f.tier === 'big') return 'big';
+  if (f.tier === 'party') return 'party';
+  return f.upgraded === true ? 'big' : 'free';
+}
+
+/** The plan's limit, without the grace (null: unlimited). */
+export function guestLimitOf(f: EventFeatures | null | undefined): number | null {
+  if (f && Number.isInteger(f.guestCap)) return Math.max(0, (f.guestCap as number) - GUEST_GRACE);
+  const t = tierOf(f);
+  return t === 'big' ? null : GUEST_LIMITS[t];
+}
+
+/** The most guests the rules let in: the limit plus the grace (an admin's guestCap is the whole cap). */
+export function guestCapOf(f: EventFeatures | null | undefined): number | null {
+  if (f && Number.isInteger(f.guestCap)) return f.guestCap as number;
+  const limit = guestLimitOf(f);
+  return limit === null ? null : limit + GUEST_GRACE;
+}
+
+export async function eventFeatures(eid: string): Promise<EventFeatures | null> {
+  try {
+    const snap = await getDoc(paths.features(eid));
+    return snap.exists() ? (snap.data() as EventFeatures) : null;
+  } catch {
+    return null; // rules not published yet: treat as free
+  }
+}
+
+/** The event can't take more guests until a host upgrades it. */
+export class EventFullError extends Error {
+  constructor() { super('The event is full for now.'); }
+}
+
+/** How many guests joined (counted from when guest limits arrived). */
+export async function guestCount(eid: string): Promise<number> {
+  const snap = await getDoc(paths.guestCount(eid));
+  const n = snap.data()?.n;
+  return typeof n === 'number' ? n : 0;
+}
+
+/**
+ * Join as a guest (or update the nickname if this device already joined). A new guest is counted
+ * in the same write (events/{eid}/meta/guests), which the rules refuse once the event is full:
+ * then this throws EventFullError. Hosts aren't guests, so they aren't counted.
+ */
 export async function joinEvent(
   eid: string, uid: string, nickname: string, code: string, name: string, expireAt: Timestamp | null
 ) {
@@ -185,15 +243,38 @@ export async function joinEvent(
   } catch {
     exists = false; // not readable = not a member yet
   }
+  const member = {
+    nickname, joinedAt: serverTimestamp(), joinCode: code, role: 'guest',
+    ...(expireAt ? { expireAt } : {}),
+  };
   if (exists) {
     await updateDoc(ref, { nickname });
+  } else if (await canReadEvent(eid)) {
+    await setDoc(ref, member); // a host (or an admin) joining their own event's gallery
   } else {
-    await setDoc(ref, {
-      nickname, joinedAt: serverTimestamp(), joinCode: code, role: 'guest',
-      ...(expireAt ? { expireAt } : {}),
-    });
+    try {
+      await runTransaction(db, async (tx) => {
+        const count = await tx.get(paths.guestCount(eid));
+        const n = (count.data()?.n as number | undefined) ?? 0;
+        tx.set(ref, member);
+        tx.set(paths.guestCount(eid), { n: n + 1, last: uid, ...(expireAt ? { expireAt } : {}) });
+      });
+    } catch (err) {
+      const cap = guestCapOf(await eventFeatures(eid));
+      if (cap !== null && (await guestCount(eid).catch(() => 0)) >= cap) throw new EventFullError();
+      throw err;
+    }
   }
   await recordJoined(uid, eid, { name, code, expireAt });
+}
+
+/** Hosts and admins can read an event before joining it; guests can't. */
+async function canReadEvent(eid: string) {
+  try {
+    return (await getDoc(paths.event(eid))).exists();
+  } catch {
+    return false;
+  }
 }
 
 /** This device's list of events it joined (kept with the account once saved). */

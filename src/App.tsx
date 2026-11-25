@@ -15,7 +15,7 @@ import { isAdminEmail } from './hosts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   EVENT_PATH_PREFIX, COHOST_PARAM, EventWithId, HOST_PATH, acceptHostInvite, deviceBlockedFrom, eventPhase, parseHostInvite, isMemberOf, joinEvent, normalizeJoinCode, paths,
-  findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf,
+  findJoinedByCode, readLastEvent, rememberEvent, resolveJoinCode, JoinInfo, recordJoined, expiryOf, EventFullError,
 } from './events';
 import { EventContext } from './EventContext';
 import CloseButton from './components/CloseButton';
@@ -105,6 +105,8 @@ export default function App() {
   const [membership, setMembership] = useState<'checking' | 'member' | 'not'>('checking');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState('');
+  // The event is full: this nickname waits, trying again until the host makes room.
+  const [waitingAs, setWaitingAs] = useState<string | null>(null);
   // A nickname typed before sign-in and the event lookup finished; joined as soon as both are ready.
   const [pendingJoin, setPendingJoin] = useState<string | null>(null);
   const [nickname, setNickname] = useState<string>(() => {
@@ -354,14 +356,26 @@ export default function App() {
       try { localStorage.setItem('get2share-nickname', enteredNickname); } catch { /* ignore */ }
       setNickname(enteredNickname);
       rememberEvent({ code: joinInfo.code, name: joinInfo.name, eventId: joinInfo.eventId });
+      setWaitingAs(null);
       setMembership('member');
     } catch (err) {
+      if (err instanceof EventFullError) {
+        setWaitingAs(enteredNickname); // no error: the waiting screen says what's happening
+        return;
+      }
       console.error('Join failed:', err);
       setJoinError("Couldn't join. The host may have changed the event's link; ask them for the new one.");
     } finally {
       setJoining(false);
     }
   };
+
+  // Waiting at a full event: try again every 10 seconds; the moment a host upgrades, they're in.
+  useEffect(() => {
+    if (waitingAs === null || membership === 'member') return;
+    const t = setInterval(() => { if (!joining) handleJoinEvent(waitingAs); }, 10_000);
+    return () => clearInterval(t);
+  }, [waitingAs, membership, joining, joinInfo, sessionId]);
 
   useEffect(() => {
     if (pendingJoin === null) return;
@@ -797,6 +811,7 @@ export default function App() {
           defaultNickname={nickname}
           joining={joining}
           joinError={joinError || authError}
+          waitingAs={waitingAs}
           keeping={!!pendingKeep}
           onJoin={handleJoinEvent}
           onGoToHost={() => navigate(HOST_PATH)}
@@ -941,6 +956,7 @@ export default function App() {
         defaultNickname={nickname}
         joining={joining}
         joinError={joinError}
+        waitingAs={waitingAs}
         keeping={!!pendingKeep}
         onJoin={handleJoinEvent}
         onGoToHost={() => navigate(HOST_PATH)}

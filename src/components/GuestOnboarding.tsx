@@ -9,6 +9,8 @@ interface OnboardingProps {
   defaultNickname?: string;
   joining?: boolean;
   joinError?: string;
+  /** The event is full: this nickname is waiting for the host to make room. */
+  waitingAs?: string | null;
   /** They scanned "keep this one" on a Share Spot. */
   keeping?: boolean;
   onJoin: (nickname: string) => void;
@@ -16,7 +18,7 @@ interface OnboardingProps {
 }
 
 
-export default function GuestOnboarding({ eventName, defaultNickname = '', joining = false, joinError = '', keeping = false, onJoin, onGoToHost }: OnboardingProps) {
+export default function GuestOnboarding({ eventName, defaultNickname = '', joining = false, joinError = '', waitingAs = null, keeping = false, onJoin, onGoToHost }: OnboardingProps) {
   const [nickname, setNickname] = useState(defaultNickname);
   const [error, setError] = useState('');
   const eventTitle = eventName;
@@ -84,6 +86,26 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
 
         <div className="flex-1 min-h-6" />
 
+        {waitingAs !== null ? (
+          <div
+            aria-live="polite"
+            className="bg-g2-panel border border-white/[0.08] rounded-xl p-5 flex flex-col items-center text-center gap-3"
+          >
+            <span className="relative flex w-3 h-3" aria-hidden="true">
+              <span className="absolute inline-flex w-full h-full rounded-full bg-g2-blue opacity-60 animate-ping" />
+              <span className="relative inline-flex w-3 h-3 rounded-full bg-g2-blue" />
+            </span>
+            <p className="font-expanded font-black text-[20px] leading-tight text-white">
+              The host is opening more spots
+            </p>
+            <p className="text-[14px] leading-relaxed text-g2-secondary">
+              This party filled up fast, {waitingAs}. Keep this page open: you'll get in on your own the moment there's room.
+            </p>
+            <p className="font-mono text-[10.5px] tracking-[0.08em] uppercase text-g2-tertiary">
+              {joining ? 'Checking…' : 'Waiting for a spot'}
+            </p>
+          </div>
+        ) : (
         <form
           onSubmit={handleSubmit}
           className="bg-g2-panel border border-white/[0.08] rounded-xl p-4 flex flex-col gap-2.5"
@@ -120,6 +142,7 @@ export default function GuestOnboarding({ eventName, defaultNickname = '', joini
             {keeping ? 'Your Share Spot photo will be waiting in your photos.' : 'No app. No sign-up. Just a nickname.'}
           </p>
         </form>
+        )}
 
 
         <p className="mt-4 text-center font-mono text-[10px] tracking-[0.08em] uppercase text-g2-muted">
