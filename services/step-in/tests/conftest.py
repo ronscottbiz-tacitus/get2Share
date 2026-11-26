@@ -43,6 +43,12 @@ class DocRef:
     def collection(self, name):
         return ColRef(self.db, f"{self.path}/{name}")
 
+    def collections(self):
+        with self.db.lock:
+            prefix = self.path + "/"
+            names = sorted({p[len(prefix):].split("/", 1)[0] for p in self.db.docs if p.startswith(prefix)})
+        return [ColRef(self.db, prefix + n) for n in names]
+
     def get(self, transaction=None):
         if transaction is not None and transaction.writes:
             raise AssertionError("Firestore transactions must do all reads before any write")
