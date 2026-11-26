@@ -1,6 +1,11 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-26: start times, run time and co-hosts by plan. An event may have a start time
+//   (startsAt; photos open then, hosts can add before). From the start, the end can be at most a
+//   day (free), 3 days (Party) or 14 days (Big Event) later; a start can move only before the event
+//   starts. Hosts: the owner plus 3 co-hosts (free), 10 (Party), any number (Big Event). The run
+//   time and co-host limits apply from the launch switch (config/walkthrough.upgrade).
 // Version 2026-11-25c: album lengths by plan. A new end time's closing date (expireAt) is
 //   7 days free, 182 Party, 365 Big Event (tierAlbumDays); until the launch switch, 30 days
 //   (the live app) is fine too. Other event updates no longer re-check the date, so events
@@ -266,10 +271,55 @@ service cloud.firestore {
       return 'endsAt' in e && e.endsAt is timestamp;
     }
 
-    // New photos are accepted until an hour after the end time.
+    // New photos are accepted from the start time (if there is one) until an hour after the end
+    // time. Hosts can add photos before the start, to try things out.
     function uploadsOpen(eid) {
       let e = eventData(eid);
-      return !hasEnd(e) || request.time < e.endsAt + duration.value(1, 'h');
+      return (!hasEnd(e) || request.time < e.endsAt + duration.value(1, 'h'))
+        && (!('startsAt' in e) || e.startsAt == null || request.time >= e.startsAt || isEventHost(eid));
+    }
+
+    // ---------- Start times, run time and co-hosts, by plan ----------
+    // An event runs from its start for a day (free), 3 days (Party) or 14 days (Big Event).
+    // Keep in step with RUN_HOURS in src/events.ts. Events from before start times count from
+    // when they were made.
+    function isBig(f) {
+      return f.get('pro', false) == true || f.get('tier', '') == 'big'
+        || (f.get('upgraded', false) == true && !('tier' in f));
+    }
+
+    function runHours(eid) {
+      let f = featuresOf(eid);
+      return isBig(f) ? 336 : f.get('tier', '') == 'party' ? 72 : 24;
+    }
+
+    function startOf(d) {
+      return ('startsAt' in d && d.startsAt is timestamp) ? d.startsAt : d.createdAt;
+    }
+
+    // The end time fits the plan's run time. Until the launch switch, the live app's end times are fine.
+    function runFits(d, eid) {
+      return !limitsOn() || !hasEnd(d) || d.endsAt <= startOf(d) + duration.value(runHours(eid), 'h');
+    }
+
+    // A start time is now or later (a few minutes' slack for the phone's clock), up to a year out.
+    function startOk(d) {
+      return !('startsAt' in d) || d.startsAt == null
+        || (d.startsAt > request.time - duration.value(10, 'm')
+            && d.startsAt < request.time + duration.value(366, 'd'));
+    }
+
+    // The start can move only before the event has started (so a started event can't restart its clock).
+    function startMovable() {
+      return startOf(existing()) > request.time;
+    }
+
+    // Hosts: the owner plus up to 3 co-hosts (free), 10 (Party), no limit (Big Event). Shrinking is
+    // always fine. Until the launch switch, there's no limit (as on the live app).
+    function hostsFit(eid) {
+      let f = featuresOf(eid);
+      let most = isBig(f) ? 1000 : f.get('tier', '') == 'party' ? 11 : 4;
+      return !limitsOn() || incoming().hostUids.size() <= existing().hostUids.size() || incoming().hostUids.size() <= most;
     }
 
     // People can join (and see the album) until the cleanup date.
@@ -327,6 +377,7 @@ service cloud.firestore {
         && changed().hasOnly(['hostUids'])
         && !(myUid() in existing().hostUids)
         && incoming().hostUids == existing().hostUids.concat([myUid()])
+        && hostsFit(eid)
         && claim.claimedAt == request.time
         && invite.claimedBy == myUid()
         && invite.claimedAt == request.time;
@@ -347,6 +398,8 @@ service cloud.firestore {
                     && incoming().createdAt == request.time
                     && incoming().status == 'live'
                     && albumLinesUp(incoming(), eid)
+                    && startOk(incoming())
+                    && runFits(incoming(), eid)
                     && getAfter(joinCodePath(incoming().joinCode)).data.eventId == eid;
 
       allow update: if (isEventHost(eid)
@@ -357,6 +410,11 @@ service cloud.firestore {
                         && incoming().ownerUid == existing().ownerUid
                         // A new end time comes with the plan's closing date.
                         && (!changed().hasAny(['endsAt', 'expireAt']) || albumLinesUp(incoming(), eid))
+                        // A new start (only before the event starts) or end fits the plan's run time.
+                        && (!('startsAt' in changed()) || (startMovable() && startOk(incoming())))
+                        && (!changed().hasAny(['startsAt', 'endsAt']) || runFits(incoming(), eid))
+                        // Co-hosts: up to the plan's number.
+                        && (!('hostUids' in changed()) || hostsFit(eid))
                         // The strip on shared photos comes off only for a paid event.
                         && (!('shareFrame' in changed()) || incoming().shareFrame == true || eventPaid(eid) || isAdmin())
                         // Only the owner (or an admin) decides whether co-hosts can spend Flow time.

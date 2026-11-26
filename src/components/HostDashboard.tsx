@@ -9,7 +9,7 @@ import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
-import { ALBUM_LENGTH, DEVICE_LIMITS, guestLimitOf, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
+import { ALBUM_LENGTH, COHOST_LIMITS, DEVICE_LIMITS, RUN_LENGTH, guestLimitOf, runEndOf, setEventStart, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -91,6 +91,7 @@ export default function HostDashboard({
   const [hiddenLimit, setHiddenLimit] = useState(24);
   const [restoringAll, setRestoringAll] = useState(false);
   const [endInput, setEndInput] = useState(() => (event.endsAt ? toLocalInput(new Date(event.endsAt.toMillis())) : ''));
+  const [startInput, setStartInput] = useState(() => (event.startsAt ? toLocalInput(new Date(event.startsAt.toMillis())) : ''));
   const [timingBusy, setTimingBusy] = useState(false);
   const [timingMsg, setTimingMsg] = useState('');
   const [nowTick, setNowTick] = useState(Date.now());
@@ -100,6 +101,7 @@ export default function HostDashboard({
   }, []);
   useEffect(() => {
     setEndInput(event.endsAt ? toLocalInput(new Date(event.endsAt.toMillis())) : '');
+    setStartInput(event.startsAt ? toLocalInput(new Date(event.startsAt.toMillis())) : '');
   }, [event.endsAt?.toMillis?.()]);
   const phase = eventPhase(event, nowTick);
   const [savingMetadata, setSavingMetadata] = useState(false);
@@ -562,7 +564,35 @@ export default function HostDashboard({
     changeEnd(new Date(), 'Event ended.');
   };
 
-  const handleReopen = () => changeEnd(new Date(Date.now() + 3 * 60 * 60 * 1000), 'Reopened for 3 more hours.');
+  // Events with a start time run for the plan's time from the start (RUN_HOURS); reopening stays inside it.
+  const hasStart = !!event.startsAt;
+  const runEnd = runEndOf(event, tier);
+  const reopenUntil = hasStart && runEnd !== null ? Math.min(nowTick + 3 * 3600000, runEnd) : nowTick + 3 * 3600000;
+  const canReopen = reopenUntil - nowTick >= 15 * 60000;
+  const handleReopen = () => changeEnd(new Date(reopenUntil),
+    reopenUntil - nowTick >= 3 * 3600000 - 60000 ? 'Reopened for 3 more hours.' : `Reopened until ${new Date(reopenUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`);
+
+  const changeStart = async (start: Date, msg: string) => {
+    try {
+      setTimingBusy(true);
+      setTimingMsg('');
+      await setEventStart(eventId, event.joinCode, start, tier);
+      setTimingMsg(msg);
+      setTimeout(() => setTimingMsg(''), 3000);
+    } catch (e) {
+      console.error('Changing the start time failed:', e);
+      setTimingMsg("Couldn't change the start time. Try again.");
+    } finally {
+      setTimingBusy(false);
+    }
+  };
+  const handleSaveStart = () => {
+    const d = new Date(startInput);
+    if (!startInput || isNaN(d.getTime())) { setTimingMsg('Pick a date and time first.'); return; }
+    if (d.getTime() < Date.now() - 10 * 60000) { setTimingMsg('Pick now or a time ahead, or tap Start now.'); return; }
+    changeStart(d.getTime() <= Date.now() ? new Date() : d, 'Start time saved.');
+  };
+  const handleStartNow = () => changeStart(new Date(), 'Started. Photos are open.');
 
   // New join link: the old QR code and link stop working; people already in stay in.
   const handleResetJoinLink = async () => {
@@ -700,13 +730,15 @@ export default function HostDashboard({
         </header>
 
         <PlanBanner tier={tier} guests={guestCount} guestLimit={guestLimit} phase={phase}
-          closesMs={event.expireAt?.toMillis?.() ?? null} up={upgrades} eventName={event.name} eventId={eventId} now={nowTick} />
+          closesMs={event.expireAt?.toMillis?.() ?? null}
+          endsMs={event.endsAt?.toMillis?.() ?? null} runEndMs={hasStart ? runEnd : null} up={upgrades} eventName={event.name} eventId={eventId} now={nowTick} />
 
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Column 1: Metadata, Governance Switches, Proximity Sharing & QR */}
           <div className="space-y-6 lg:col-span-1">
             <PlanCard tier={tier} guests={guestCount} guestLimit={guestLimit} up={upgrades}
+              cohosts={Math.max(0, (event.hostUids || []).length - 1)}
               eventName={event.name} eventId={eventId} suggested={suggestedPlan} />
             {/* Event timing: live → wrap-up → album */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
@@ -715,22 +747,52 @@ export default function HostDashboard({
                   <Clock className="w-4 h-4 text-g2-blue-light" /> Event timing
                 </span>
                 <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                  phase === 'live' ? 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10'
+                  phase === 'upcoming' ? 'text-g2-blue-light border-g2-blue/40 bg-g2-blue/10'
+                  : phase === 'live' ? 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10'
                   : phase === 'wrapup' ? 'text-amber-300 border-amber-400/30 bg-amber-400/10'
                   : 'text-g2-secondary border-white/10 bg-white/5'
                 }`}>
-                  {phase === 'live' ? 'Live' : phase === 'wrapup' ? 'Wrapping up' : phase === 'album' ? 'Album' : 'Expired'}
+                  {phase === 'upcoming' ? 'Upcoming' : phase === 'live' ? 'Live' : phase === 'wrapup' ? 'Wrapping up' : phase === 'album' ? 'Album' : 'Expired'}
                 </span>
               </h3>
               <p className="text-xs text-g2-tertiary leading-relaxed">
-                {!event.endsAt
+                {phase === 'upcoming' && event.startsAt
+                  ? `Starts ${formatWhen(event.startsAt.toMillis())}. Guests can join now; photos open then and stay open ${RUN_LENGTH[tier]}.`
+                  : !event.endsAt
                   ? 'No end time yet. Set one so the gallery closes and cleans up on its own.'
+                  : phase === 'live' && hasStart
+                    ? `Photos open until ${formatWhen(event.endsAt.toMillis())}. Last photos an hour after that.`
                   : phase === 'live'
                     ? `Ends ${formatWhen(event.endsAt.toMillis())}. Last photos an hour after that.`
                     : phase === 'wrapup'
                       ? `Ended ${formatWhen(event.endsAt.toMillis())}. Last photos until ${new Date(event.endsAt.toMillis() + 3600000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`
                       : `New photos are closed. Guests can view and save the album until ${event.expireAt ? formatDay(event.expireAt.toMillis()) : 'it expires'}, then it's deleted.`}
               </p>
+              {phase === 'upcoming' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <label htmlFor="ev-start-edit" className="text-[11px] font-bold uppercase tracking-wider text-g2-muted">Starts</label>
+                    <div className="flex gap-2">
+                      <input
+                        id="ev-start-edit"
+                        type="datetime-local"
+                        value={startInput}
+                        onChange={(e) => setStartInput(e.target.value)}
+                        className="flex-1 min-w-0 bg-black/40 border border-white/10 focus:border-g2-blue rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none [color-scheme:dark]"
+                      />
+                      <button type="button" onClick={handleSaveStart} disabled={timingBusy}
+                        className="px-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-bold cursor-pointer disabled:opacity-60">
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                  <button type="button" onClick={handleStartNow} disabled={timingBusy}
+                    className="w-full h-10 rounded-xl bg-g2-blue hover:bg-g2-blue-hover text-white text-xs font-bold cursor-pointer disabled:opacity-60 transition-colors">
+                    Start now
+                  </button>
+                </>
+              ) : (<>
+              {!hasStart && (
               <div className="space-y-1.5">
                 <label htmlFor="ev-end-edit" className="text-[11px] font-bold uppercase tracking-wider text-g2-muted">Ends</label>
                 <div className="flex gap-2">
@@ -751,6 +813,7 @@ export default function HostDashboard({
                   </button>
                 </div>
               </div>
+              )}
               {phase === 'live' ? (
                 <button
                   type="button"
@@ -760,16 +823,25 @@ export default function HostDashboard({
                 >
                   End the event now
                 </button>
-              ) : (
+              ) : canReopen ? (
                 <button
                   type="button"
                   onClick={handleReopen}
                   disabled={timingBusy}
                   className="w-full h-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-xs font-bold cursor-pointer disabled:opacity-60 transition-colors"
                 >
-                  Reopen for 3 more hours
+                  {reopenUntil - nowTick >= 3 * 3600000 - 60000
+                    ? 'Reopen for 3 more hours'
+                    : `Reopen until ${new Date(reopenUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
                 </button>
+              ) : (
+                <p className="text-[12px] leading-relaxed text-g2-secondary">
+                  {tier === 'free' ? 'Free events run for a day from the start. Upgrade to Party to keep going for 3 days, or Big Event for 14.'
+                    : tier === 'party' ? 'Party events run for 3 days from the start. A Big Event keeps going for 14.'
+                    : 'This event has run its 14 days.'}
+                </p>
               )}
+              </>)}
               <p className="text-[10px] text-g2-muted leading-relaxed">
                 The album stays up for {ALBUM_LENGTH[tier]} after the end, then photos and guest info are deleted automatically.
                 {tier === 'free' && ' Upgrading keeps it for 6 months (Party) or a year (Big Event).'}
@@ -1052,7 +1124,7 @@ export default function HostDashboard({
               </div>
             )}
 
-            <CoHostsPanel uid={sessionId} isAdmin={isAdmin} />
+            <CoHostsPanel uid={sessionId} isAdmin={isAdmin} limit={COHOST_LIMITS[tier]} tier={tier} />
 
             {/* Proximity Onboarding Cards */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">

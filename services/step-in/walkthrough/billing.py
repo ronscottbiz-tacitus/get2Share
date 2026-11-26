@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -30,6 +30,8 @@ MSG_BAD_RETURN = "This page can't start a checkout."
 MSG_ALREADY_UPGRADED = "This event already has that upgrade."
 # How long the album stays after the end, by plan. Same as ALBUM_DAYS in src/events.ts.
 ALBUM_DAYS = {"free": 7, "party": 182, "big": 365}
+# How long an event runs from its start time, by plan. Same as RUN_HOURS in src/events.ts.
+RUN_HOURS = {"free": 24, "party": 72, "big": 336}
 # What each upgrade does, on Stripe's page and the receipt.
 TIER_ABOUT = {
     "party": "up to 100 guests, 3 Share Spots and 3 TVs, a six-month album",
@@ -224,21 +226,35 @@ class Billing:
                 self.log(f"Checkout {sid}: couldn't move {eid}'s album date: {e!r}")
         return added
 
-    def extend_album(self, eid: str) -> None:
-        """An upgraded event's album stays open longer (ALBUM_DAYS). Moves the closing date
-        (expireAt) on the event, its join code and each guest's "my events" entry. Never earlier.
-        Records inside the event already carry a later backstop date (see ttlFrom in src/events.ts)."""
+    def extend_album(self, eid: str, now: datetime | None = None) -> None:
+        """An upgraded event runs longer and keeps its album longer. If it has a start time and is
+        still going, its end moves to the new plan's run time (RUN_HOURS). Then the album's closing
+        date (expireAt, ALBUM_DAYS after the end) moves on the event, its join code and each guest's
+        "my events" entry. Never earlier. Records inside the event already carry a later backstop
+        date (see ttlFrom in src/events.ts)."""
+        now = now or datetime.now(timezone.utc)
         event_ref = self.db.collection("events").document(eid)
         ev = _dict(event_ref.get())
         ends = ev.get("endsAt")
         if not isinstance(ends, datetime):
             return  # no end time: nothing closes
-        days = ALBUM_DAYS[event_tier(_dict(self.db.collection("features").document(eid).get()))]
-        closes = ends + timedelta(days=days)
+        tier = event_tier(_dict(self.db.collection("features").document(eid).get()))
+        changes = {}
+        start = ev.get("startsAt")
+        if isinstance(start, datetime) and ends > now:
+            run_end = start + timedelta(hours=RUN_HOURS[tier])
+            if run_end > ends:
+                ends = run_end
+                changes["endsAt"] = ends
+        closes = ends + timedelta(days=ALBUM_DAYS[tier])
         current = ev.get("expireAt")
-        if isinstance(current, datetime) and current >= closes:
+        if not (isinstance(current, datetime) and current >= closes):
+            changes["expireAt"] = closes
+        if not changes:
             return
-        event_ref.update({"expireAt": closes})
+        event_ref.update(changes)
+        if "expireAt" not in changes:
+            return
         code = ev.get("joinCode")
         if isinstance(code, str) and code:
             code_ref = self.db.collection("joinCodes").document(code)

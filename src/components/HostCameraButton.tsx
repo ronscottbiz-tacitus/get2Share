@@ -17,7 +17,7 @@ export default function HostCameraButton({ hostUid, variant = 'bar' }: HostCamer
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'posted' | 'failed'>('idle');
   const phase = eventPhase(event);
-  const open = phase === 'live' || phase === 'wrapup';
+  const open = phase === 'upcoming' || phase === 'live' || phase === 'wrapup'; // hosts can try it before the start
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

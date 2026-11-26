@@ -60,14 +60,40 @@ const TTL_EXTRA_MS = 365 * DAY_MS;
 /** "7 days", "6 months", "a year": how the app says ALBUM_DAYS. */
 export const ALBUM_LENGTH: Record<EventTier, string> = { free: '7 days', party: '6 months', big: 'a year' };
 
-export type EventPhase = 'live' | 'wrapup' | 'album' | 'expired';
+export type EventPhase = 'upcoming' | 'live' | 'wrapup' | 'album' | 'expired';
 
-export function eventPhase(ev: Pick<EventDoc, 'endsAt' | 'expireAt'>, now = Date.now()): EventPhase {
+/** upcoming: before the start time (guests can join; photos open at the start). */
+export function eventPhase(ev: Pick<EventDoc, 'endsAt' | 'expireAt'> & { startsAt?: Timestamp | null }, now = Date.now()): EventPhase {
+  const start = ev.startsAt?.toMillis?.();
+  if (start && now < start) return 'upcoming';
   const end = ev.endsAt?.toMillis?.();
   if (!end || now < end) return 'live';
   if (now < end + UPLOAD_GRACE_MS) return 'wrapup';
   const exp = ev.expireAt?.toMillis?.() ?? end + 30 * DAY_MS; // events from before album dates
   return now < exp ? 'album' : 'expired';
+}
+
+/** How long an event runs from its start, by plan. Keep in step with runHours in firestore.rules. */
+export const RUN_HOURS: Record<EventTier, number> = { free: 24, party: 72, big: 336 };
+export const RUN_LENGTH: Record<EventTier, string> = { free: 'a day', party: '3 days', big: '14 days' };
+/** Co-hosts an event may have (besides its owner), by plan; null: no limit. Keep in step with hostsFit. */
+export const COHOST_LIMITS: Record<EventTier, number | null> = { free: 3, party: 10, big: null };
+const HOUR_MS = 60 * 60 * 1000;
+
+/** When the event's clock started (or starts): its start time, or when it was made for older events. */
+export function startOf(ev: { startsAt?: Timestamp | null; createdAt?: Timestamp | null }): number | null {
+  return ev.startsAt?.toMillis?.() ?? ev.createdAt?.toMillis?.() ?? null;
+}
+
+/** The latest the event can end on this plan (null: unknown). */
+export function runEndOf(ev: { startsAt?: Timestamp | null; createdAt?: Timestamp | null }, tier: EventTier): number | null {
+  const start = startOf(ev);
+  return start === null ? null : start + RUN_HOURS[tier] * HOUR_MS;
+}
+
+/** A start time and what follows from it: the end (the plan's run time later) and the album's closing date. */
+export function startTimes(start: Date, tier: EventTier = 'free') {
+  return { startsAt: Timestamp.fromDate(start), ...endTimes(new Date(start.getTime() + RUN_HOURS[tier] * HOUR_MS), tier) };
 }
 
 /** endsAt and the album's closing date for this plan (the rules check they line up). */
@@ -91,6 +117,15 @@ export function defaultEnd(): Date {
 }
 
 /** Change (or set) when an event ends. Also used for "End now" and "Reopen". */
+/** Move the start (only before the event starts), or start it now. The end follows the plan's run time. */
+export async function setEventStart(eid: string, code: string, start: Date, tier: EventTier = 'free') {
+  const t = startTimes(start, tier);
+  const batch = writeBatch(db);
+  batch.update(paths.event(eid), t);
+  batch.update(paths.joinCode(code), { expireAt: t.expireAt });
+  await batch.commit();
+}
+
 export async function setEventEnd(eid: string, code: string, end: Date, tier: EventTier = 'free') {
   const t = endTimes(end, tier);
   const batch = writeBatch(db);
@@ -159,9 +194,9 @@ export async function resolveJoinCode(code: string): Promise<JoinInfo | null> {
 /** Create an event owned by `uid`, with a fresh join code. Returns its ID. */
 export async function createEvent(
   uid: string,
-  input: { name: string; subtitle?: string; autoApproval: boolean; end: Date }
+  input: { name: string; subtitle?: string; autoApproval: boolean; start: Date }
 ): Promise<{ id: string; code: string }> {
-  const times = endTimes(input.end);
+  const times = startTimes(input.start);
   const ref = doc(paths.events());
   let lastErr: unknown;
   // A code collision fails the batch; just try another code.

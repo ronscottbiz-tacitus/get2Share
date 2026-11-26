@@ -18,7 +18,10 @@ function timeLeft(ms: number) {
 
 /** Host Console: who helps run this event. The owner invites co-hosts with a one-time link
  *  and can remove them; co-hosts see the list. */
-export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; isAdmin?: boolean }) {
+/** limit: co-hosts the event's plan allows (null: no limit); see COHOST_LIMITS. */
+export default function CoHostsPanel({ uid, isAdmin = false, limit = null, tier = 'free' }: {
+  uid: string; isAdmin?: boolean; limit?: number | null; tier?: 'free' | 'party' | 'big';
+}) {
   const { event } = useEvent();
   const isOwner = isAdmin || event.ownerUid === uid;
   const [claims, setClaims] = useState<Record<string, HostClaim>>({});
@@ -58,6 +61,8 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
   const open = invites
     .filter((i) => !i.claimedBy && hostInviteExpiry(i) > now)
     .sort((a, b) => hostInviteExpiry(b) - hostInviteExpiry(a));
+  // Co-hosts plus open invite links, against the plan's limit.
+  const full = limit !== null && cohosts.length + open.length >= limit;
 
   // Links that ran out without being used are just clutter: clear them quietly.
   useEffect(() => {
@@ -136,7 +141,7 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
         <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center gap-1.5">
           <Users className="w-4 h-4 text-g2-blue-light" /> Co-hosts ({cohosts.length})
         </h3>
-        {isOwner && (
+        {isOwner && !full && (
           <button
             type="button"
             onClick={handleInvite}
@@ -148,6 +153,14 @@ export default function CoHostsPanel({ uid, isAdmin = false }: { uid: string; is
         )}
       </div>
 
+      {isOwner && full && (
+        <p className="text-[11px] text-g2-secondary leading-relaxed">
+          {tier === 'free'
+            ? `Free events have up to ${limit} co-hosts. Upgrade to Party for 10, or Big Event for as many as you like.`
+            : `Party events have up to ${limit} co-hosts. A Big Event has no limit.`}
+          {open.length > 0 && ' Open invite links count until they expire.'}
+        </p>
+      )}
       <p className="text-[11px] text-g2-tertiary leading-relaxed">
         Co-hosts can approve photos, remove guests, and run Share Spots, TVs and Flash.
         {isOwner ? ' Only you can add or remove co-hosts and delete the event.' : ' Only the event owner can add or remove co-hosts.'}

@@ -160,7 +160,7 @@ export default function App() {
         result === 'used' ? `${what} has already been used. Ask the event's owner for a new link.`
         : result === 'expired' ? `${what} has expired. Ask the event's owner for a new link.`
         : result === 'gone' ? "That co-host invite isn't valid any more. Ask the event's owner for a new link."
-        : `${what} couldn't be accepted. Check your connection, or ask the event's owner for a new link.`
+        : `${what} couldn't be accepted. The event may already have all the co-hosts its plan allows, or the connection dropped. Ask the event's owner.`
       );
     })();
   }, [pendingCohost, route.kind, hasAccount, authUser, navigate]);

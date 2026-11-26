@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, Clock, Loader2, Sparkles, Users } from 'lucide-react';
-import { ALBUM_LENGTH, DEVICE_LIMITS, EventPhase, EventTier, GUEST_GRACE } from '../events';
+import { ALBUM_LENGTH, COHOST_LIMITS, DEVICE_LIMITS, EventPhase, EventTier, GUEST_GRACE, RUN_LENGTH } from '../events';
 import { FlowPlan } from '../walkthrough';
 import { passRequestLink } from '../flowAccess';
 import { REFUNDS_PATH, TERMS_PATH } from '../legal';
@@ -14,8 +14,8 @@ const TIER_NAME: Record<EventTier, string> = { free: 'Free', party: 'Party', big
 /** What each upgrade adds, in one line. */
 function offerLine(p: FlowPlan): string {
   return p.tier === 'party'
-    ? `Up to 100 guests, ${DEVICE_LIMITS.party} Share Spots and ${DEVICE_LIMITS.party} TVs, the album kept ${ALBUM_LENGTH.party}`
-    : `Unlimited guests, ${DEVICE_LIMITS.big} Share Spots and ${DEVICE_LIMITS.big} TVs, the album kept ${ALBUM_LENGTH.big}, no branding`;
+    ? `Up to 100 guests, photos open ${RUN_LENGTH.party}, ${DEVICE_LIMITS.party} Share Spots and ${DEVICE_LIMITS.party} TVs, the album kept ${ALBUM_LENGTH.party}`
+    : `Unlimited guests, photos open ${RUN_LENGTH.big}, ${DEVICE_LIMITS.big} Share Spots and ${DEVICE_LIMITS.big} TVs, the album kept ${ALBUM_LENGTH.big}, no branding`;
 }
 
 const offerTitle = (p: FlowPlan) => (p.stepUp ? `Make it a ${p.name}` : p.name);
@@ -37,8 +37,8 @@ function BuyButton({ p, up, eventName, eventId, label, primary = true }: {
   );
 }
 
-export function PlanCard({ tier, guests, guestLimit, up, eventName, eventId, suggested }: {
-  tier: EventTier; guests: number; guestLimit: number | null; up: UpgradeOffers; eventName: string; eventId: string;
+export function PlanCard({ tier, guests, guestLimit, cohosts, up, eventName, eventId, suggested }: {
+  tier: EventTier; guests: number; guestLimit: number | null; cohosts: number; up: UpgradeOffers; eventName: string; eventId: string;
   /** The host said at creation that the event is this big: point at that upgrade. */
   suggested: 'party' | 'big' | null;
 }) {
@@ -52,7 +52,9 @@ export function PlanCard({ tier, guests, guestLimit, up, eventName, eventId, sug
   const rows: [string, string][] = [
     ['Guests', guestLimit === null ? `${guests}, no limit`
       : guests > guestLimit ? `${guests} (${guestLimit} + ${guests - guestLimit} extra)` : `${guests} of ${guestLimit}`],
+    ['Photos open', `${RUN_LENGTH[tier]} from the start`],
     ['Share Spots and TVs', `${DEVICE_LIMITS[tier]} each`],
+    ['Co-hosts', COHOST_LIMITS[tier] === null ? `${cohosts}, no limit` : `${cohosts} of ${COHOST_LIMITS[tier]}`],
     ['Album', `${ALBUM_LENGTH[tier]} after the end`],
     ['Get2Share branding', tier === 'big' ? 'Yours to turn off' : 'On'],
   ];
@@ -145,13 +147,15 @@ const ALBUM_WARN_DAYS: Record<EventTier, number> = { free: 3, party: 14, big: 0 
  * The moment an upgrade is needed: guests nearly or over the limit, or the album about to close.
  * Nothing when all is well.
  */
-export function PlanBanner({ tier, guests, guestLimit, phase, closesMs, up, eventName, eventId, now }: {
+export function PlanBanner({ tier, guests, guestLimit, phase, closesMs, endsMs = null, runEndMs = null, up, eventName, eventId, now }: {
   tier: EventTier; guests: number; guestLimit: number | null; phase: EventPhase; closesMs: number | null;
+  /** The end time, and the latest the plan allows (events with a start time). Near it: offer more time. */
+  endsMs?: number | null; runEndMs?: number | null;
   up: UpgradeOffers; eventName: string; eventId: string; now: number;
 }) {
   const next = up.offers[0];
-  const joining = phase === 'live' || phase === 'wrapup';
-  let tone: 'near' | 'over' | 'full' | 'album' | null = null;
+  const joining = phase === 'upcoming' || phase === 'live' || phase === 'wrapup';
+  let tone: 'near' | 'over' | 'full' | 'album' | 'time' | null = null;
   let title = '';
   let detail = '';
   if (joining && guestLimit !== null && guests >= guestLimit - 5) {
@@ -169,6 +173,14 @@ export function PlanBanner({ tier, guests, guestLimit, phase, closesMs, up, even
       title = `${guests} of ${guestLimit} guests`;
       detail = 'Your event is filling up.';
     }
+  } else if (phase === 'live' && tier !== 'big' && endsMs !== null && runEndMs !== null
+    && endsMs >= runEndMs - 60000 && endsMs - now <= 2 * 3600000) {
+    // The event's day (or 3 days) is nearly up, and the host didn't pick an earlier end.
+    tone = 'time';
+    title = `Photos close at ${new Date(endsMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    detail = tier === 'free'
+      ? 'Free events run for a day from the start. Party keeps going for 3 days, Big Event for 14.'
+      : 'Party events run for 3 days from the start. A Big Event keeps going for 14.';
   } else if (phase === 'album' && closesMs !== null && ALBUM_WARN_DAYS[tier] > 0 && closesMs - now <= ALBUM_WARN_DAYS[tier] * DAY_MS) {
     const days = Math.max(1, Math.ceil((closesMs - now) / DAY_MS));
     tone = 'album';
@@ -176,11 +188,11 @@ export function PlanBanner({ tier, guests, guestLimit, phase, closesMs, up, even
     detail = `Then the photos are deleted for everyone. ${next ? `Upgrade to keep it ${ALBUM_LENGTH[next.tier as EventTier]}.` : ''}`;
   }
   if (!tone) return null;
-  const cta = next && (tone === 'album'
+  const cta = next && (tone === 'album' || tone === 'time'
     ? undefined
     : next.tier === 'party' ? `Upgrade for $${next.usd} to make room for 100` : `${next.stepUp ? `Make it a Big Event for $${next.usd}` : `Big Event for $${next.usd}`}: no guest limit`);
   const warn = tone === 'full' || tone === 'over';
-  const Icon = tone === 'album' ? Clock : warn ? AlertTriangle : Users;
+  const Icon = tone === 'album' || tone === 'time' ? Clock : warn ? AlertTriangle : Users;
   return (
     <div role="status" className={`rounded-2xl border p-4 flex flex-col md:flex-row md:items-center gap-3 ${
       warn ? 'border-amber-400/40 bg-amber-400/[0.07]' : 'border-g2-blue/40 bg-g2-blue/[0.08]'}`}>
@@ -190,7 +202,7 @@ export function PlanBanner({ tier, guests, guestLimit, phase, closesMs, up, even
         <p className="text-[12px] leading-relaxed text-g2-secondary">{detail}</p>
       </div>
       {next && <BuyButton p={next} up={up} eventName={eventName} eventId={eventId} label={cta} />}
-      {!next && tone !== 'album' && tier !== 'big' && (
+      {!next && tone !== 'album' && tone !== 'time' && tier !== 'big' && (
         <span className="text-[12px] text-g2-tertiary">Upgrades are coming soon.</span>
       )}
     </div>

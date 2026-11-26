@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Download, Heart, Image as ImageIcon, Users, LogOut, Clock, RefreshCw, Trash2, Bookmark } from 'lucide-react';
 import Get2ShareLockup from './Get2ShareLockup';
 import { query, where, onSnapshot, addDoc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { eventPhase, expiryOf, formatDay, joinUrl, paths } from '../events';
+import { eventPhase, expiryOf, formatDay, formatWhen, joinUrl, paths } from '../events';
 import { useEvent } from '../EventContext';
 import { deletePhotoFile, compressPhoto, uploadPhotoAsset, handleFirestoreError, OperationType } from '../firebase';
 import { Photo } from '../types';
@@ -75,6 +75,7 @@ export default function LiveGalleryFeed({
   const phase = eventPhase(event, now);
   const uploadsOpen = phase === 'live' || phase === 'wrapup';
   const endMs = event.endsAt?.toMillis?.() ?? null;
+  const startMs = event.startsAt?.toMillis?.() ?? null;
   const albumUntil = event.expireAt?.toMillis?.() ?? null;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -306,7 +307,7 @@ export default function LiveGalleryFeed({
       <section className="px-5 pt-4 pb-3 max-w-3xl mx-auto">
         <p className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary flex items-center gap-2">
           <span className={`w-[7px] h-[7px] rounded-full ${uploadsOpen ? 'bg-emerald-400' : 'bg-g2-muted'}`} />
-          {phase === 'live' ? 'Live event' : phase === 'wrapup' ? 'Wrapping up' : 'Album'} · {approvedCount} {approvedCount === 1 ? 'photo' : 'photos'}
+          {phase === 'upcoming' ? 'Starting soon' : phase === 'live' ? 'Live event' : phase === 'wrapup' ? 'Wrapping up' : 'Album'} · {approvedCount} {approvedCount === 1 ? 'photo' : 'photos'}
         </p>
         {title && (
           <h1 className="mt-1.5 font-expanded font-black text-2xl leading-tight text-white">{title}</h1>
@@ -331,7 +332,12 @@ export default function LiveGalleryFeed({
             The party's wrapping up. Last photos until {new Date(endMs + 60 * 60 * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.
           </p>
         )}
-        {!uploadsOpen && (
+        {phase === 'upcoming' && startMs && (
+          <p className="mt-3 px-3.5 py-2.5 rounded-lg bg-g2-blue/10 border border-g2-blue/30 text-[13px] text-white">
+            You're in. Photos open {formatWhen(startMs)}. Keep this page: the camera turns on then.
+          </p>
+        )}
+        {!uploadsOpen && phase !== 'upcoming' && (
           <div className="mt-3 p-4 rounded-xl bg-g2-panel border border-g2-blue/40 flex flex-col gap-3">
             <div>
               <p className="text-[15px] font-bold text-white">That's a wrap.</p>
@@ -547,7 +553,7 @@ export default function LiveGalleryFeed({
         <div className="h-28 flex flex-col items-center justify-center gap-1.5">
           {!uploadsOpen ? (
             <p className="px-6 text-center text-[13px] text-g2-tertiary">
-              New photos are closed for this event.
+              {phase === 'upcoming' && startMs ? `Photos open ${formatWhen(startMs)}.` : 'New photos are closed for this event.'}
             </p>
           ) : (
           <div className="w-full max-w-xs grid grid-cols-[1fr_auto_1fr] items-center">

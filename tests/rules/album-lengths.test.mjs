@@ -16,7 +16,7 @@ const env = await initializeTestEnvironment({
 });
 
 const DAY = 24 * 60 * 60 * 1000;
-const END = Date.UTC(2026, 11, 31, 23, 0); // Dec 31, 2026
+const END = Date.now() + 12 * 60 * 60 * 1000; // inside the first day, so the run-time limit is met
 const at = (ms) => Timestamp.fromMillis(ms);
 const times = (days, end = END) => ({ endsAt: at(end), expireAt: at(end + days * DAY) });
 

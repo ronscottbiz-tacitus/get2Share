@@ -415,7 +415,7 @@ function EventView({ event, config, photos: allPhotos, now, onSwitch }: { event:
         </div>
         <span className="flex items-center gap-[1.2vmin] font-mono text-[2.2vmin] font-bold tracking-[0.08em] uppercase text-white shrink-0">
           <span className={`w-[1.4vmin] h-[1.4vmin] rounded-full ${phase === 'live' || phase === 'wrapup' ? 'bg-g2-live' : 'bg-g2-muted'}`} />
-          {phase === 'live' || phase === 'wrapup' ? 'Live' : 'Album'} · {photos.length} {photos.length === 1 ? 'photo' : 'photos'}
+          {phase === 'upcoming' ? 'Starting soon' : phase === 'live' || phase === 'wrapup' ? 'Live' : 'Album'} · {photos.length} {photos.length === 1 ? 'photo' : 'photos'}
         </span>
       </header>
 
@@ -488,7 +488,9 @@ function EventView({ event, config, photos: allPhotos, now, onSwitch }: { event:
       <footer className="mt-[3vmin] flex justify-between items-center">
         <Tagline />
         <span className="font-mono text-[1.9vmin] text-g2-tertiary">
-          {phase === 'live' || phase === 'wrapup' ? 'New photos appear here as they’re taken' : 'Thanks for coming'}
+          {phase === 'upcoming' && event.startsAt
+            ? `Photos appear here from ${new Date(event.startsAt.toMillis()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+            : phase === 'live' || phase === 'wrapup' ? 'New photos appear here as they’re taken' : 'Thanks for coming'}
         </span>
       </footer>
     </TvFrame>

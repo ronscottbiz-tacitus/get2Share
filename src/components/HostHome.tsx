@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Lock, LogOut, Plus, X } from 'lucide-react';
 import { formatPairingCode } from '../spotPairing';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import Get2ShareLockup from './Get2ShareLockup';
-import { ALBUM_LENGTH, createEvent, defaultEnd, EventWithId, eventPhase, formatDay, paths, toLocalInput } from '../events';
+import { ALBUM_LENGTH, createEvent, EventWithId, eventPhase, formatDay, formatWhen, paths, toLocalInput } from '../events';
 import CloseButton from './CloseButton';
 import { rememberSuggestedPlan } from '../plan';
 
@@ -63,7 +63,8 @@ export default function HostHome({
   const [review, setReview] = useState(false);
   // "About how many people?": bigger events are pointed at the upgrade that fits (plans-and-pricing).
   const [size, setSize] = useState<'free' | 'party' | 'big'>('free');
-  const [endInput, setEndInput] = useState(() => toLocalInput(defaultEnd()));
+  // When it starts (photos open then). Now, unless the host picks a later time.
+  const [startInput, setStartInput] = useState(() => toLocalInput(new Date()));
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
@@ -114,19 +115,25 @@ export default function HostHome({
       setFormError('Give your event a name.');
       return;
     }
-    const end = new Date(endInput);
-    if (!endInput || isNaN(end.getTime())) {
-      setFormError('Pick when the party ends.');
+    const picked = new Date(startInput);
+    if (!startInput || isNaN(picked.getTime())) {
+      setFormError('Pick when the party starts.');
       return;
     }
-    if (end.getTime() <= Date.now()) {
-      setFormError('The end time needs to be in the future.');
+    // A time in the last few minutes (the form was opened a moment ago) means now.
+    if (picked.getTime() < Date.now() - 10 * 60 * 1000) {
+      setFormError('Pick now or a time ahead.');
       return;
     }
+    if (picked.getTime() > Date.now() + 365 * 24 * 60 * 60 * 1000) {
+      setFormError('Pick a start within a year.');
+      return;
+    }
+    const start = picked.getTime() <= Date.now() ? new Date() : picked;
     setCreating(true);
     setFormError('');
     try {
-      const { id } = await createEvent(uid, { name, subtitle, autoApproval: !review, end });
+      const { id } = await createEvent(uid, { name, subtitle, autoApproval: !review, start });
       if (size !== 'free') rememberSuggestedPlan(id, size);
       onOpenEvent(id);
     } catch (err) {
@@ -316,16 +323,17 @@ export default function HostHome({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="ev-end" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">Ends</label>
+              <label htmlFor="ev-start" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">Starts</label>
               <input
-                id="ev-end"
+                id="ev-start"
                 type="datetime-local"
-                value={endInput}
-                onChange={(e) => { setEndInput(e.target.value); setFormError(''); }}
+                value={startInput}
+                onChange={(e) => { setStartInput(e.target.value); setFormError(''); }}
                 className="h-[52px] px-4 bg-g2-page border border-white/10 focus:border-g2-blue rounded-lg text-white text-base focus:outline-none [color-scheme:dark]"
               />
               <p className="text-xs text-g2-tertiary">
-                New photos close an hour after this. Guests can keep viewing and saving the album for {ALBUM_LENGTH.free}, then it's deleted. Upgrading keeps it for 6 months or a year.
+                Guests can join any time; photos open at the start and stay open for a day (3 days with Party, 14 with Big Event).
+                Then the album stays up for {ALBUM_LENGTH.free} (6 months or a year with an upgrade).
               </p>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -391,6 +399,7 @@ export default function HostHome({
 
 function phaseLabel(ev: EventWithId) {
   const phase = eventPhase(ev);
+  if (phase === 'upcoming') return ev.startsAt ? `Starts ${formatWhen(ev.startsAt.toMillis())}` : 'Upcoming';
   if (phase === 'live') return ev.endsAt ? `Live until ${new Date(ev.endsAt.toMillis()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Live';
   if (phase === 'wrapup') return 'Wrapping up';
   if (phase === 'album') return ev.expireAt ? `Album until ${formatDay(ev.expireAt.toMillis())}` : 'Album';

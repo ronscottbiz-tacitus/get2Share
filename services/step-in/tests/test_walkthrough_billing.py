@@ -546,3 +546,59 @@ def test_the_payment_counts_even_if_the_date_cannot_move(world, monkeypatch):
     b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
     assert features(world)["tier"] == "party" and features(world)["flowSeconds"] == 20
     assert closes(world, "events/ev1") == END + timedelta(days=7)
+
+
+# ------------------------------------------------------------------ run time (start times)
+START = datetime(2026, 12, 5, 21, 0, tzinfo=timezone.utc)  # Saturday 1 PM in Oakland
+
+
+def started_event(world, ends_after_hours=24, tier=None):
+    world.db.collection("events").document("ev1").set({
+        "name": "BBQ", "ownerUid": "host1", "hostUids": ["host1"], "joinCode": "ABC123",
+        "startsAt": START, "endsAt": START + timedelta(hours=ends_after_hours),
+        "expireAt": START + timedelta(hours=ends_after_hours) + timedelta(days=7)})
+    world.db.collection("joinCodes").document("ABC123").set({"eventId": "ev1"})
+    if tier:
+        world.db.collection("features").document("ev1").set({"tier": tier, "upgraded": True})
+
+
+def test_upgrading_a_running_free_event_gives_it_partys_three_days(world):
+    b, _ = make(world)
+    started_event(world, tier="party")
+    b.extend_album("ev1", now=START + timedelta(hours=5))
+    ev = world.db.docs["events/ev1"]
+    assert ev["endsAt"] == START + timedelta(hours=72)
+    assert ev["expireAt"] == START + timedelta(hours=72) + timedelta(days=182)
+    assert world.db.docs["joinCodes/ABC123"]["expireAt"] == ev["expireAt"]
+
+
+def test_big_event_runs_fourteen_days_and_upcoming_events_move_too(world):
+    b, _ = make(world)
+    started_event(world, tier="big")
+    b.extend_album("ev1", now=START - timedelta(days=3))  # bought before it started
+    assert world.db.docs["events/ev1"]["endsAt"] == START + timedelta(hours=336)
+
+
+def test_an_event_that_already_ended_keeps_its_end(world):
+    b, _ = make(world)
+    started_event(world, ends_after_hours=3, tier="party")  # the host ended it early
+    b.extend_album("ev1", now=START + timedelta(hours=5))
+    ev = world.db.docs["events/ev1"]
+    assert ev["endsAt"] == START + timedelta(hours=3)
+    assert ev["expireAt"] == START + timedelta(hours=3) + timedelta(days=182)
+
+
+def test_a_reopened_event_gets_the_new_run_time(world):
+    b, _ = make(world)
+    started_event(world, ends_after_hours=8, tier="party")  # reopened until 8 hours in
+    b.extend_album("ev1", now=START + timedelta(hours=6))
+    assert world.db.docs["events/ev1"]["endsAt"] == START + timedelta(hours=72)
+
+
+def test_paying_runs_it_through_the_webhook(world):
+    b, _ = make(world)
+    soon = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=2)
+    started_event(world)
+    world.db.docs["events/ev1"].update(startsAt=soon, endsAt=soon + timedelta(hours=24))
+    b.handle_webhook(upgrade_paid(tier="party", seconds="20"), "signed-with-whsec_abc")
+    assert world.db.docs["events/ev1"]["endsAt"] == soon + timedelta(hours=72)
