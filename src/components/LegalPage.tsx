@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import Get2ShareLockup from './Get2ShareLockup';
-import { CONTACT_EMAIL, PRIVACY_PATH, REFUNDS_PATH, TERMS_PATH } from '../legal';
+import { CONTACT_EMAIL, PHONE, PHONE_TEL, PRIVACY_PATH, REFUNDS_PATH, SUPPORT_EMAIL, TERMS_PATH } from '../legal';
 
 // share.get2.one/terms, /privacy and /refunds. Plain words, and nothing promised here that the app
 // doesn't do. Loads without Firebase (see main.tsx), like the landing page.
@@ -13,8 +13,8 @@ const PAGES = [
   { path: REFUNDS_PATH, label: 'Refunds' },
 ];
 
-const Mail = () => (
-  <a href={`mailto:${CONTACT_EMAIL}`} className="text-g2-blue-light hover:text-white underline underline-offset-2">{CONTACT_EMAIL}</a>
+const Mail = ({ to = CONTACT_EMAIL }: { to?: string }) => (
+  <a href={`mailto:${to}`} className="text-g2-blue-light hover:text-white underline underline-offset-2">{to}</a>
 );
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -207,12 +207,13 @@ function Refunds() {
       </Section>
       <Section title="Something went wrong">
         <p>
-          If you were charged but the upgrade or the seconds never showed up, or you were charged twice, email us and we&rsquo;ll fix it or refund you in full.
+          If you were charged but the upgrade or the seconds never showed up, or you were charged twice, email <Mail to={SUPPORT_EMAIL} /> and
+          we&rsquo;ll fix it or refund you in full.
         </p>
       </Section>
       <Section title="How to ask">
         <p>
-          Email <Mail /> with the event&rsquo;s name and the email address you paid with. Refunds go back to the card you paid with. Your bank may
+          Email <Mail to={SUPPORT_EMAIL} /> with the event&rsquo;s name and the email address you paid with. Refunds go back to the card you paid with. Your bank may
           take 5 to 10 business days to show it.
         </p>
         <p>Unused seconds are deleted with the event when its album closes, and can&rsquo;t be refunded after that.</p>
@@ -257,7 +258,11 @@ export default function LegalPage({ path }: { path: string }) {
           <p>
             Get2Share, a Get2 product · Ron Scott · Oakland, California
             <br />
-            Email: <Mail />
+            Questions: <Mail />
+            <br />
+            Refunds and billing: <Mail to={SUPPORT_EMAIL} />
+            <br />
+            Phone: <a href={PHONE_TEL} className="text-g2-blue-light hover:text-white underline underline-offset-2">{PHONE}</a>
           </p>
         </Section>
       </main>

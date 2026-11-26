@@ -1,5 +1,7 @@
 // Kept apart from walkthrough.ts so the landing page can link here without loading Firebase.
-const FLOW_EMAIL = 'ron@get2studio.com';
+import { SUPPORT_EMAIL } from './legal';
+
+const FLOW_EMAIL = SUPPORT_EMAIL;
 
 /** Until checkout is built: an email asking for a pass, with what's needed to add it to the event. */
 export function passRequestLink(plan: { name: string; usd: number; seconds: number }, eventName: string, eventId: string): string {

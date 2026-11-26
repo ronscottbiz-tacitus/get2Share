@@ -98,7 +98,7 @@ export default function WalkthroughPanel({ photos }: { photos: Photo[] }) {
       } catch { /* try again */ }
       if (!on) return;
       if (tries < 20) timer = setTimeout(check, 2000);
-      else setPassNote({ tone: 'info', text: "Your payment went through, but the seconds haven't shown up yet. Refresh in a minute, or email ron@get2studio.com." });
+      else setPassNote({ tone: 'info', text: "Your payment went through, but the seconds haven't shown up yet. Refresh in a minute, or email support@get2studio.com." });
     };
     check();
     return () => { on = false; clearTimeout(timer); };

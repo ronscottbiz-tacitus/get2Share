@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CONTACT_EMAIL, PRIVACY_PATH, REFUNDS_PATH, TERMS_PATH } from '../legal';
+import { CONTACT_EMAIL, PHONE, PHONE_TEL, PRIVACY_PATH, REFUNDS_PATH, TERMS_PATH } from '../legal';
 import { ArrowRight, Camera, Play } from 'lucide-react';
 import GroupShotIcon from './GroupShotIcon';
 import Get2ShareLockup from './Get2ShareLockup';
@@ -204,6 +204,7 @@ export default function Landing({ lastEvent, notFoundCode, onJoinCode, onHost, o
           <a href={PRIVACY_PATH} className="hover:text-white underline underline-offset-2">Privacy</a>
           <a href={REFUNDS_PATH} className="hover:text-white underline underline-offset-2">Refunds</a>
           <a href={`mailto:${CONTACT_EMAIL}`} className="hover:text-white underline underline-offset-2">Contact</a>
+          <a href={PHONE_TEL} className="hover:text-white underline underline-offset-2">{PHONE}</a>
         </nav>
       </div>
     </main>
