@@ -33,6 +33,18 @@ export function useGuestCount(eventId: string | null | undefined, active = true)
   return n;
 }
 
+/**
+ * Back from Stripe's page: the browser may show this page exactly as it was left, with a button
+ * still saying "Opening checkout…". Calls reset when that happens.
+ */
+export function useBackFromCheckout(reset: () => void) {
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) reset(); };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, [reset]);
+}
+
 export interface UpgradeOffers {
   /** Party and Big Event as this event can buy them now (Big Event as the difference on a Party event). */
   offers: FlowPlan[];
@@ -67,6 +79,7 @@ export function useUpgradeOffers(eventId: string, active: boolean, tierKey: stri
       .catch(() => { if (!gone) setOffers([]); });
     return () => { gone = true; };
   }, [eventId, active, tierKey]);
+  useBackFromCheckout(useCallback(() => setBuying(''), []));
   const buy = useCallback(async (planId: string) => {
     setError('');
     setBuying(planId);

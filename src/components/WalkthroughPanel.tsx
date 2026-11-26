@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useBackFromCheckout } from '../plan';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Loader2, Monitor, RefreshCw, Smartphone, Trash2,
@@ -238,6 +239,7 @@ function PassOffer({ plans, eventName, eventId, topUp, startOpen, checkout, chec
   const [open, setOpen] = useState(startOpen);
   const [buying, setBuying] = useState('');
   const [error, setError] = useState('');
+  useBackFromCheckout(useCallback(() => setBuying(''), []));
   const buy = async (p: FlowPlan) => {
     setError('');
     setBuying(p.id);
