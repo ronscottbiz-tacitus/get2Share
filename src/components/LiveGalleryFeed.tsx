@@ -313,9 +313,9 @@ export default function LiveGalleryFeed({
           <h1 className="mt-1.5 font-expanded font-black text-2xl leading-tight text-white">{title}</h1>
         )}
         {subtitle && <p className="mt-1 text-[13px] leading-relaxed text-g2-secondary">{subtitle}</p>}
-        {/* Bring friends in while the event is on (open-link events only). */}
-        {uploadsOpen && event.access === 'link' && event.joinCode && (
-          <InviteButton eventName={title} url={joinUrl(event.joinCode)} />
+        {/* Bring friends in before or while the event is on (open-link events only). */}
+        {(uploadsOpen || phase === 'upcoming') && event.access === 'link' && event.joinCode && (
+          <InviteButton eventName={title} url={joinUrl(event.joinCode)} startMs={phase === 'upcoming' ? startMs : null} />
         )}
         {onJoinAsNew && !isHost && (
           <button

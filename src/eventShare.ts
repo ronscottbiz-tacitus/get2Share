@@ -9,11 +9,22 @@ const BLUE_LIGHT = '#6C93FF';
 
 const clean = (s: string) => (s || '').replace(/\s+/g, ' ').trim();
 
-/** The message that goes with the link. */
-export function inviteText(eventName: string): string {
+/** When an event starts, for invites: "Sat, Dec 5 · 7:00 PM". Only for a start still ahead (null otherwise). */
+export function startLine(startMs: number | null | undefined, now = Date.now()): string | null {
+  if (!startMs || startMs <= now) return null;
+  const d = new Date(startMs);
+  const day = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${time}`;
+}
+
+/** The message that goes with the link. Mentions the start when it's still ahead. */
+export function inviteText(eventName: string, startMs?: number | null): string {
   const name = clean(eventName);
   const what = name ? `the photo album for "${name}"` : 'my event\'s photo album';
-  return `Join ${what} on Get2Share. Every photo from the event lands in one place, so you get the ones you're in.`;
+  const when = startLine(startMs);
+  const starts = when ? ` It starts ${when.replace(' · ', ' at ')}; you can join now.` : '';
+  return `Join ${what} on Get2Share.${starts} Every photo from the event lands in one place, so you get the ones you're in.`;
 }
 
 export function canShareLinks(): boolean {
@@ -21,9 +32,9 @@ export function canShareLinks(): boolean {
 }
 
 /** Opens the share sheet with the invite. Must run straight from a tap. False if they closed it. */
-export async function shareInvite(eventName: string, url: string): Promise<boolean> {
+export async function shareInvite(eventName: string, url: string, startMs?: number | null): Promise<boolean> {
   try {
-    await navigator.share({ title: clean(eventName) || 'Get2Share', text: inviteText(eventName), url });
+    await navigator.share({ title: clean(eventName) || 'Get2Share', text: inviteText(eventName, startMs), url });
     return true;
   } catch (e: any) {
     if (e?.name === 'AbortError') return false;
@@ -76,8 +87,13 @@ function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number
   });
 }
 
-/** The card: Get2Share, the event's name, the QR code, and the code to type in. Split out so it can be checked on its own. */
-export async function drawQrCard(canvas: HTMLCanvasElement, eventName: string, code: string, url: string, host: string): Promise<void> {
+/**
+ * The card: Get2Share, the event's name, when it starts (if that's still ahead), the QR code, and
+ * the code to type in. Split out so it can be checked on its own.
+ */
+export async function drawQrCard(
+  canvas: HTMLCanvasElement, eventName: string, code: string, url: string, host: string, when: string | null = null,
+): Promise<void> {
   canvas.width = CARD_W;
   canvas.height = CARD_H;
   const ctx = canvas.getContext('2d');
@@ -107,29 +123,43 @@ export async function drawQrCard(canvas: HTMLCanvasElement, eventName: string, c
   ctx.fillStyle = '#fff';
   ctx.fillText('Share', lx + get2, 140);
 
-  // The event's name: one line, or two smaller ones, between the lockup and the QR code.
+  // The event's name (one line, or two smaller ones) and when it starts, between the lockup and the QR code.
   const qrSize = 720;
   const qrTop = 490;
   const name = clean(eventName);
+  let lines: string[] = [];
+  let namePx = 78;
+  let lineH = 90;
   if (name) {
-    expanded(78);
-    let lines = wrapLines(ctx, name, CARD_W - 160, 1);
-    let lineH = 90;
+    expanded(namePx);
+    lines = wrapLines(ctx, name, CARD_W - 160, 1);
     if (ctx.measureText(name).width > CARD_W - 160) {
-      expanded(62);
-      lines = wrapLines(ctx, name, CARD_W - 160, 2);
+      namePx = 62;
       lineH = 76;
+      expanded(namePx);
+      lines = wrapLines(ctx, name, CARD_W - 160, 2);
     }
-    const blockMid = (140 + qrTop) / 2 + 22;
-    let y = blockMid - ((lines.length - 1) * lineH) / 2;
-    ctx.textAlign = 'center';
+  }
+  const whenGap = 70; // baseline to baseline, name to start time
+  const blockH = (lines.length ? (lines.length - 1) * lineH : 0) + (when && lines.length ? whenGap : 0);
+  const blockMid = (140 + qrTop) / 2 + 22;
+  let ty = blockMid - blockH / 2;
+  ctx.textAlign = 'center';
+  if (lines.length) {
+    expanded(namePx);
     ctx.fillStyle = '#fff';
     for (const l of lines) {
-      ctx.fillText(l, cx, y);
-      y += lineH;
+      ctx.fillText(l, cx, ty);
+      ty += lineH;
     }
-    ctx.textAlign = 'left';
+    ty += whenGap - lineH;
   }
+  if (when) {
+    plain(44, 700);
+    ctx.fillStyle = BLUE_LIGHT;
+    ctx.fillText(when, cx, ty);
+  }
+  ctx.textAlign = 'left';
 
   // The QR code on a white rounded square.
   const qx = cx - qrSize / 2;
@@ -185,17 +215,18 @@ export async function drawQrCard(canvas: HTMLCanvasElement, eventName: string, c
 }
 
 /** The QR card as a PNG, ready to save, print or share. */
-export async function qrCardFile(eventName: string, code: string, url: string, host: string): Promise<File> {
+export async function qrCardFile(eventName: string, code: string, url: string, host: string, when: string | null = null): Promise<File> {
   try {
     await Promise.all([
       document.fonts.load('900 64px Archivo'),
       document.fonts.load('800 48px "Plus Jakarta Sans"'),
       document.fonts.load('600 36px "Plus Jakarta Sans"'),
       document.fonts.load('700 38px "JetBrains Mono"'),
+      document.fonts.load('700 44px "Plus Jakarta Sans"'),
     ]);
   } catch { /* draw with whatever is there */ }
   const canvas = document.createElement('canvas');
-  await drawQrCard(canvas, eventName, code, url, host);
+  await drawQrCard(canvas, eventName, code, url, host, when);
   const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   if (!blob) throw new Error('Could not make the QR card');
   return new File([blob], `get2share-${slug(eventName)}-qr.png`, { type: 'image/png' });

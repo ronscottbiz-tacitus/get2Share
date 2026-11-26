@@ -1056,7 +1056,7 @@ export default function HostDashboard({
                   Or enter code <span className="font-mono font-bold text-white tracking-[0.12em]">{event.joinCode}</span> at {window.location.host}
                 </p>
               </div>
-              <HostShareButtons eventName={event.name} code={event.joinCode} url={joinLink} />
+              <HostShareButtons eventName={event.name} code={event.joinCode} url={joinLink} startMs={phase === 'upcoming' ? event.startsAt?.toMillis?.() ?? null : null} />
               <button
                 type="button"
                 onClick={handleResetJoinLink}

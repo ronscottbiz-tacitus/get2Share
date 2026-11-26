@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, Download, Share2, UserPlus } from 'lucide-react';
-import { canShareLinks, copyText, qrCardFile, shareInvite } from '../eventShare';
+import { canShareLinks, copyText, qrCardFile, shareInvite, startLine } from '../eventShare';
 import { downloadBlob, saveViaShareSheet, shareFiles } from '../savePhotos';
 
 const hostBtn =
@@ -10,26 +10,29 @@ const hostBtn =
  * Host Console, under the QR code: Share (the phone's share sheet), Copy link, and Save QR (a card
  * with the event's name, the QR code and the join code, to print, put on a flyer or text around).
  * The card is drawn ahead of time so a phone can hand it to the share sheet straight from the tap.
+ * Before the event starts, the card and the share message say when it starts.
  */
-export function HostShareButtons({ eventName, code, url }: { eventName: string; code: string; url: string }) {
+export function HostShareButtons({ eventName, code, url, startMs = null }: { eventName: string; code: string; url: string; startMs?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [card, setCard] = useState<File | null>(null);
   const [note, setNote] = useState('');
   const canShare = canShareLinks();
 
+  // Redrawn when the start passes, so a card saved during the event has no date on it.
+  const when = startLine(startMs);
   useEffect(() => {
     let live = true;
     setCard(null);
-    qrCardFile(eventName, code, url, window.location.host)
+    qrCardFile(eventName, code, url, window.location.host, when)
       .then((f) => { if (live) setCard(f); })
       .catch((e) => console.error('Making the QR card failed:', e));
     return () => { live = false; };
-  }, [eventName, code, url]);
+  }, [eventName, code, url, when]);
 
   const handleShare = async () => {
     setNote('');
     try {
-      await shareInvite(eventName, url);
+      await shareInvite(eventName, url, startMs);
     } catch {
       setNote("Your device didn't open sharing. Use Copy link instead.");
     }
@@ -87,14 +90,14 @@ export function HostShareButtons({ eventName, code, url }: { eventName: string; 
 }
 
 /** Gallery, under the event's name: lets a guest bring friends in. Opens the share sheet, or copies the link. */
-export function InviteButton({ eventName, url }: { eventName: string; url: string }) {
+export function InviteButton({ eventName, url, startMs = null }: { eventName: string; url: string; startMs?: number | null }) {
   const [note, setNote] = useState('');
 
   const handleInvite = async () => {
     setNote('');
     if (canShareLinks()) {
       try {
-        await shareInvite(eventName, url);
+        await shareInvite(eventName, url, startMs);
         return;
       } catch { /* fall through to copying */ }
     }
