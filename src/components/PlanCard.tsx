@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, Clock, Loader2, Sparkles, Users } from 'luc
 import { ALBUM_LENGTH, DEVICE_LIMITS, EventPhase, EventTier, GUEST_GRACE } from '../events';
 import { FlowPlan } from '../walkthrough';
 import { passRequestLink } from '../flowAccess';
+import { REFUNDS_PATH, TERMS_PATH } from '../legal';
 import { UpgradeOffers } from '../plan';
 
 // The Host Console's plan card and the banners that offer an upgrade at the moment it's needed
@@ -111,6 +112,13 @@ export function PlanCard({ tier, guests, guestLimit, up, eventName, eventId, sug
             </div>
           ))}
           {up.error && <p className="text-[12px] text-red-300" aria-live="polite">{up.error}</p>}
+          {up.checkout && (
+            <p className="text-[11px] leading-relaxed text-g2-muted">
+              Secure checkout by Stripe. One payment, nothing renews. By buying, you agree to
+              the <a href={TERMS_PATH} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-white">terms</a> and
+              the <a href={REFUNDS_PATH} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-white">refund policy</a>.
+            </p>
+          )}
           {up.checkoutTest && (
             <p className="text-[11px] leading-relaxed text-amber-200">
               Test mode (only admins see this): pay with card 4242 4242 4242 4242, any future date, any CVC.

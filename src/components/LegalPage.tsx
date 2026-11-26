@@ -5,7 +5,7 @@ import { CONTACT_EMAIL, PRIVACY_PATH, REFUNDS_PATH, TERMS_PATH } from '../legal'
 // share.get2.one/terms, /privacy and /refunds. Plain words, and nothing promised here that the app
 // doesn't do. Loads without Firebase (see main.tsx), like the landing page.
 
-const UPDATED = 'November 24, 2026';
+const UPDATED = 'November 25, 2026';
 
 const PAGES = [
   { path: TERMS_PATH, label: 'Terms' },
@@ -46,6 +46,20 @@ function Terms() {
           <li>Hosts are responsible for their events: who they invite, their settings, and what they approve.</li>
         </List>
       </Section>
+      <Section title="Free events and upgrades">
+        <p>
+          Every event starts free: up to 20 guests, with room for 5 more, 1 Share Spot and 1 TV, and an album that stays open 7 days after the
+          event ends. A host can upgrade one event at a time:
+        </p>
+        <List>
+          <li><B>Party, $10:</B> up to 100 guests (with room for 5 more), 3 Share Spots and 3 TVs, the album open 6 months, and 20 seconds of Flow.</li>
+          <li><B>Big Event, $29:</B> no guest limit, 5 Share Spots and 5 TVs, the album open a year, 100 seconds of Flow, the choice to turn off Get2Share branding, and Step In.</li>
+        </List>
+        <p>
+          A Party event can become a Big Event for the difference. When an event is full, new guests wait on a screen that lets them in as soon as
+          the host upgrades. Hosts and co-hosts don&rsquo;t count as guests, and removing a guest doesn&rsquo;t free up a spot.
+        </p>
+      </Section>
       <Section title="Your photos">
         <p>
           You keep ownership of the photos you take. When you add a photo to an event, you let the people in that event see it, and save and
@@ -69,18 +83,20 @@ function Terms() {
           anyone else sees it. To make a Flow video, the photos the host picks are sent to the AI video service we use.
         </p>
       </Section>
-      <Section title="Paid passes">
+      <Section title="Upgrades and passes">
         <List>
-          <li>Flow passes add AI video seconds to one event. The price and seconds are shown before you pay, and you pay once, through Stripe.</li>
-          <li>Seconds belong to the event they were bought for and can&rsquo;t be moved to another event. They last as long as the event&rsquo;s album does.</li>
-          <li>We may change prices. That doesn&rsquo;t change passes you&rsquo;ve already bought.</li>
+          <li>Upgrades (Party and Big Event) and Flow passes are one-time payments for one event, through Stripe. The price and what you get are shown before you pay. Nothing renews.</li>
+          <li>Flow passes add AI video seconds to an event, on top of any it has.</li>
+          <li>Upgrades and seconds belong to the event they were bought for and can&rsquo;t be moved to another event. Seconds last as long as the event&rsquo;s album does.</li>
+          <li>We may change prices. That doesn&rsquo;t change anything you&rsquo;ve already bought.</li>
           <li>Refunds are covered in our <a href={REFUNDS_PATH} className="text-g2-blue-light hover:text-white underline underline-offset-2">refund policy</a>.</li>
         </List>
       </Section>
       <Section title="How long things last">
         <p>
-          An event&rsquo;s album stays open for 30 days after the event ends. After that its photos, videos and guest list are deleted, along with any
-          seconds left on it. Save anything you want to keep before then.
+          An event&rsquo;s album stays open after the event ends for 7 days if it&rsquo;s free, 6 months with Party, or a year with Big Event.
+          Events made before upgrades were offered stay open at least 14 days. When the album closes, its photos, videos and guest list are
+          deleted, along with any seconds left on it. The host is reminded in Get2Share a few days before. Save anything you want to keep before then.
         </p>
       </Section>
       <Section title="No guarantees">
@@ -114,8 +130,8 @@ function Privacy() {
         </List>
         <p><B>Hosts.</B> You sign in with Google, so we receive your name and email address. We keep your events&rsquo; details and settings, and your co-host invites.</p>
         <p>
-          <B>Buying a pass.</B> Payments are handled by Stripe. We never see your card number. We receive your email address, the amount, and
-          which pass and event it was for.
+          <B>Buying an upgrade or a pass.</B> Payments are handled by Stripe. We never see your card number. We receive your email address, the
+          amount, and which upgrade or pass and which event it was for.
         </p>
         <p>
           <B>Visits.</B> We count page visits with Vercel Analytics to see how Get2Share is used. Event codes and IDs are removed before anything
@@ -141,7 +157,7 @@ function Privacy() {
       </Section>
       <Section title="How long we keep it">
         <List>
-          <li>An event&rsquo;s photos, videos and guest list are deleted 30 days after the event ends, or sooner if the host deletes the event.</li>
+          <li>An event&rsquo;s photos, videos and guest list are deleted when its album closes (7 days after the event ends for a free event, 6 months with Party, a year with Big Event), or sooner if the host deletes the event.</li>
           <li>Records of payments are kept as long as we need them for taxes and accounting.</li>
           <li>Host account details are kept until you ask us to delete them.</li>
         </List>
@@ -166,11 +182,18 @@ function Refunds() {
   return (
     <>
       <p className="text-[15px] leading-relaxed text-g2-secondary">
-        This covers Flow passes: the Flow Pass ($15, 100 seconds) and the Flow Pass Plus ($29, 200 seconds). Each is a one-time payment that adds
-        AI video seconds to one event.
+        This covers everything you can buy on Get2Share, each a one-time payment for one event: the upgrades, Party ($10) and Big Event ($29,
+        or $19 from Party), and the Flow passes, the Flow Pass ($15, 100 seconds) and the Flow Pass Plus ($29, 200 seconds).
       </p>
       <Section title="Haven't used it? Full refund">
-        <p>If none of a pass&rsquo;s seconds have been used, you can get a full refund within 14 days of buying it.</p>
+        <p>
+          If none of the Flow seconds that came with a purchase have been used, you can get a full refund within 14 days of buying it. That&rsquo;s
+          the same for upgrades, which come with Flow seconds, and for passes.
+        </p>
+        <p>
+          Refunding an upgrade puts the event back on its earlier plan: its guest limit, Share Spots and TVs, and how long its album stays open go
+          back too. If the album would already have closed on that plan, it closes when the refund goes through.
+        </p>
       </Section>
       <Section title="Used seconds">
         <p>
@@ -184,7 +207,7 @@ function Refunds() {
       </Section>
       <Section title="Something went wrong">
         <p>
-          If you were charged but the seconds never showed up, or you were charged twice, email us and we&rsquo;ll add the seconds or refund you in full.
+          If you were charged but the upgrade or the seconds never showed up, or you were charged twice, email us and we&rsquo;ll fix it or refund you in full.
         </p>
       </Section>
       <Section title="How to ask">
@@ -192,7 +215,7 @@ function Refunds() {
           Email <Mail /> with the event&rsquo;s name and the email address you paid with. Refunds go back to the card you paid with. Your bank may
           take 5 to 10 business days to show it.
         </p>
-        <p>Unused seconds are deleted with the event, 30 days after it ends, and can&rsquo;t be refunded after that.</p>
+        <p>Unused seconds are deleted with the event when its album closes, and can&rsquo;t be refunded after that.</p>
       </Section>
     </>
   );
