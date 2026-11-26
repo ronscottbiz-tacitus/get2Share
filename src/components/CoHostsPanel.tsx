@@ -163,7 +163,11 @@ export default function CoHostsPanel({ uid, isAdmin = false, limit = null, tier 
       )}
       <p className="text-[11px] text-g2-tertiary leading-relaxed">
         Co-hosts can approve photos, remove guests, and run Share Spots, TVs and Flash.
-        {isOwner ? ' Only you can add or remove co-hosts and delete the event.' : ' Only the event owner can add or remove co-hosts.'}
+        {event.ownerUid === uid
+          ? ' Only you can add or remove co-hosts and delete the event.'
+          : isAdmin
+            ? " Only the event owner can add or remove co-hosts. You're an admin, so you can manage them here too."
+            : ' Only the event owner can add or remove co-hosts.'}
       </p>
 
       {cohosts.length === 0 && open.length === 0 ? (
