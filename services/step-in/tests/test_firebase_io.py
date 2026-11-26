@@ -47,7 +47,18 @@ def host_env(monkeypatch):
     monkeypatch.setattr(firebase_admin.auth, "verify_id_token", verify_id_token)
     monkeypatch.setattr(fb, "db", lambda: Db())
     monkeypatch.setattr(fb, "app", lambda: None)
+    # These tests cover the plan rules, for when Step In is offered again; see the admins-only test.
+    monkeypatch.setattr(fb, "STEP_IN_ADMINS_ONLY", False)
     return state
+
+
+def test_step_in_is_admins_only_while_in_testing(host_env, monkeypatch):
+    monkeypatch.setattr(fb, "STEP_IN_ADMINS_ONLY", True)
+    host_env.update(pro={"tier": "big"})  # even a Big Event host
+    with pytest.raises(PermissionError, match="only admins"):
+        fb.verify_host("t", "ev1")
+    host_env["claims"] = {"uid": "x", "email": "ronscottbiz@gmail.com", "email_verified": True}
+    assert fb.verify_host("t", "ev1")[1] == host_env["event"]
 
 
 def test_verify_host_returns_uid_and_event(host_env):

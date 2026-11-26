@@ -20,6 +20,10 @@ from urllib.parse import quote
 ALBUM_DAYS = 30  # matches ALBUM_DAYS in src/events.ts
 DEFAULT_ADMINS = "ronaldscott.ca@gmail.com,ronscottbiz@gmail.com"  # matches storage.rules
 
+# Step In is in testing: only admins can make moments (and warm a GPU). Set to False, with
+# STEP_IN_ADMINS_ONLY in src/stepIn.ts, to offer it again by plan: Big Event and Pro.
+STEP_IN_ADMINS_ONLY = True
+
 _app = None
 
 
@@ -73,6 +77,8 @@ def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
     """Returns (uid, event) if the caller hosts this event and Step In is on for it.
     Raises PermissionError with a message the app can show."""
     uid, ev, is_admin = verify_event_host(id_token, event_id, denied="Only hosts can make Step In moments.")
+    if not is_admin and STEP_IN_ADMINS_ONLY:
+        raise PermissionError("Step In is in testing, so only admins can make it for now.")
     if not (is_admin or step_in_for_all_hosts() or big_event(features(event_id))):
         raise PermissionError("Step In comes with Big Event.")
     return uid, ev

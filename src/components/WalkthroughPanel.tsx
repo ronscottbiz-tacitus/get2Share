@@ -219,7 +219,7 @@ const TIER_COPY: Record<'party' | 'big', { blurb: string; stepUp?: string; perks
     blurb: 'For weddings, work events and anything over 100 guests.',
     stepUp: 'You have Party. Pay just the difference.',
     perks: (p) => ['Unlimited guests', '5 Share Spots and 5 TVs', 'The album kept for a year',
-      `${p.seconds}${p.stepUp ? ' more' : ''} seconds of Flow`, 'No Get2Share branding', 'Step In 3D moments'],
+      `${p.seconds}${p.stepUp ? ' more' : ''} seconds of Flow`, 'No Get2Share branding'],
   },
 };
 

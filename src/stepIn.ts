@@ -13,6 +13,13 @@ import { Photo } from './types';
 // Big Events have features/{eventId}.tier == 'big' (Pro events: .pro == true; see tierOf).
 // Only the cloud job (and admins in the Firebase console) write that doc; anyone signed in reads it.
 
+/**
+ * Step In is in testing: only admins can make moments, and no GPU is kept warm for anyone, so it
+ * costs nothing unless an admin uses it. Set to false (and STEP_IN_ADMINS_ONLY in
+ * services/step-in/stepin/firebase_io.py) to offer it again by plan: Big Event and Pro.
+ */
+export const STEP_IN_ADMINS_ONLY = true;
+
 /** The cloud job's web address. Override with VITE_STEP_IN_API for a test deployment. */
 export const STEP_IN_API: string =
   (import.meta as any).env?.VITE_STEP_IN_API || 'https://ronscottbiz-tacitus--get2share-step-in-api.us-east.modal.run';
@@ -76,7 +83,7 @@ function useStepInPro(eventId: string, active: boolean): boolean {
 export function useStepInShouldWarm(eventId: string, isHost: boolean): boolean {
   const allHosts = useStepInAllHosts(isHost);
   const pro = useStepInPro(eventId, isHost && allHosts === false);
-  return isHost && (allHosts === true || (allHosts === false && pro));
+  return !STEP_IN_ADMINS_ONLY && isHost && (allHosts === true || (allHosts === false && pro));
 }
 
 /**
@@ -101,7 +108,7 @@ export function useCanMakeStepIn(eventId: string, isHost: boolean): boolean {
     if (!isHost || admin || allHosts) return;
     return onSnapshot(doc(db, 'features', eventId), (s) => setPro(tierOf(s.data()) === 'big'), () => setPro(false));
   }, [eventId, isHost, admin, allHosts]);
-  return isHost && (admin || allHosts || pro);
+  return isHost && (admin || (!STEP_IN_ADMINS_ONLY && (allHosts || pro)));
 }
 
 /** Ask the cloud job for a Step In moment. Resolves once it's queued; progress shows up on photo.stepIn. */

@@ -48,12 +48,12 @@ function Terms() {
       </Section>
       <Section title="Free events and upgrades">
         <p>
-          Every event starts free: up to 20 guests, with room for 5 more, 1 Share Spot and 1 TV, and an album that stays open 7 days after the
-          event ends. A host can upgrade one event at a time:
+          Every event starts free: photos open for a day from the start time, up to 20 guests (with room for 5 more) and 3 co-hosts, 1 Share Spot
+          and 1 TV, and an album that stays open 7 days after the event ends. A host can upgrade one event at a time:
         </p>
         <List>
-          <li><B>Party, $10:</B> up to 100 guests (with room for 5 more), 3 Share Spots and 3 TVs, the album open 6 months, and 20 seconds of Flow.</li>
-          <li><B>Big Event, $29:</B> no guest limit, 5 Share Spots and 5 TVs, the album open a year, 100 seconds of Flow, the choice to turn off Get2Share branding, and Step In.</li>
+          <li><B>Party, $10:</B> photos open for 3 days, up to 100 guests (with room for 5 more) and 10 co-hosts, 3 Share Spots and 3 TVs, the album open 6 months, and 20 seconds of Flow.</li>
+          <li><B>Big Event, $29:</B> photos open for 14 days, no limit on guests or co-hosts, 5 Share Spots and 5 TVs, the album open a year, 100 seconds of Flow, and the choice to turn off Get2Share branding.</li>
         </List>
         <p>
           A Party event can become a Big Event for the difference. When an event is full, new guests wait on a screen that lets them in as soon as
@@ -78,7 +78,7 @@ function Terms() {
       </Section>
       <Section title="AI features">
         <p>
-          Flow turns photos a host picks into a short video, and Step In turns a photo into a 3D moment. These are made with AI, so they can
+          Flow turns photos a host picks into a short video. It&rsquo;s made with AI, so it can
           include moments or details that weren&rsquo;t really there. Flow videos are labeled as AI-generated, and the host checks each one before
           anyone else sees it. To make a Flow video, the photos the host picks are sent to the AI video service we use.
         </p>
@@ -149,7 +149,7 @@ function Privacy() {
           <li>The people in an event see its photos and nicknames, as the host&rsquo;s settings allow. Hosts and co-hosts also see the guest list.</li>
           <li>
             Companies that run parts of Get2Share for us: Google Firebase (storage, database and sign-in), Vercel (the website and visit counts),
-            Modal (processing for Flow and Step In), Higgsfield (making Flow videos, from only the photos the host picks) and Stripe (payments).
+            Modal (processing for Flow), Higgsfield (making Flow videos, from only the photos the host picks) and Stripe (payments).
             They use your information only to provide their service to us.
           </li>
           <li>Anyone the law requires us to share it with.</li>
