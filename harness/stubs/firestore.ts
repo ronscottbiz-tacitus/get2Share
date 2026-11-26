@@ -35,7 +35,8 @@ Object.defineProperty(EV, 'endsAt', { get: () => ts(old() ? now - 2 * 86400000 :
 Object.defineProperty(EV, 'groupShot', { get: () => { const at = Number(localStorage.getItem('h-gs') || 0); return at ? { id: 'gs' + at, firesAt: ts(at), by: 'host1', spots: localStorage.getItem('h-gs-spots') === '1' } : null; }, enumerable: true });
 Object.defineProperty(EV, 'albumSaving', { get: () => localStorage.getItem('h-saving') || undefined, enumerable: true });
 Object.defineProperty(EV, 'lensSharing', { get: () => localStorage.getItem('h-borrow') === 'on', enumerable: true });
-Object.defineProperty(EV, 'expireAt', { get: () => ts((ended() ? now - 3 * 3600000 : now + 4 * 3600000) + 30 * 86400000), enumerable: true });
+// h-closesin=<days>: the album closes that many days from now.
+Object.defineProperty(EV, 'expireAt', { get: () => ts(localStorage.getItem('h-closesin') ? now + Number(localStorage.getItem('h-closesin')) * 86400000 : (ended() ? now - 3 * 3600000 : now + 4 * 3600000) + 30 * 86400000), enumerable: true });
 const DOCS: Record<string, any> = {
   'joinCodes/GALA26': { eventId: 'ev1', name: 'Get2 Grand Opening' },
   'events/ev1': EV,
@@ -103,11 +104,11 @@ const docSnap = (path: string) => {
   if (path === 'events/ev1/lensRequests/g2') data = lensDoc('guest1', 'maya', 'g2', 'jordan', 'h-ask');
   if (path === 'events/ev1/lensRequests/guest1') data = lensDoc('g3', 'dee', 'guest1', 'maya', 'h-lend');
   const pm = path.match(/^events\/ev1\/photos\/(p\d)$/); if (pm) data = PHOTOS.find((x) => x.id === pm[1]);
-  if (path === 'features/ev1') data = localStorage.getItem('h-pro') === '1' ? { pro: true } : undefined;
+  if (path === 'features/ev1') data = localStorage.getItem('h-pro') === '1' ? { pro: true } : localStorage.getItem('h-tier') ? { tier: localStorage.getItem('h-tier'), upgraded: true } : undefined;
   if (path === 'config/stepIn') data = localStorage.getItem('h-allhosts') === '0' ? { allHosts: false } : undefined;
   if (path === 'config/walkthrough') data = walkthroughConfig();
   // h-full=1: the event is full (25 guests, free) until h-full is cleared.
-  if (path === 'events/ev1/meta/guests') data = localStorage.getItem('h-full') === '1' ? { n: 25, last: 'g25' } : undefined;
+  if (path === 'events/ev1/meta/guests') data = localStorage.getItem('h-full') === '1' ? { n: 25, last: 'g25' } : localStorage.getItem('h-guests') ? { n: Number(localStorage.getItem('h-guests')), last: 'g' } : undefined;
   const tv = localStorage.getItem('h-tv');
   if (path.startsWith('screenPairings/')) data = tv ? { screenUid: 'guest1', createdAt: ts(now - 120000), eventId: tv === 'show' ? 'ev1' : null, screenName: tv === 'show' ? 'Main Hall TV' : null, claimedBy: tv === 'show' ? 'host1' : null } : undefined;
   if (tv === 'show' && path === 'events/ev1/members/guest1') data = { nickname: 'Main Hall TV' };

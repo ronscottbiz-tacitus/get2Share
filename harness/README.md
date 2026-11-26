@@ -30,6 +30,9 @@ Note: that Chromium can't play H.264 video, so landing/Pro video cards show thei
 | `h-photos=sample` | stub photos use G2-free AI sample-party images instead of gradients |
 | `h-ended=wrap` | the event ended 20 minutes ago (wrap-up hour) |
 | `h-ended=old` | the event ended 2 days ago (a TV reopened later should let it go) |
+| `h-tier=party` / `h-tier=big` | ev1 is a Party / Big Event (features/ev1.tier) |
+| `h-closesin=2` | ev1's album closes in 2 days (with `h-ended=1`) |
+| `h-guests=18` | ev1 has 18 guests counted (meta/guests) |
 | `h-full=1` | the event is full: joining shows "The host is opening more spots"; set it to `0` and the next try gets in |
 | `h-new=1` | a phone with no saved sign-in (first scan) |
 | `h-slow=<ms>` | delay each sign-in and database read by that much (a slow event network) |

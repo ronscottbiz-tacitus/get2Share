@@ -5,6 +5,7 @@ import { onSnapshot, query, where } from 'firebase/firestore';
 import Get2ShareLockup from './Get2ShareLockup';
 import { ALBUM_LENGTH, createEvent, defaultEnd, EventWithId, eventPhase, formatDay, paths, toLocalInput } from '../events';
 import CloseButton from './CloseButton';
+import { rememberSuggestedPlan } from '../plan';
 
 interface HostHomeProps {
   /** Signed in with Google (not an anonymous guest). */
@@ -60,6 +61,8 @@ export default function HostHome({
   const [name, setName] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [review, setReview] = useState(false);
+  // "About how many people?": bigger events are pointed at the upgrade that fits (plans-and-pricing).
+  const [size, setSize] = useState<'free' | 'party' | 'big'>('free');
   const [endInput, setEndInput] = useState(() => toLocalInput(defaultEnd()));
   const [formError, setFormError] = useState('');
 
@@ -124,6 +127,7 @@ export default function HostHome({
     setFormError('');
     try {
       const { id } = await createEvent(uid, { name, subtitle, autoApproval: !review, end });
+      if (size !== 'free') rememberSuggestedPlan(id, size);
       onOpenEvent(id);
     } catch (err) {
       console.error('Create event failed:', err);
@@ -322,6 +326,29 @@ export default function HostHome({
               />
               <p className="text-xs text-g2-tertiary">
                 New photos close an hour after this. Guests can keep viewing and saving the album for {ALBUM_LENGTH.free}, then it's deleted. Upgrading keeps it for 6 months or a year.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span id="ev-size" className="font-condensed font-extrabold text-xs tracking-[0.12em] uppercase text-g2-tertiary">About how many people?</span>
+              <div role="radiogroup" aria-labelledby="ev-size" className="grid grid-cols-3 gap-1.5">
+                {([['free', 'Up to 20'], ['party', '20 to 100'], ['big', 'More than 100']] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={size === value}
+                    onClick={() => setSize(value)}
+                    className={`h-11 rounded-lg text-[13px] font-bold cursor-pointer transition-colors ${
+                      size === value ? 'bg-g2-blue text-white' : 'bg-g2-page border border-white/10 text-g2-secondary hover:border-white/25'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-g2-tertiary" aria-live="polite">
+                {size === 'free' && 'Free covers up to 20 guests, with room for a few extra.'}
+                {size === 'party' && 'Party ($10) fits: up to 100 guests, 3 Share Spots and 3 TVs, and the album kept 6 months. You can upgrade after you create the event.'}
+                {size === 'big' && 'Big Event ($29) fits: no guest limit, 5 Share Spots and 5 TVs, and the album kept a year. You can upgrade after you create the event.'}
               </p>
             </div>
             <label className="min-h-[52px] px-4 rounded-lg bg-g2-page border border-white/10 flex items-center justify-between gap-3 text-sm font-semibold text-white cursor-pointer">

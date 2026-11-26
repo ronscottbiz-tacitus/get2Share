@@ -9,7 +9,7 @@ import {
   collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 import { db, deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
-import { ALBUM_LENGTH, DEVICE_LIMITS, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
+import { ALBUM_LENGTH, DEVICE_LIMITS, guestLimitOf, blockGuest, deleteEvent, eventPhase, expiryOf, tierOf, formatDay, formatWhen, joinUrl, paths, removeGuest, resetJoinCode, saveEventDetails, setEventEnd, toLocalInput, unblockGuest } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, GuestSession } from '../types';
 import QRCode from 'qrcode';
@@ -21,7 +21,8 @@ import AddShareSpot from './AddShareSpot';
 import ShareSpotTile from './ShareSpotTile';
 import ScreensPanel from './ScreensPanel';
 import PlanLimitNote from './PlanLimitNote';
-import { useEventFeatures } from '../plan';
+import { takeSuggestedPlan, useEventFeatures, useGuestCount, useUpgradeOffers } from '../plan';
+import { PlanBanner, PlanCard } from './PlanCard';
 import CoHostsPanel from './CoHostsPanel';
 import { HostShareButtons } from './EventShare';
 import { shareFrameOn, useEventPaid } from '../shareFrame';
@@ -272,9 +273,18 @@ export default function HostDashboard({
   // Let guests borrow each other's cameras (GuestLens). Off unless turned on here.
   // The strip on shared photos: always on for a free event, a paid one can turn it off.
   const eventPaid = useEventPaid(eventId, isHost);
-  // The plan (features/{eventId}): how many Share Spots and TVs it may have.
-  const tier = tierOf(useEventFeatures(eventId, isHost));
+  // The plan (features/{eventId}): guests, Share Spots and TVs, the album, and what it can upgrade to.
+  const features = useEventFeatures(eventId, isHost);
+  const tier = tierOf(features);
   const deviceLimit = DEVICE_LIMITS[tier];
+  const guestCount = useGuestCount(eventId, isHost);
+  const guestLimit = guestLimitOf(features);
+  const upgrades = useUpgradeOffers(eventId, isHost, tier);
+  // "About how many people?" at creation: point the plan card at the upgrade that fits.
+  const [suggestedPlan] = useState(() => takeSuggestedPlan(eventId));
+  useEffect(() => {
+    if (suggestedPlan) document.getElementById('plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [suggestedPlan, upgrades.offers.length]);
   const shareFrame = shareFrameOn(event);
   const [shareFrameNote, setShareFrameNote] = useState('');
   const handleToggleShareFrame = async () => {
@@ -685,10 +695,15 @@ export default function HostDashboard({
           </div>
         </header>
 
+        <PlanBanner tier={tier} guests={guestCount} guestLimit={guestLimit} phase={phase}
+          closesMs={event.expireAt?.toMillis?.() ?? null} up={upgrades} eventName={event.name} eventId={eventId} now={nowTick} />
+
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Column 1: Metadata, Governance Switches, Proximity Sharing & QR */}
           <div className="space-y-6 lg:col-span-1">
+            <PlanCard tier={tier} guests={guestCount} guestLimit={guestLimit} up={upgrades}
+              eventName={event.name} eventId={eventId} suggested={suggestedPlan} />
             {/* Event timing: live → wrap-up → album */}
             <div className="glass-card border border-white/5 rounded-2xl p-5 shadow-lg space-y-4">
               <h3 className="text-sm font-extrabold uppercase tracking-wider text-g2-tertiary flex items-center justify-between">
