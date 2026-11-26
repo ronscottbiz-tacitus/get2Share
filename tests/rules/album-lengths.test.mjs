@@ -68,8 +68,8 @@ await check('after launch: 7 days works', assertSucceeds(create(7, 'ev6', 'NEW12
 
 // --- Changing the end time, by plan ---
 await seed({ limitsOn: true });
-await check('free: a new end time with 7 days', assertSucceeds(updateDoc(event(host()), times(7, END + DAY))));
-await check('free: not 182', assertFails(updateDoc(event(host()), times(182, END + DAY))));
+await check('free: a new end time with 7 days', assertSucceeds(updateDoc(event(host()), times(7, END + DAY / 4))));
+await check('free: not 182', assertFails(updateDoc(event(host()), times(182, END + DAY / 4))));
 await check('free: the date cannot be pushed out alone', assertFails(updateDoc(event(host()), { expireAt: at(END + 365 * DAY) })));
 await seed({ limitsOn: true, features: { tier: 'party', upgraded: true }, expireDays: 182 });
 await check('party: 182 days', assertSucceeds(updateDoc(event(host()), times(182, END + DAY))));
