@@ -282,8 +282,12 @@ export default function HostDashboard({
   const upgrades = useUpgradeOffers(eventId, isHost, tier);
   // "About how many people?" at creation: point the plan card at the upgrade that fits.
   const [suggestedPlan] = useState(() => takeSuggestedPlan(eventId));
+  const scrolledToPlan = React.useRef(false);
   useEffect(() => {
-    if (suggestedPlan) document.getElementById('plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Once, when the prices arrive: bring the plan card into view.
+    if (!suggestedPlan || scrolledToPlan.current || upgrades.offers.length === 0) return;
+    scrolledToPlan.current = true;
+    document.getElementById('plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [suggestedPlan, upgrades.offers.length]);
   const shareFrame = shareFrameOn(event);
   const [shareFrameNote, setShareFrameNote] = useState('');

@@ -85,11 +85,17 @@ const SUGGEST_KEY = (eventId: string) => `get2share-suggest-plan-${eventId}`;
 export function rememberSuggestedPlan(eventId: string, tier: 'party' | 'big') {
   try { sessionStorage.setItem(SUGGEST_KEY(eventId), tier); } catch { /* ignore */ }
 }
+/** Read once: the next visit to the console doesn't suggest it again. (Kept for this page load,
+ *  so React rendering twice still sees it.) */
+const taken = new Map<string, 'party' | 'big' | null>();
 export function takeSuggestedPlan(eventId: string): 'party' | 'big' | null {
+  if (taken.has(eventId)) return taken.get(eventId)!;
+  let v: string | null = null;
   try {
-    const v = sessionStorage.getItem(SUGGEST_KEY(eventId));
-    return v === 'party' || v === 'big' ? v : null;
-  } catch {
-    return null;
-  }
+    v = sessionStorage.getItem(SUGGEST_KEY(eventId));
+    sessionStorage.removeItem(SUGGEST_KEY(eventId));
+  } catch { /* ignore */ }
+  const plan = v === 'party' || v === 'big' ? v : null;
+  taken.set(eventId, plan);
+  return plan;
 }

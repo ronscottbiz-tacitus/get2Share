@@ -41,10 +41,13 @@ export function PlanCard({ tier, guests, guestLimit, up, eventName, eventId, sug
   /** The host said at creation that the event is this big: point at that upgrade. */
   suggested: 'party' | 'big' | null;
 }) {
-  const highlight = !!suggested && up.offers.some((p) => p.tier === suggested);
+  // "Not now": the host folds the upgrades away and drops the suggestion; the event stays as it is.
+  const [notNow, setNotNow] = useState(false);
+  const highlight = !notNow && !!suggested && up.offers.some((p) => p.tier === suggested);
   // The upgrades start folded away (the banner offers one when it's needed), open if the host said how big.
   const [open, setOpen] = useState(false);
   useEffect(() => { if (highlight) setOpen(true); }, [highlight]);
+  const fold = () => { setOpen(false); setNotNow(true); };
   const rows: [string, string][] = [
     ['Guests', guestLimit === null ? `${guests}, no limit`
       : guests > guestLimit ? `${guests} (${guestLimit} + ${guests - guestLimit} extra)` : `${guests} of ${guestLimit}`],
@@ -113,6 +116,13 @@ export function PlanCard({ tier, guests, guestLimit, up, eventName, eventId, sug
               Test mode (only admins see this): pay with card 4242 4242 4242 4242, any future date, any CVC.
             </p>
           )}
+          <button
+            type="button"
+            onClick={fold}
+            className="w-full h-10 rounded-lg text-[12px] font-bold text-g2-secondary hover:text-white cursor-pointer transition-colors"
+          >
+            {tier === 'free' ? 'Not now, stay on Free' : 'Not now'}
+          </button>
         </div>
       )}
     </div>
