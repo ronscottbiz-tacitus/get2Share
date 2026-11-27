@@ -77,7 +77,8 @@ await check('someone else cannot fire it',
   assertFails(updateDoc(lens(as('dee')), { shot: { id: 'ls_3', firesAt: Timestamp.fromMillis(Date.now() + 3500) }, updatedAt: serverTimestamp() })));
 
 const photo = (takenBy, status = 'pending') => ({
-  url: 'https://x/y.jpg', nickname: "maya on jordan's phone", sessionId: 'jordan', createdAt: Date.now(), status,
+  url: `https://firebasestorage.googleapis.com/v0/b/get2share.firebasestorage.app/o/events%2F${EID}%2Fjordan%2F1_lens.jpg?alt=media&token=t-1`,
+  nickname: "maya on jordan's phone", sessionId: 'jordan', createdAt: Date.now(), status,
   reactions: { likes: 0, dislikes: 0 }, flagged: false, ...(takenBy ? { takenBy } : {}),
 });
 let photoRef;

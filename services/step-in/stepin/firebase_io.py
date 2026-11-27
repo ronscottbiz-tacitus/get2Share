@@ -10,12 +10,14 @@ Environment (set as a Modal secret):
 from __future__ import annotations
 
 import base64
+import binascii
 import io
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 ALBUM_DAYS = 30  # matches ALBUM_DAYS in src/events.ts
 DEFAULT_ADMINS = "ronaldscott.ca@gmail.com,ronscottbiz@gmail.com"  # matches storage.rules
@@ -113,21 +115,82 @@ def set_status(event_id: str, photo_id: str, **fields) -> None:
     photo_ref(event_id, photo_id).update({f"stepIn.{k}": v for k, v in fields.items()})
 
 
+# A photo's url is written by the guest's browser, so it is only a pointer: the job reads the
+# file from our own bucket and never downloads whatever address the url names. Uploads are under
+# 5 MB (storage.rules) and inline photos under 1 MB (firestore.rules); these caps leave room.
+MAX_PHOTO_BYTES = 10 * 1024 * 1024
+MAX_INLINE_CHARS = 1_000_000
+_FILE_NAME = re.compile(r"[A-Za-z0-9._-]+")
+
+
+class UnusablePhoto(FileNotFoundError):
+    """The photo's file isn't one we can read. A FileNotFoundError, so Step In and Flow show
+    the same plain message they show for a deleted photo."""
+
+    def __init__(self, msg: str = "This photo can't be used. Ask the guest to upload it again."):
+        super().__init__(msg)
+
+
+def photo_object_path(url: str, event_id: str, session_id: str, bucket_name: str) -> str:
+    """The Storage path a photo's download link names, if it is the uploader's own file for this
+    event in our bucket: events/{event_id}/{session_id}/<file>, or the older photos/{session_id}/<file>.
+    Raises UnusablePhoto for anything else (another host, another event, another guest's folder)."""
+    parts = urlsplit(url)
+    prefix = f"/v0/b/{bucket_name}/o/"
+    if parts.scheme != "https" or parts.netloc != "firebasestorage.googleapis.com" or not parts.path.startswith(prefix):
+        raise UnusablePhoto()
+    path = unquote(parts.path[len(prefix):])
+    segs = path.split("/")
+    ok = (
+        bool(session_id)
+        and ((len(segs) == 4 and segs[0] == "events" and segs[1] == event_id and segs[2] == session_id)
+             or (len(segs) == 3 and segs[0] == "photos" and segs[1] == session_id))
+        and _FILE_NAME.fullmatch(segs[-1]) is not None
+    )
+    if not ok:
+        raise UnusablePhoto()
+    return path
+
+
+def _inline_bytes(url: str) -> bytes:
+    head, sep, body = url.partition(",")
+    if not sep or not head.startswith("data:image/") or not head.endswith(";base64") or len(url) > MAX_INLINE_CHARS:
+        raise UnusablePhoto()
+    try:
+        return base64.b64decode(body)
+    except (binascii.Error, ValueError):
+        raise UnusablePhoto()
+
+
+def _storage_bytes(path: str) -> bytes:
+    blob = bucket().get_blob(path)
+    if blob is None:
+        raise FileNotFoundError("That photo was deleted.")
+    if (blob.size or 0) > MAX_PHOTO_BYTES or not (blob.content_type or "").startswith("image/"):
+        raise UnusablePhoto()
+    # end= caps the read even if the file changes between the two calls.
+    return blob.download_as_bytes(end=MAX_PHOTO_BYTES - 1)
+
+
 def load_photo(event_id: str, photo_id: str):
-    """The original photo as a PIL image (download link or the older inline data: link)."""
-    import requests
+    """The original photo as a PIL image, read from our Storage bucket (or the older inline
+    data: link). Never fetches the url over the network."""
     from PIL import Image
     snap = photo_ref(event_id, photo_id).get()
     if not snap.exists:
         raise FileNotFoundError("That photo was deleted.")
-    url = (snap.to_dict() or {}).get("url") or ""
+    data = snap.to_dict() or {}
+    url = data.get("url") or ""
+    if not isinstance(url, str) or not url:
+        raise UnusablePhoto()
     if url.startswith("data:"):
-        raw = base64.b64decode(url.split(",", 1)[1])
+        raw = _inline_bytes(url)
     else:
-        r = requests.get(url, timeout=60)
-        r.raise_for_status()
-        raw = r.content
-    return Image.open(io.BytesIO(raw))
+        raw = _storage_bytes(photo_object_path(url, event_id, data.get("sessionId") or "", bucket().name))
+    try:
+        return Image.open(io.BytesIO(raw))
+    except Exception:
+        raise UnusablePhoto()
 
 
 def upload(local_path: str, remote_path: str, content_type="application/octet-stream") -> str:

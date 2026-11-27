@@ -477,7 +477,7 @@ export default function LiveGalleryFeed({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (window.confirm('Delete this photo from the event for everyone?')) {
-                          deleteDoc(paths.photo(eventId, photo.id)).then(() => deletePhotoFile(photo.url)).catch((err) => {
+                          deleteDoc(paths.photo(eventId, photo.id)).then(() => deletePhotoFile(photo, eventId)).catch((err) => {
                             console.error('Host delete failed:', err);
                             handleFirestoreError(err, OperationType.DELETE, `photos/${photo.id}`);
                           });

@@ -32,7 +32,8 @@ const account = (uid) => env.authenticatedContext(uid, { email: `${uid}@example.
 const guest = (uid) => env.authenticatedContext(uid, { firebase: { sign_in_provider: 'anonymous' } }).firestore();
 const event = (db, eid = 'ev1') => doc(db, 'events', eid);
 const photo = (uid) => ({
-  url: 'https://example.com/p.jpg', nickname: uid, sessionId: uid, createdAt: Date.now(), status: 'approved',
+  url: `https://firebasestorage.googleapis.com/v0/b/get2share.firebasestorage.app/o/events%2Fev1%2F${uid}%2F1_p.jpg?alt=media&token=t-1`,
+  nickname: uid, sessionId: uid, createdAt: Date.now(), status: 'approved',
   reactions: { likes: 0, dislikes: 0 }, flagged: false,
 });
 

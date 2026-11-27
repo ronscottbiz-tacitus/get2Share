@@ -176,12 +176,34 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-/** Delete a photo's stored file, if it has one. Old photos kept the image inside
- *  the database instead (data: links), so there is nothing to delete for those. */
-export async function deletePhotoFile(url: string) {
-  if (!url || !url.startsWith('https://firebasestorage.googleapis.com/')) return;
+/** True for a download link to a file in this app's own Storage bucket. */
+export function isOurStorageLink(url: string | undefined | null): url is string {
+  if (!url || !url.startsWith('https://firebasestorage.googleapis.com/')) return false;
   try {
-    await deleteObject(ref(storage, url));
+    return ref(storage, url).bucket === firebaseConfig.storageBucket;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete a photo's stored file, if it has one. Only the photo's own file is deleted: the one its
+ *  uploader put in this event's folder (or the older photos/<uid>/ folder). Old photos kept the
+ *  image inside the database instead (data: links), so there is nothing to delete for those.
+ *  Keep in sync with isOwnPhotoUrl in firestore.rules. */
+export async function deletePhotoFile(photo: { url?: string; sessionId?: string }, eventId: string) {
+  const { url, sessionId } = photo;
+  if (!sessionId || !isOurStorageLink(url)) return;
+  const fileRef = ref(storage, url);
+  const parts = fileRef.fullPath.split('/');
+  const own =
+    (parts.length === 4 && parts[0] === 'events' && parts[1] === eventId && parts[2] === sessionId) ||
+    (parts.length === 3 && parts[0] === 'photos' && parts[1] === sessionId);
+  if (!own) {
+    console.warn('Not deleting a file outside this photo\'s own folder:', fileRef.fullPath);
+    return;
+  }
+  try {
+    await deleteObject(fileRef);
   } catch (e: any) {
     if (e?.code !== 'storage/object-not-found') console.warn('Could not delete photo file:', e);
   }

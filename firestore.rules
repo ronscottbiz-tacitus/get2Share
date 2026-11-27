@@ -1,6 +1,8 @@
 rules_version = '2';
 
 // Get2Share security rules: many events, each sealed off from the others.
+// Version 2026-11-27: a new photo's url must be our own file: a download link for this event's
+//   folder of the device that uploads it, or an inline image. Old photos are unaffected.
 // Version 2026-11-26: start times, run time and co-hosts by plan. An event may have a start time
 //   (startsAt; photos open then, hosts can add before). From the start, the end can be at most a
 //   day (free), 3 days (Party) or 14 days (Big Event) later; a start can move only before the event
@@ -646,6 +648,33 @@ service cloud.firestore {
         && data.flagged is bool;
     }
 
+    // A new photo's url must point at one of our own files: the download link of an image
+    // uploaded into this event's folder for the given uploader (events/{eid}/{uid}/<file> in
+    // this project's bucket), or the inline image the app falls back to when an upload fails.
+    // Checked only when a photo is created (not on likes, reports or moderation), so photos
+    // saved before this rule keep working. Keep in sync with load_photo in
+    // services/step-in/stepin/firebase_io.py and deletePhotoFile in src/firebase.ts.
+    function isInlineImage(url) {
+      let parts = url.split(',');
+      return parts.size() == 2
+        && parts[0] in ['data:image/jpeg;base64', 'data:image/png;base64', 'data:image/webp;base64']
+        && parts[1].size() > 0;
+    }
+
+    // uid must already be known to be plain letters, digits, _ and - (it goes into the regex).
+    function isStorageLinkFor(url, eid, uid) {
+      return isValidId(eid)
+        && url.size() <= 2048
+        && url.matches('^https://firebasestorage[.]googleapis[.]com/v0/b/get2share[.]firebasestorage[.]app/o/events%2F'
+                       + eid + '%2F' + uid + '%2F[A-Za-z0-9._-]+[?]alt=media&token=[A-Za-z0-9-]+$');
+    }
+
+    function isOwnPhotoUrl(eid) {
+      let url = incoming().url;
+      return isInlineImage(url)
+        || (myUid().matches('^[A-Za-z0-9_-]+$') && isStorageLinkFor(url, eid, myUid()));
+    }
+
     // Each like/dislike count may move by at most one per write.
     function isSingleReactionChange() {
       return math.abs(incoming().reactions.likes - existing().reactions.likes) <= 1
@@ -691,6 +720,7 @@ service cloud.firestore {
       allow create: if isValidId(photoId)
                     && isValidPhoto(incoming())
                     && !('stepIn' in incoming())
+                    && isOwnPhotoUrl(eid)
                     && (
                       // Admin: bringing over photos from before events existed.
                       isAdmin()
