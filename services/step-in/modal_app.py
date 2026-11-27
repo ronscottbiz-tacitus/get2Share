@@ -24,7 +24,6 @@ ALLOWED_ORIGINS = ["https://share.get2.one", "https://get2-share.vercel.app",
 ALLOWED_ORIGIN_REGEX = r"https://get2-?share-[a-z0-9-]+\.vercel\.app"  # Vercel preview links
 
 app = modal.App(APP_NAME)
-STALE_SECONDS = 300  # a job silent this long is treated as dead and can be requested again
 
 
 def _bake_models():
@@ -62,7 +61,8 @@ web_image = (
 
 
 # ------------------------------------------------------------------ GPU job
-@app.cls(gpu="L4", image=gpu_image, secrets=[SECRET], timeout=600, scaledown_window=300, max_containers=4)
+@app.cls(gpu="L4", image=gpu_image, secrets=[SECRET], timeout=600,  # = limits.GPU_TIMEOUT_SECONDS
+          scaledown_window=300, max_containers=4)
 class StepIn:
     @modal.enter()
     def load(self):
@@ -131,6 +131,7 @@ def api():
     from pydantic import BaseModel
 
     from stepin import firebase_io as fb
+    from stepin import limits
 
     web = FastAPI(title="Get2Share Step In")
     web.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_origin_regex=ALLOWED_ORIGIN_REGEX,
@@ -141,32 +142,47 @@ def api():
         photoId: str
         redo: bool = False
 
-    @web.post("/request")
-    def request_step_in(req: Req, authorization: str = Header(default="")):
-        from firebase_admin import firestore
-        token = authorization.removeprefix("Bearer ").strip()
+    def _host(token: str, event_id: str):
         if not token:
             raise HTTPException(401, "Sign in first.")
         try:
-            uid, _ = fb.verify_host(token, req.eventId)
+            return fb.step_in_host(token, event_id)
         except PermissionError as e:
             raise HTTPException(403, str(e))
-        snap = fb.photo_ref(req.eventId, req.photoId).get()
-        if not snap.exists:
-            raise HTTPException(404, "That photo was deleted.")
-        current = (snap.to_dict() or {}).get("stepIn") or {}
-        status = current.get("status")
-        updated = current.get("updatedAt")
-        stale = updated is None or (time.time() - updated.timestamp()) > STALE_SECONDS
-        # A job that's been "queued" or "processing" for too long died; let it start over.
-        if (status in ("queued", "processing") and not stale) or (status == "ready" and not req.redo):
+
+    def _config() -> dict:
+        snap = fb.db().collection("config").document("stepIn").get()
+        return (snap.to_dict() or {}) if snap.exists else {}
+
+    def _busy():
+        return HTTPException(503, "Step In is busy right now. Try again in a minute.")
+
+    @web.post("/request")
+    def request_step_in(req: Req, authorization: str = Header(default="")):
+        from firebase_admin import firestore
+        uid, _, is_admin = _host(authorization.removeprefix("Bearer ").strip(), req.eventId)
+        # One transaction checks the photo isn't already being made, checks the caps, marks it
+        # queued and counts it (stepin/limits.py).
+        try:
+            started, status = limits.claim(
+                fb.db(), lambda fn: limits.firestore_tx(fb.db(), fn), now=time.time(),
+                server_time=firestore.SERVER_TIMESTAMP, event_id=req.eventId, photo_id=req.photoId,
+                uid=uid, is_admin=is_admin, redo=req.redo, config=_config())
+        except limits.LimitReached as e:
+            raise HTTPException(429, str(e))
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        except ValueError:  # the transaction kept colliding with other writers
+            raise _busy()
+        if not started:
             return {"status": status}
-        fb.photo_ref(req.eventId, req.photoId).update({"stepIn": {
-            "status": "queued", "requestedBy": uid,
-            "requestedAt": firestore.SERVER_TIMESTAMP, "updatedAt": firestore.SERVER_TIMESTAMP,
-        }})
-        # Look the GPU job up by name, so this works from the deployed web container.
-        call = modal.Cls.from_name(APP_NAME, "StepIn")().make.spawn(req.eventId, req.photoId)
+        try:
+            # Look the GPU job up by name, so this works from the deployed web container.
+            call = modal.Cls.from_name(APP_NAME, "StepIn")().make.spawn(req.eventId, req.photoId)
+        except Exception:
+            fb.set_status(req.eventId, req.photoId, status="failed",
+                          error="Step In didn't start. Try again in a minute.")
+            raise _busy()
         print(f"Step In queued: event {req.eventId} photo {req.photoId} call {call.object_id}")
         return {"status": "queued"}
 
@@ -175,16 +191,17 @@ def api():
 
     @web.post("/warm")
     def warm(req: Warm, authorization: str = Header(default="")):
-        """A Pro host has the app open: get a GPU ready. Same checks as /request."""
-        token = authorization.removeprefix("Bearer ").strip()
-        if not token:
-            raise HTTPException(401, "Sign in first.")
+        """A host has the app open: get a GPU ready. Same checks as /request, at most once every
+        few minutes per event, and within the month's warm-ups (stepin/limits.py)."""
+        _host(authorization.removeprefix("Bearer ").strip(), req.eventId)
         try:
-            fb.verify_host(token, req.eventId)
-        except PermissionError as e:
-            raise HTTPException(403, str(e))
-        modal.Cls.from_name(APP_NAME, "StepIn")().warm.spawn()
-        return {"warming": True}
+            go = limits.may_warm(fb.db(), lambda fn: limits.firestore_tx(fb.db(), fn),
+                                 now=time.time(), event_id=req.eventId, config=_config())
+        except ValueError:
+            return {"warming": False}
+        if go:
+            modal.Cls.from_name(APP_NAME, "StepIn")().warm.spawn()
+        return {"warming": go}
 
     @web.get("/health")
     def health():

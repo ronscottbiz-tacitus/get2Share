@@ -41,11 +41,27 @@ Every model used allows commercial use:
 
 ## Who can use it
 
-The request endpoint checks that the caller signed in and hosts the event. Then, who gets Step In:
+The request endpoint checks that the caller signed in with a real account (Google, with a verified email; not a guest's anonymous sign-in) and hosts the event. Then, who gets Step In:
 
-- **Right now, every host.** A single switch, `config/stepIn` → `allHosts`, is on by default (also when the document doesn't exist). Use it while there's no paid plan.
-- **Later, Pro only.** In the Firebase console, create `config/stepIn` with `allHosts` (boolean) `false`. Then only events with `features/{eventId}` → `pro: true` get Step In; the payment step will write that. `features` is its own collection so hosts can't turn Pro on themselves.
+- **Right now, admins only.** `STEP_IN_ADMINS_ONLY` in `stepin/firebase_io.py` (and in `src/stepIn.ts`) keeps it to admins while it's in testing.
+- **After that, Big Events (and Pro).** Events whose `features/{eventId}` says Big Event or `pro: true` get Step In. `features` is its own collection so hosts can't turn it on themselves.
+- **Every host, only if you say so.** `config/stepIn` → `allHosts` (boolean) `true`. A missing document or any other value means off.
 - **Admins** (`STEP_IN_ADMIN_EMAILS`, the same two as `storage.rules`) can always use it.
+
+## Limits
+
+Every moment is a paid GPU job, so the cloud job counts them and refuses past these caps before it starts anything (`stepin/limits.py`). The host sees the reason in the app.
+
+| Cap | Default | Applies to |
+|---|---|---|
+| `perEvent` | 20 moments | each event (admins skip it) |
+| `perHostPerMonth` | 60 moments | each host, across all their events (admins skip it) |
+| `perMonth` | 500 moments | everyone together, admins included (about $65 at most) |
+| `warmsPerMonth` | 600 warm-ups | everyone together |
+
+Change them in the Firebase console: `config/stepIn` → `limits` (a map) → for example `perMonth` (number) `200`. A missing or bad value uses the default; `0` stops new moments. A redo or a retry after a failure counts as a new moment, because it runs the GPU again. Counts are in the `stepInUsage` collection (`event-{id}`, `host-{uid}-{YYYY-MM}`, `global-{YYYY-MM}`), which the app can't read or change. Months are UTC.
+
+One photo has at most one job at a time: asking again while it's queued or processing does nothing, until it has been silent longer than the GPU's 10-minute limit.
 
 The app reads the same switch, so the button appears and disappears with no redeploy.
 
@@ -117,7 +133,7 @@ You get `<name>-in.ply` and `<name>-out.ply`, plus small `.sog` copies when Node
 
 ## Warm-up
 
-While a host of a Pro event (or an admin) has the Host Console or the gallery open during a live event, the app calls `POST /warm` once every 4 minutes. That starts a GPU and loads the models ahead of time, so "Make Step In" takes seconds instead of a 1–2 minute cold start. The GPU shuts down 5 minutes after the last call, once the host closes the app. Right after a `modal deploy`, the first start is still slow (a few minutes), so don't deploy during an event.
+While a host of a Pro event (or an admin) has the Host Console or the gallery open during a live event, the app calls `POST /warm` once every 4 minutes. The cloud job warms at most once every 3 minutes per event, and stops for the month at `warmsPerMonth`. That starts a GPU and loads the models ahead of time, so "Make Step In" takes seconds instead of a 1–2 minute cold start. The GPU shuts down 5 minutes after the last call, once the host closes the app. Right after a `modal deploy`, the first start is still slow (a few minutes), so don't deploy during an event.
 
 ## Cost
 

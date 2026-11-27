@@ -70,6 +70,10 @@ await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firest
 await check('guest reads config/stepIn', assertSucceeds(getDoc(doc(guest, 'config', 'stepIn'))));
 await check('host cannot change config/stepIn', assertFails(setDoc(doc(host, 'config', 'stepIn'), { allHosts: false })));
 await check('other config docs stay closed', assertFails(getDoc(doc(host, 'config', 'other'))));
+// stepInUsage: the cloud job's counters. No client reads or writes them.
+await check('host cannot read Step In usage', assertFails(getDoc(doc(host, 'stepInUsage', `event-${EID}`))));
+await check('host cannot reset Step In usage', assertFails(setDoc(doc(host, 'stepInUsage', `event-${EID}`), { moments: 0 })));
+await check('guest cannot read Step In usage', assertFails(getDoc(doc(guest, 'stepInUsage', 'global-2026-11'))));
 
 await env.cleanup();
 console.log(failed ? `${failed} FAILED` : 'All Step In rules checks passed.');
