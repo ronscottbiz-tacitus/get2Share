@@ -57,10 +57,11 @@ await check('host cannot change stepIn', assertFails(updateDoc(doc(host, 'events
 await check('guest cannot upload a photo that already has stepIn', assertFails(setDoc(doc(guest, 'events', EID, 'photos', 'newOne'), photo({ stepIn: STEP_IN }))));
 await check('guest can still upload a normal photo', assertSucceeds(setDoc(doc(guest, 'events', EID, 'photos', 'newTwo'), photo())));
 
-// features/{eventId}: hosts read, nobody writes.
+// features/{eventId}: anyone signed in reads the plan (guest limits: a waiting guest sees the
+// cap), signed-out can't, nobody writes.
 await check('host reads features', assertSucceeds(getDoc(doc(host, 'features', EID))));
-await check('guest cannot read features', assertFails(getDoc(doc(guest, 'features', EID))));
-await check('stranger cannot read features', assertFails(getDoc(doc(stranger, 'features', EID))));
+await check('guest reads features', assertSucceeds(getDoc(doc(guest, 'features', EID))));
+await check('signed-out cannot read features', assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'features', EID))));
 await check('host cannot turn Pro on', assertFails(setDoc(doc(host, 'features', EID), { pro: true })));
 await check('host cannot edit features', assertFails(updateDoc(doc(host, 'features', EID), { keep: true })));
 
