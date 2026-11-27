@@ -22,7 +22,8 @@ async function check(name, p) {
 
 const STEP_IN = { status: 'ready', inUrl: 'https://example.com/in.ply', outUrl: null, people: 2 };
 const photo = (extra = {}) => ({
-  url: 'https://example.com/p.jpg', nickname: 'maya', sessionId: 'maya', createdAt: Date.now(),
+  url: `https://firebasestorage.googleapis.com/v0/b/get2share.firebasestorage.app/o/events%2F${EID}%2Fmaya%2F1_p.jpg?alt=media&token=t-1`,
+  nickname: 'maya', sessionId: 'maya', createdAt: Date.now(),
   status: 'approved', reactions: { likes: 0, dislikes: 0 }, flagged: false, ...extra,
 });
 

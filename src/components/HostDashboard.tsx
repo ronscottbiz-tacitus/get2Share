@@ -303,7 +303,7 @@ export default function HostDashboard({
     if (!window.confirm(`Delete all ${pendingList.length} photos waiting for review?`)) return;
 
     try {
-      await Promise.all(pendingList.map((p) => deleteDoc(paths.photo(eventId, p.id)).then(() => deletePhotoFile(p.url))));
+      await Promise.all(pendingList.map((p) => deleteDoc(paths.photo(eventId, p.id)).then(() => deletePhotoFile(p, eventId))));
     } catch (e) {
       console.error('Failed bulk delete pending photos:', e);
       handleFirestoreError(e, OperationType.DELETE, 'photos');
@@ -318,7 +318,7 @@ export default function HostDashboard({
     if (!window.confirm(`Delete all ${flaggedList.length} reported photos from the event?`)) return;
 
     try {
-      await Promise.all(flaggedList.map((p) => deleteDoc(paths.photo(eventId, p.id)).then(() => deletePhotoFile(p.url))));
+      await Promise.all(flaggedList.map((p) => deleteDoc(paths.photo(eventId, p.id)).then(() => deletePhotoFile(p, eventId))));
     } catch (e) {
       console.error('Failed bulk clear flagged photos:', e);
       handleFirestoreError(e, OperationType.DELETE, 'photos');
@@ -452,9 +452,9 @@ export default function HostDashboard({
   const handleDeletePhoto = async (id: string) => {
     if (!window.confirm('Delete this photo for everyone?')) return;
     try {
-      const url = photos.find((p) => p.id === id)?.url;
+      const photo = photos.find((p) => p.id === id);
       await deleteDoc(paths.photo(eventId, id));
-      if (url) deletePhotoFile(url);
+      if (photo) deletePhotoFile(photo, eventId);
     } catch (e) {
       console.error('Delete failed:', e);
       handleFirestoreError(e, OperationType.DELETE, `photos/${id}`);

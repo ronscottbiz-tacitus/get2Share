@@ -448,9 +448,9 @@ export async function deleteEvent(ev: EventWithId, progress: (msg: string) => vo
   const photos = await getDocs(paths.photos(eid));
   let n = 0;
   for (const d of photos.docs) {
-    const url = (d.data() as any).url as string;
+    const data = d.data() as { url?: string; sessionId?: string };
     await deleteDoc(d.ref);
-    await deletePhotoFile(url); // before the event goes: Storage checks the event to allow it
+    await deletePhotoFile(data, eid); // before the event goes: Storage checks the event to allow it
     n++;
     if (n % 5 === 0 || n === photos.size) progress(`Deleting photos… ${n} of ${photos.size}`);
   }

@@ -3,7 +3,7 @@ import { Heart, EyeOff, Trash2, AlertTriangle, X, Check, Eye, Download, Box, Loa
 import { canSavePhoto, canShareFiles, downloadBlob, photoFile, saveViaShareSheet, shareFiles } from '../savePhotos';
 import { framedPhotoFile, shareFrameOn } from '../shareFrame';
 import { updateDoc, deleteDoc, getDoc, onSnapshot } from 'firebase/firestore';
-import { deletePhotoFile, handleFirestoreError, OperationType } from '../firebase';
+import { deletePhotoFile, isOurStorageLink, handleFirestoreError, OperationType } from '../firebase';
 import { paths } from '../events';
 import { useEvent } from '../EventContext';
 import { Photo, StepIn } from '../types';
@@ -67,7 +67,7 @@ export default function PhotoLightbox({
       setDeleting(true);
       const docRef = paths.photo(eventId, photo.id);
       await deleteDoc(docRef);
-      deletePhotoFile(photo.url);
+      deletePhotoFile(photo, eventId);
       onClose();
     } catch (e) {
       console.error('Failed to delete photo:', e);
@@ -179,6 +179,11 @@ export default function PhotoLightbox({
       return;
     }
     // Couldn't fetch it here: open the photo itself, where press-and-hold saves it.
+    // Only our own Storage links are opened.
+    if (!isOurStorageLink(photo.url)) {
+      setSaveNote("Couldn't save this photo on this device.");
+      return;
+    }
     window.open(photo.url, '_blank', 'noopener');
     setSaveNote('Opened the photo. Press and hold it to save.');
   };
