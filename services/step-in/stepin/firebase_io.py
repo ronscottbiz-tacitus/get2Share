@@ -55,10 +55,7 @@ def admin_emails() -> set[str]:
 
 
 # ------------------------------------------------------------------ auth
-def verify_event_host(id_token: str, event_id: str, denied: str = "Only hosts can do that.") -> tuple[str, dict, bool]:
-    """Returns (uid, event, is_admin) if the caller hosts this event or is an admin, and nothing
-    more. No feature switches here: each feature checks its own. Raises PermissionError with a
-    message the app can show."""
+def _verify(id_token: str, event_id: str, denied: str) -> tuple[str, dict, bool, dict]:
     from firebase_admin import auth
     try:
         claims = auth.verify_id_token(id_token, app=app())
@@ -72,24 +69,47 @@ def verify_event_host(id_token: str, event_id: str, denied: str = "Only hosts ca
     is_admin = bool(claims.get("email_verified")) and (claims.get("email") or "").lower() in admin_emails()
     if not is_admin and uid != ev.get("ownerUid") and uid not in (ev.get("hostUids") or []):
         raise PermissionError(denied)
+    return uid, ev, is_admin, claims
+
+
+def verify_event_host(id_token: str, event_id: str, denied: str = "Only hosts can do that.") -> tuple[str, dict, bool]:
+    """Returns (uid, event, is_admin) if the caller hosts this event or is an admin, and nothing
+    more. No feature switches here: each feature checks its own. Raises PermissionError with a
+    message the app can show."""
+    return _verify(id_token, event_id, denied)[:3]
+
+
+def has_real_account(claims: dict) -> bool:
+    """Signed in with Google (or another real provider) and a verified email, not a guest's
+    anonymous sign-in. Anyone can make anonymous accounts, so they never unlock paid work."""
+    provider = (claims.get("firebase") or {}).get("sign_in_provider")
+    return bool(claims.get("email_verified")) and bool(provider) and provider != "anonymous"
+
+
+def step_in_host(id_token: str, event_id: str) -> tuple[str, dict, bool]:
+    """Returns (uid, event, is_admin) if the caller may make Step In moments for this event:
+    an admin, or a host with a real account while Step In is on for them. Spending limits are
+    separate (stepin/limits.py). Raises PermissionError with a message the app can show."""
+    uid, ev, is_admin, claims = _verify(id_token, event_id, "Only hosts can make Step In moments.")
+    if not is_admin and STEP_IN_ADMINS_ONLY:
+        raise PermissionError("Step In is in testing, so only admins can make it for now.")
+    if not is_admin and not has_real_account(claims):
+        raise PermissionError("Sign in with Google to make Step In moments.")
+    if not (is_admin or step_in_for_all_hosts() or big_event(features(event_id))):
+        raise PermissionError("Step In comes with Big Event.")
     return uid, ev, is_admin
 
 
 def verify_host(id_token: str, event_id: str) -> tuple[str, dict]:
-    """Returns (uid, event) if the caller hosts this event and Step In is on for it.
-    Raises PermissionError with a message the app can show."""
-    uid, ev, is_admin = verify_event_host(id_token, event_id, denied="Only hosts can make Step In moments.")
-    if not is_admin and STEP_IN_ADMINS_ONLY:
-        raise PermissionError("Step In is in testing, so only admins can make it for now.")
-    if not (is_admin or step_in_for_all_hosts() or big_event(features(event_id))):
-        raise PermissionError("Step In comes with Big Event.")
-    return uid, ev
+    """Returns (uid, event) if the caller may make Step In moments for this event (step_in_host)."""
+    return step_in_host(id_token, event_id)[:2]
 
 
 def step_in_for_all_hosts() -> bool:
-    """config/stepIn.allHosts: Step In for every host, Pro or not. On unless set to false."""
+    """config/stepIn.allHosts: Step In for every host, not only Big Events. Off unless it is
+    exactly true: a missing doc or field means off, so a slip in the console never opens it up."""
     snap = db().collection("config").document("stepIn").get()
-    return (snap.to_dict() or {}).get("allHosts", True) is not False if snap.exists else True
+    return snap.exists and (snap.to_dict() or {}).get("allHosts") is True
 
 
 def big_event(f: dict) -> bool:

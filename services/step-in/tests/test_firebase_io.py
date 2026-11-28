@@ -18,10 +18,13 @@ class Snap:
         return self._d
 
 
+HOST = {"uid": "host1", "email": "h@example.com", "email_verified": True, "firebase": {"sign_in_provider": "google.com"}}
+
+
 @pytest.fixture
 def host_env(monkeypatch):
     """Fake sign-in and Firestore. Returns a dict the test changes."""
-    state = {"claims": {"uid": "host1"}, "event": {"ownerUid": "owner", "hostUids": ["host1"]}, "stepIn": None, "pro": False}
+    state = {"claims": HOST, "event": {"ownerUid": "owner", "hostUids": ["host1"]}, "stepIn": None, "pro": False}
 
     class Doc:
         def __init__(self, col, doc):
@@ -61,7 +64,20 @@ def test_step_in_is_admins_only_while_in_testing(host_env, monkeypatch):
     assert fb.verify_host("t", "ev1")[1] == host_env["event"]
 
 
+def test_step_in_needs_a_real_account(host_env):
+    host_env.update(stepIn={"allHosts": True})
+    host_env["claims"] = {**HOST, "firebase": {"sign_in_provider": "anonymous"}}
+    with pytest.raises(PermissionError, match="Sign in with Google"):
+        fb.verify_host("t", "ev1")
+    host_env["claims"] = {**HOST, "email_verified": False}
+    with pytest.raises(PermissionError, match="Sign in with Google"):
+        fb.verify_host("t", "ev1")
+    host_env["claims"] = HOST
+    assert fb.step_in_host("t", "ev1") == ("host1", host_env["event"], False)
+
+
 def test_verify_host_returns_uid_and_event(host_env):
+    host_env.update(stepIn={"allHosts": True})
     assert fb.verify_host("t", "ev1") == ("host1", host_env["event"])
 
 
@@ -77,9 +93,10 @@ def test_verify_host_messages_unchanged(host_env):
 
 
 @pytest.mark.parametrize("step_in,pro,admin,allowed", [
-    (None, False, False, True),                 # no doc: on for all hosts
+    (None, False, False, False),                # no doc: off (only exactly true opens it)
     ({"allHosts": True}, False, False, True),
-    ({"other": 1}, False, False, True),
+    ({"other": 1}, False, False, False),
+    ({"allHosts": "yes"}, False, False, False),
     ({"allHosts": False}, False, False, False),
     ({"allHosts": False}, True, False, True),   # Pro event
     ({"allHosts": False}, {"tier": "big"}, False, True),     # Big Event

@@ -30,8 +30,9 @@ export const stepInReady = (p: Pick<Photo, 'stepIn'> | null | undefined) =>
 export const stepInBusy = (p: Pick<Photo, 'stepIn'> | null | undefined) =>
   p?.stepIn?.status === 'queued' || p?.stepIn?.status === 'processing';
 
-/** A job that's been working this long without an update has died; offer to start over. */
-export const STEP_IN_STUCK_MS = 5 * 60 * 1000;
+/** A job that's been working this long without an update has died; offer to start over.
+ *  Longer than the GPU job's 10-minute limit, same as STALE_SECONDS in services/step-in/stepin/limits.py. */
+export const STEP_IN_STUCK_MS = 11 * 60 * 1000;
 export const stepInStuck = (p: Pick<Photo, 'stepIn'> | null | undefined, now = Date.now()) => {
   const at = p?.stepIn?.updatedAt?.toMillis?.();
   return stepInBusy(p) && !!at && now - at > STEP_IN_STUCK_MS;
@@ -52,6 +53,24 @@ export function useStepInAllHosts(active = true): boolean | null {
     );
   }, [active]);
   return allHosts;
+}
+
+/**
+ * config/stepIn.allHosts for making moments: on only when it is exactly true. A missing doc means
+ * off, the same as the cloud job, so the button never shows for a request it would refuse.
+ * (Seeing moments that already exist still uses useStepInAllHosts above.)
+ */
+function useStepInOpenToAll(active: boolean): boolean | null {
+  const [open, setOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    return onSnapshot(
+      doc(db, 'config', 'stepIn'),
+      (s) => setOpen(s.exists() && s.data()?.allHosts === true),
+      () => setOpen(false),
+    );
+  }, [active]);
+  return open;
 }
 
 /**
@@ -81,27 +100,27 @@ function useStepInPro(eventId: string, active: boolean): boolean {
  * the same rule: with allHosts off they can still make moments, without a GPU idling for it.
  */
 export function useStepInShouldWarm(eventId: string, isHost: boolean): boolean {
-  const allHosts = useStepInAllHosts(isHost);
+  const allHosts = useStepInOpenToAll(isHost);
   const pro = useStepInPro(eventId, isHost && allHosts === false);
   return !STEP_IN_ADMINS_ONLY && isHost && (allHosts === true || (allHosts === false && pro));
 }
 
 /**
  * Can this device make Step In moments for this event? Admins always; other hosts when
- * config/stepIn.allHosts is on (the default, while there's no paid plan) or the event is Pro.
- * The cloud job checks the same things.
+ * config/stepIn.allHosts is true or the event is a Big Event (or Pro). The cloud job checks the
+ * same things, plus a real account and the monthly limits.
  */
 export function useCanMakeStepIn(eventId: string, isHost: boolean): boolean {
   const user = auth.currentUser;
   const admin = !!user && !user.isAnonymous && !!user.emailVerified && isAdminEmail(user.email);
-  const [allHosts, setAllHosts] = useState(true);
+  const [allHosts, setAllHosts] = useState(false);
   const [pro, setPro] = useState(false);
   useEffect(() => {
     if (!isHost || admin) return;
     return onSnapshot(
       doc(db, 'config', 'stepIn'),
-      (s) => setAllHosts(!s.exists() || s.data()?.allHosts !== false),
-      () => setAllHosts(true),
+      (s) => setAllHosts(s.exists() && s.data()?.allHosts === true),
+      () => setAllHosts(false),
     );
   }, [isHost, admin]);
   useEffect(() => {
