@@ -70,7 +70,8 @@ await check("a member of one event cannot upload under another", assertFails(upl
 await check('signed-out cannot upload', assertFails(uploadBytes(ref(signedOut, 'events/ev1/maya/2_x.jpg'), JPEG, IMG)));
 await check('only images', assertFails(uploadBytes(ref(maya, 'events/ev1/maya/2_x.html'), JPEG, { contentType: 'text/html' })));
 await check('under 5 MB', assertFails(uploadBytes(ref(maya, 'events/ev1/maya/2_big.jpg'), new Uint8Array(5 * 1024 * 1024), IMG)));
-await check('no overwriting an existing file', assertFails(uploadBytes(ref(maya, 'events/ev1/maya/1_a.jpg'), JPEG, IMG)));
+await check("no replacing your own file once it's there", assertFails(uploadBytes(ref(maya, 'events/ev1/maya/1_a.jpg'), JPEG, IMG)));
+await check("a host can't replace a guest's file either", assertFails(uploadBytes(ref(owner, 'events/ev1/maya/1_a.jpg'), JPEG, IMG)));
 await check('no new uploads to the old photos/ folder', assertFails(uploadBytes(ref(maya, 'photos/maya/new.jpg'), JPEG, IMG)));
 await check('no uploads to moments/', assertFails(uploadBytes(ref(owner, 'moments/ev1/x.sog'), JPEG, IMG)));
 

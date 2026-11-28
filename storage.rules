@@ -2,7 +2,8 @@ rules_version = '2';
 
 // Get2Share photo storage.
 //   * Photos live under events/<eventId>/<uploader uid>/. A device uploads only into its own
-//     folder, only for an event it has joined (or hosts), images only, under 5 MB.
+//     folder, only for an event it has joined (or hosts), images only, under 5 MB, and only new
+//     files: a file can't be replaced once it's there.
 //   * Reading a file through the SDK (which is how the uploader gets the photo's download link)
 //     is for the uploader, the event's hosts and admins. Everyone else views photos through the
 //     download link stored on the photo, which these rules don't gate. Nobody can list a folder.
@@ -57,7 +58,9 @@ service firebase.storage {
     match /events/{eventId}/{uid}/{fileName} {
       allow get: if signedIn() && (request.auth.uid == uid || isAdmin() || isHost(eventId));
       allow list: if false;
+      // resource == null: only a new file. A photo's file can't be replaced after it's posted.
       allow create: if signedIn()
+                    && resource == null
                     && request.auth.uid == uid
                     && isValidImage()
                     && (isMember(eventId) || isHost(eventId) || isAdmin());
