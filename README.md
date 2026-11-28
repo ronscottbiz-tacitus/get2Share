@@ -64,7 +64,7 @@ Get2Share runs many events at once, each sealed off from the others.
   - A host can make a new join link at any time; the old one stops working, and people already in stay in.
   - Share Spots join only by claiming a one-time code from the Host Console (claimed within 10 minutes, once).
 - Flow videos (preview branch): `events/{id}/walkthroughs` is written only by the cloud job. Hosts read all of them; guests and TVs read one only after a host approves it.
-- `storage.rules`: each device uploads only into `photos/<its uid>/`, images up to 5 MB.
+- `storage.rules`: a device uploads only into its own folder of an event it joined or hosts (`events/<id>/<its uid>/`), images under 5 MB. Folders can't be listed; the uploader, the event's hosts or an admin can delete a file.
 
 ## One-time Firebase setup
 
@@ -73,6 +73,7 @@ In the [Firebase console](https://console.firebase.google.com/) for the app's pr
 1. **Authentication → Sign-in method**: enable **Anonymous** and **Google**.
 2. **Authentication → Settings → Authorized domains**: add the site's domain (and any preview domain you test on).
 3. **Firestore → Rules**: paste in `firestore.rules` and click **Publish** whenever that file changes.
+   **Storage → Rules**: the same for `storage.rules`. The first time, allow Storage rules to read Firestore when asked.
 4. **Storage → CORS** (once): lets the app read photo files so guests can save them to their devices
    ("Save to this device", "Save all"). In Google Cloud Shell, upload `cors.json` and run:
    `gcloud storage buckets update gs://get2share.firebasestorage.app --cors-file=cors.json`.
